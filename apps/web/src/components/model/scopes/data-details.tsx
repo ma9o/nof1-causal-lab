@@ -1,4 +1,4 @@
-import type { PrepareDataOutput } from "@nof1-causal-lab/api-types";
+import type { FileSourceRef, PrepareDataOutput } from "@nof1-causal-lab/api-types";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { ObservationPlots } from "./recorded-history";
@@ -16,9 +16,7 @@ import { extentOf } from "@/components/charts/plot-geometry";
 import { dataComparisonChart } from "@/components/charts/series-adapters";
 
 function comparisonEvaluation(variable: DataVariableView) {
-  return variable.predictive.kind === "comparison"
-    ? variable.predictive.evaluation
-    : variable.predictive;
+  return "predictive" in variable ? variable.predictive.evaluation : null;
 }
 
 export function DataComparisonOutcome({
@@ -37,18 +35,20 @@ export function DataComparisonOutcome({
       ))}
       {report.variables.map((variable) => {
         const evaluation = comparisonEvaluation(variable);
-        const checks = evaluation.kind === "available" ? evaluation.value : null;
+        const checks = evaluation && !("kind" in evaluation) ? evaluation : null;
         const definition = [...variable.left, ...variable.right]
-          .flatMap((history) => history.variable ?? [])
+          .flatMap((history) => history?.variable ?? [])
           .at(0);
         const reasons = [
-          ...variable.comparison_issues,
-          ...(checks?.per_variable_warnings
+          ...variable.findings
+            .filter((finding) => finding.kind === "not_evaluated" || finding.outcome === "failed")
+            .map((finding) => (finding.kind === "evaluated" ? finding.evidence : finding.detail)),
+          ...(checks?.findings
             .filter((finding) => finding.kind !== "evaluated" || finding.outcome !== "passed")
             .map((finding) =>
               finding.kind === "evaluated" ? finding.evidence.note : finding.detail,
             ) ?? []),
-          ...(evaluation.kind === "unavailable" ? [evaluation.reason] : []),
+          ...(evaluation && "kind" in evaluation ? [evaluation.detail] : []),
         ];
         return reasons.map((reason) => (
           <p key={`${variable.indicator_id}-${reason}`}>
@@ -90,8 +90,7 @@ function dataSelectionLabel(
       );
       const variables = report.variables.filter((variable) =>
         variable[side].some(
-          (history, index) =>
-            history.variable !== null && sources[index]?.revision === source.revision,
+          (history, index) => history !== null && sources[index]?.revision === source.revision,
         ),
       ).length;
       return `Panel from ${tick ? timelineTickLabel(tick) : source.revision.slice(0, 7)} (${variables} variables)`;
@@ -123,10 +122,10 @@ export function DataComparisonEvidence({
 
 function VariableComparison({ variable }: { variable: DataVariableView }) {
   const definition = [...variable.left, ...variable.right]
-    .flatMap((history) => history.variable ?? [])
+    .flatMap((history) => history?.variable ?? [])
     .at(0);
   const evaluation = comparisonEvaluation(variable);
-  const checks = evaluation.kind === "available" ? evaluation.value : null;
+  const checks = evaluation && !("kind" in evaluation) ? evaluation : null;
   const chart = dataComparisonChart(variable);
   const span = extentOf(chart.times);
   return (
@@ -139,16 +138,19 @@ function VariableComparison({ variable }: { variable: DataVariableView }) {
       >
         {(view) => <DrawsChart {...chart} height={view.height} timeWindow={view.timeWindow} />}
       </ChartFigure>
-      {variable.comparison_issues.map((reason) => (
-        <Hint key={reason} issue>
-          {reason}
-        </Hint>
-      ))}
-      {evaluation.kind === "unavailable" && <Hint>{evaluation.reason}</Hint>}
+      {variable.findings
+        .filter((finding) => finding.kind === "not_evaluated" || finding.outcome === "failed")
+        .map((finding) => (finding.kind === "evaluated" ? finding.evidence : finding.detail))
+        .map((reason) => (
+          <Hint key={reason} issue>
+            {reason}
+          </Hint>
+        ))}
+      {evaluation && "kind" in evaluation && <Hint>{evaluation.detail}</Hint>}
       {checks && (
         <PPCWarningsTable
           indicators={definition ? [definition] : []}
-          warnings={checks.per_variable_warnings}
+          warnings={checks.findings}
           testStats={checks.test_stats}
           overlays={checks.overlays}
         />
@@ -169,9 +171,10 @@ function VariableComparison({ variable }: { variable: DataVariableView }) {
             const left = statistic.left.flatMap((value) => (value === null ? [] : [value]));
             const right = statistic.right.flatMap((value) => (value === null ? [] : [value]));
             const frame = extentOf([...left, ...right]);
-            const name = `${humanize(statistic.statistic)} ${statistic.level}`;
+            const level = statistic.statistic === "proportion" ? statistic.level : "";
+            const name = `${humanize(statistic.statistic)} ${level}`;
             return (
-              <tr key={`${statistic.statistic}-${statistic.level}`}>
+              <tr key={`${statistic.statistic}-${level}`}>
                 <th className="font-normal">{name}</th>
                 {(
                   [
@@ -269,23 +272,25 @@ function VariableComparison({ variable }: { variable: DataVariableView }) {
 }
 
 export function PreparedObservations({ context }: { context: ScopeContext }) {
-  const { metadata, profile } = context.model;
+  const { metadata, profile } = context.modelSnapshot;
   if (!metadata) return <Hint>No observation panel recorded.</Hint>;
   return (
     <>
       {metadata.variables.map((variable) => (
         <Section key={variable.id} title={humanize(variable.name)} wide>
-          <ObservationPlots model={context.model} id={variable.id} />
+          <ObservationPlots modelSnapshot={context.modelSnapshot} id={variable.id} />
         </Section>
       ))}
-      {profile && profile.dataset_issues.length > 0 && (
-        <Section title="Dataset issues">
-          {profile.dataset_issues.map((issue) => (
-            <div key={issue.issue_type + issue.message} className="flex gap-2">
-              {issue.severity !== "info" && (
-                <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
-              )}
-              <Hint issue={issue.severity !== "info"}>{issue.message}</Hint>
+      {profile && profile.findings.length > 0 && (
+        <Section title="Dataset findings">
+          {profile.findings.map((finding) => (
+            <div key={finding.code} className="flex gap-2">
+              <StatusIcon
+                status={finding.kind === "evaluated" ? finding.outcome : "not_evaluated"}
+              />
+              <Hint issue={finding.kind === "evaluated" && finding.outcome === "failed"}>
+                {finding.kind === "evaluated" ? finding.evidence : finding.detail}
+              </Hint>
             </div>
           ))}
         </Section>
@@ -294,8 +299,14 @@ export function PreparedObservations({ context }: { context: ScopeContext }) {
   );
 }
 
-export function DataDetails({ applied }: { applied: PrepareDataOutput }) {
-  const { source, variables } = applied.metadata;
+export function DataDetails({
+  applied,
+  source,
+}: {
+  applied: PrepareDataOutput;
+  source: FileSourceRef;
+}) {
+  const { variables } = applied.metadata;
   return (
     <Section title="Prepared data">
       <KeyValue

@@ -14,12 +14,12 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import Expression, coefficient, restoring_force, state
 from nof1_causal_lab.artifacts.identity import DistributionId, IndicatorId, ParameterId
 from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, NormalLawSpec
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
@@ -56,27 +56,29 @@ from tests.model_fixtures import (
 
 
 def _initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json"
     )
 
 
-def _gamma_emission_rejects_zero_observations__make_spec() -> ModelSpec:
+def _gamma_emission_rejects_zero_observations__make_spec() -> DynamicalModelSpec:
     return load_model_fixture(
         "runtime/testobservationsupportvalidation_test_gamma_emission_rejects_zero_observations__make_spec.json"
     )
 
 
 def _compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = one_state_gaussian_model()
-    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
-    return model.with_entities(
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0_dynamics_decay = parameter_for(
+        dynamical_model_spec, SiteKind.DYNAMICS_DECAY, "latent_0"
+    )
+    return dynamical_model_spec.with_entities(
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 latent_0_dynamics_decay.id: dist.Delta(
                     v=0.5, log_density=0.0, event_dim=0, validate_args=False
@@ -87,19 +89,27 @@ def _compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distri
 
 
 def _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = load_model_fixture(
+    dynamical_model_spec = load_model_fixture(
         "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
     )
-    latent_0 = construct_named(model, "latent_0")
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
     (latent_0_potential,) = latent_0.dynamics
-    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
-    latent_0_latent_1_hill_emax = parameter_for(model, SiteKind.HILL_EMAX, "latent_0", "latent_1")
-    latent_0_latent_1_hill_n = parameter_for(model, SiteKind.HILL_N, "latent_0", "latent_1")
-    latent_0_latent_1_hill_ec50 = parameter_for(model, SiteKind.HILL_EC50, "latent_0", "latent_1")
+    latent_0_dynamics_decay = parameter_for(
+        dynamical_model_spec, SiteKind.DYNAMICS_DECAY, "latent_0"
+    )
+    latent_0_latent_1_hill_emax = parameter_for(
+        dynamical_model_spec, SiteKind.HILL_EMAX, "latent_0", "latent_1"
+    )
+    latent_0_latent_1_hill_n = parameter_for(
+        dynamical_model_spec, SiteKind.HILL_N, "latent_0", "latent_1"
+    )
+    latent_0_latent_1_hill_ec50 = parameter_for(
+        dynamical_model_spec, SiteKind.HILL_EC50, "latent_0", "latent_1"
+    )
     latent_0_latent_1_t0_var_lower = parameter_for(
-        model, SiteKind.T0_VAR_LOWER, "latent_0", "latent_1"
+        dynamical_model_spec, SiteKind.T0_VAR_LOWER, "latent_0", "latent_1"
     )
     latent_0_revised = latent_0.revised(
         dynamics=(
@@ -112,13 +122,16 @@ def _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_para
         )
     )
     parameters, distributions = without_parameters(
-        model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
+        dynamical_model_spec,
+        latent_0_latent_1_hill_emax,
+        latent_0_latent_1_hill_n,
+        latent_0_latent_1_hill_ec50,
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
             tuple(
                 edge
-                for edge in model.edges
+                for edge in dynamical_model_spec.edges
                 if (edge.cause.name, edge.effect.name) not in (("latent_0", "latent_1"),)
             ),
             (latent_0_revised,),
@@ -130,7 +143,7 @@ def _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_para
         distributions={
             key: law
             for key, law in parameter_laws(
-                model,
+                dynamical_model_spec,
                 {
                     latent_0_latent_1_t0_var_lower.id: dist.Normal(
                         loc=0.2, scale=0.8, validate_args=False
@@ -142,22 +155,24 @@ def _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_para
     )
 
 
-def _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions() -> ModelSpec:
-    model = _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions()
+def _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions() -> (
+    DynamicalModelSpec
+):
+    dynamical_model_spec = _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions()
     latent_0_latent_1_t0_var_lower = parameter_for(
-        model, SiteKind.T0_VAR_LOWER, "latent_0", "latent_1"
+        dynamical_model_spec, SiteKind.T0_VAR_LOWER, "latent_0", "latent_1"
     )
-    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
-    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
-    latent_1_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_1")
-    latent_1_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_1")
-    return model.with_entities(
+    latent_0_t0_means = parameter_for(dynamical_model_spec, SiteKind.T0_MEANS, "latent_0")
+    latent_0_t0_var_diag = parameter_for(dynamical_model_spec, SiteKind.T0_VAR_DIAG, "latent_0")
+    latent_1_t0_means = parameter_for(dynamical_model_spec, SiteKind.T0_MEANS, "latent_1")
+    latent_1_t0_var_diag = parameter_for(dynamical_model_spec, SiteKind.T0_VAR_DIAG, "latent_1")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             latent_0_latent_1_t0_var_lower.revised(transform=IdentityTransformSpec()),
         ),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 latent_0_t0_means.id: dist.Normal(loc=0.2, scale=0.3, validate_args=False),
                 latent_0_t0_var_diag.id: dist.HalfNormal(scale=0.7, validate_args=False),
@@ -171,7 +186,9 @@ def _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributi
     )
 
 
-def _manifest_standardization_of_constant_column_centers_without_scaling__make_spec() -> ModelSpec:
+def _manifest_standardization_of_constant_column_centers_without_scaling__make_spec() -> (
+    DynamicalModelSpec
+):
     _X_INDICATOR_ID = IndicatorId("indicator:1f4c67cecb9238ee1a80")
     _LATENT_0_X_MANIFEST_VAR_DIAG_PARAMETER_ID = ParameterId(
         "parameter:ec27e91f16b480062ddc51afd32ac245399b05df25eb8feb93e3fad16abc9ccd"
@@ -179,10 +196,10 @@ def _manifest_standardization_of_constant_column_centers_without_scaling__make_s
     _LATENT_0_X_MANIFEST_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
         "distribution:62b85664eaabfedf901244cf2eb42462b317bb4c970ac7c04e89cdf83d1b79e5"
     )
-    model = one_state_gaussian_model()
-    latent_0 = construct_named(model, "latent_0")
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
     latent_0_manifest_0_manifest_var_diag = parameter_for(
-        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+        dynamical_model_spec, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
     )
     latent_0_revised = latent_0.revised(
         indicators=(
@@ -211,9 +228,11 @@ def _manifest_standardization_of_constant_column_centers_without_scaling__make_s
             ),
         )
     )
-    parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    parameters, distributions = without_parameters(
+        dynamical_model_spec, latent_0_manifest_0_manifest_var_diag
+    )
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=(
             *parameters,
             ParameterSpec(
@@ -232,7 +251,7 @@ def _manifest_standardization_of_constant_column_centers_without_scaling__make_s
     )
 
 
-def _stress_interval_model(window="31d") -> ModelSpec:
+def _stress_interval_model(window="31d") -> DynamicalModelSpec:
     _STRESS_SCORE_INDICATOR_ID = IndicatorId("indicator:3696aef3ff6f446744e5")
     _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_PARAMETER_ID = ParameterId(
         "parameter:cfa73aad8f98fefa2c03e109a6c5619b67bc4f1ab79bcaf100e70f7cfe7abc80"
@@ -240,10 +259,10 @@ def _stress_interval_model(window="31d") -> ModelSpec:
     _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
         "distribution:6e81bd018a8f326fe633d69e5b75bb5a5b47a3f4480e625579f1b3aa986def0b"
     )
-    model = one_state_gaussian_model()
-    latent_0 = construct_named(model, "latent_0")
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
     latent_0_manifest_0_manifest_var_diag = parameter_for(
-        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+        dynamical_model_spec, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
     )
     latent_0_revised = latent_0.revised(
         indicators=(
@@ -272,9 +291,11 @@ def _stress_interval_model(window="31d") -> ModelSpec:
             ),
         )
     )
-    parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    parameters, distributions = without_parameters(
+        dynamical_model_spec, latent_0_manifest_0_manifest_var_diag
+    )
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=(
             *parameters,
             ParameterSpec(
@@ -293,29 +314,33 @@ def _stress_interval_model(window="31d") -> ModelSpec:
     )
 
 
-def _ar_prior_rejects_negative_support_make_prior_model() -> ModelSpec:
+def _ar_prior_rejects_negative_support_make_prior_model() -> DynamicalModelSpec:
     return load_model_fixture(
         "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
     )
 
 
-def _sparse_wide_nulls_become_nan_without_fill_forward__make_spec() -> ModelSpec:
+def _sparse_wide_nulls_become_nan_without_fill_forward__make_spec() -> DynamicalModelSpec:
     return load_model_fixture(
         "runtime/testpreparefitinputs_test_sparse_wide_nulls_become_nan_without_fill_forward__make_spec.json"
     )
 
 
-def _manifest_standardization_applies_only_to_standardized_channels__make_spec() -> ModelSpec:
-    model = _sparse_wide_nulls_become_nan_without_fill_forward__make_spec()
-    latent_0 = construct_named(model, "latent_0")
-    x = indicator_named(model, "x")
-    x_likelihood = likelihood_named(model, "x")
+def _manifest_standardization_applies_only_to_standardized_channels__make_spec() -> (
+    DynamicalModelSpec
+):
+    dynamical_model_spec = _sparse_wide_nulls_become_nan_without_fill_forward__make_spec()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
+    x = indicator_named(dynamical_model_spec, "x")
+    x_likelihood = likelihood_named(dynamical_model_spec, "x")
     x_revised = x.revised(likelihood=x_likelihood.revised(standardized=True))
     latent_0_revised = latent_0.revised(indicators=(x_revised,))
-    return model.with_entities(edges=replace_constructs(model.edges, (latent_0_revised,)))
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,))
+    )
 
 
-def _stress_mood_model() -> ModelSpec:
+def _stress_mood_model() -> DynamicalModelSpec:
     return load_model_fixture("runtime/stress_mood_model.json")
 
 
@@ -337,25 +362,29 @@ class TestBuilderPriorConversion:
             )
 
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
-        model = _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions()
-        law = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[0][
-            "t0_var_lower_free"
-        ]
+        dynamical_model_spec = _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions()
+        law = compile_priors(
+            compile_model_fixture(dynamical_model_spec),
+            StructuralSelection(dynamical_model_spec, None),
+        )[0]["t0_var_lower_free"]
         np.testing.assert_allclose(law.base_dist.loc, [0.2])
         np.testing.assert_allclose(law.base_dist.scale, [0.8])
         np.testing.assert_allclose(law.low, [-1.0])
         np.testing.assert_allclose(law.high, [1.0])
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
-        model = _two_state_fixed_drift_model()
+        dynamical_model_spec = _two_state_fixed_drift_model()
         means = [
             p
-            for p in model.parameters
-            if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
+            for p in dynamical_model_spec.parameters
+            if dynamical_model_spec.parameter_context(p.id).quantity == SiteKind.T0_MEANS
         ]
-        model = _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions()
+        dynamical_model_spec = (
+            _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions()
+        )
         priors, bindings, _ = compile_priors(
-            compile_model_fixture(model), StructuralSelection(model, None)
+            compile_model_fixture(dynamical_model_spec),
+            StructuralSelection(dynamical_model_spec, None),
         )
         np.testing.assert_allclose(priors["t0_means_free"].loc, [0.2, 0.4])
         np.testing.assert_allclose(priors["t0_var_diag_free"].scale, [0.7, 0.9])
@@ -366,21 +395,24 @@ class TestBuilderPriorConversion:
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 1] = True
-        model = _initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec()
+        dynamical_model_spec = (
+            _initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec()
+        )
         _, bindings, _ = compile_priors(
-            compile_model_fixture(model), StructuralSelection(model, None)
+            compile_model_fixture(dynamical_model_spec),
+            StructuralSelection(dynamical_model_spec, None),
         )
         correlation = next(
             p
-            for p in model.parameters
-            if model.parameter_context(p.id).quantity == SiteKind.T0_VAR_LOWER
+            for p in dynamical_model_spec.parameters
+            if dynamical_model_spec.parameter_context(p.id).quantity == SiteKind.T0_VAR_LOWER
         )
         assert {binding.parameter_id: binding for binding in bindings}[
             correlation.id
         ].flat_index == 0
-        assert compile_model_fixture(model).initial_covariance_block.correlation_positions == (
-            (2, 1),
-        )
+        assert compile_model_fixture(
+            dynamical_model_spec
+        ).initial_covariance_block.correlation_positions == ((2, 1),)
 
     def test_component_dynamics_parameters_bind_to_their_own_terms(self):
         from nof1_causal_lab.models.ssm.structure.sites import (
@@ -388,14 +420,17 @@ class TestBuilderPriorConversion:
             CompiledNodeTarget,
         )
 
-        model = _stress_mood_model()
-        compiled = compile_model_fixture(model)
-        _, bindings, _ = compile_priors(compiled, StructuralSelection(model, None))
+        dynamical_model_spec = _stress_mood_model()
+        compiled_dynamical_model = compile_model_fixture(dynamical_model_spec)
+        _, bindings, _ = compile_priors(
+            compiled_dynamical_model, StructuralSelection(dynamical_model_spec, None)
+        )
         by_parameter = {binding.parameter_id: binding for binding in bindings}
-        sites = {site.name: site for site in compiled.site_registry}
-        for parameter in model.parameters:
+        sites = {site.name: site for site in compiled_dynamical_model.site_registry}
+        for parameter in dynamical_model_spec.parameters:
             if any(
-                owner.kind == "mechanism" for owner in model.parameter_context(parameter.id).owners
+                owner.kind == "mechanism"
+                for owner in dynamical_model_spec.parameter_context(parameter.id).owners
             ):
                 binding = by_parameter[parameter.id]
                 assert binding.site is sites[binding.site.name]
@@ -403,7 +438,7 @@ class TestBuilderPriorConversion:
                 assert isinstance(target, (CompiledNodeTarget, CompiledEdgeTarget))
                 component = next(
                     item
-                    for item in compiled.dynamics.spec.components
+                    for item in compiled_dynamical_model.dynamics.spec.components
                     if parameter.id in item.coefficients.values()
                 )
                 assert target.target_index == component.target
@@ -414,9 +449,12 @@ class TestBuilderPriorConversion:
                     assert target.source_index == component.source
 
     def test_cross_lag_prior_requires_the_declared_measurement_clock(self):
-        model = _stress_mood_model().revised(measurement_clock=None)
+        dynamical_model_spec = _stress_mood_model().revised(measurement_clock=None)
         with pytest.raises(ValueError, match="measurement clock"):
-            compile_priors(compile_model_fixture(model), StructuralSelection(model, None))
+            compile_priors(
+                compile_model_fixture(dynamical_model_spec),
+                StructuralSelection(dynamical_model_spec, None),
+            )
 
 
 @pytest.mark.contract
@@ -424,11 +462,11 @@ class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
-        spec = _gamma_emission_rejects_zero_observations__make_spec()
+        dynamical_model_spec = _gamma_emission_rejects_zero_observations__make_spec()
 
         from nof1_causal_lab.models.ssm.observation_support import validate_observation_support
 
-        failure = validate_observation_support(compile_model_fixture(spec), X)
+        failure = validate_observation_support(compile_model_fixture(dynamical_model_spec), X)
         assert isinstance(failure, ObservationPreflightFailure)
         assert "Observation support check failed" in failure.message
 
@@ -437,7 +475,7 @@ class TestObservationSupportValidation:
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
-        spec = _sparse_wide_nulls_become_nan_without_fill_forward__make_spec()
+        dynamical_model_spec = _sparse_wide_nulls_become_nan_without_fill_forward__make_spec()
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0],
@@ -447,7 +485,7 @@ class TestPrepareFitInputs:
         )
 
         observations, times, manifest_names, _wide = prepare_fit_inputs(
-            compile_model_fixture(spec), wide
+            compile_model_fixture(dynamical_model_spec), wide
         )
 
         assert manifest_names == ("x", "y")
@@ -459,7 +497,9 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_applies_only_to_standardized_channels(self):
         """prepare_fit_inputs should deterministically standardize only marked manifests."""
-        spec = _manifest_standardization_applies_only_to_standardized_channels__make_spec()
+        dynamical_model_spec = (
+            _manifest_standardization_applies_only_to_standardized_channels__make_spec()
+        )
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -469,7 +509,7 @@ class TestPrepareFitInputs:
         )
 
         observations, times, manifest_names, _wide = prepare_fit_inputs(
-            compile_model_fixture(spec), wide
+            compile_model_fixture(dynamical_model_spec), wide
         )
 
         assert manifest_names == ("x", "y")
@@ -481,10 +521,14 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_of_constant_column_centers_without_scaling(self):
         """A zero-variance standardized column becomes exactly zero (divisor 1)."""
-        spec = _manifest_standardization_of_constant_column_centers_without_scaling__make_spec()
+        dynamical_model_spec = (
+            _manifest_standardization_of_constant_column_centers_without_scaling__make_spec()
+        )
         wide = pl.DataFrame({"time": [0.0, 1.0], "x": [4.2, 4.2]})
 
-        observations, _times, _names, _wide = prepare_fit_inputs(compile_model_fixture(spec), wide)
+        observations, _times, _names, _wide = prepare_fit_inputs(
+            compile_model_fixture(dynamical_model_spec), wide
+        )
 
         np.testing.assert_allclose(np.asarray(observations[:, 0]), np.array([0.0, 0.0]))
 
@@ -498,7 +542,7 @@ class TestPrepareModelRuntime:
         from nof1_causal_lab.utils.observation_rows import prepared_time_origin
 
         early = one_state_gaussian_model()
-        late = ModelSpec.model_validate_json(
+        late = DynamicalModelSpec.model_validate_json(
             early.model_dump_json()
             .replace(str(early.indicators[0].observation.id), "indicator:late")
             .replace(early.indicators[0].observation.name, "late_obs")
@@ -520,7 +564,7 @@ class TestPrepareModelRuntime:
         assert origin == datetime(2024, 1, 1, tzinfo=UTC)
         for model, expected in ((early, 1.0), (late, 11.0)):
             projected = project_observation_data(
-                rows, model_spec=compile_model_fixture(model), time_origin=origin
+                rows, compiled_dynamical_model=compile_model_fixture(model), time_origin=origin
             )
             assert not isinstance(projected, ObservationPreflightFailure)
             (wide, selected) = projected
@@ -553,11 +597,13 @@ class TestPrepareModelRuntime:
             runtime = bind_panel(
                 ObservationDataset.from_frame(
                     data_for_model,
-                    tuple(item.observation for item in inputs.compiled.observations),
+                    tuple(
+                        item.observation for item in inputs.compiled_dynamical_model.observations
+                    ),
                     time_origin=datetime(2024, 1, 1, tzinfo=UTC),
                 ),
                 time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-                model=inputs.compiled,
+                compiled_dynamical_model=inputs.compiled_dynamical_model,
             )
 
         assert isinstance(runtime, BoundPanel)
@@ -586,7 +632,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_prev_coeffs[1, 0, 0] == pytest.approx(15.5)
         assert runtime.observation_support.interval_curr_coeffs[1, 0, 0] == pytest.approx(15.5)
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(31.0)
-        assert numeric.observation_names(runtime.model) == ("stress_score",)
+        assert numeric.observation_names(runtime.compiled_dynamical_model) == ("stress_score",)
 
     @pytest.mark.contract
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
@@ -612,11 +658,11 @@ class TestPrepareModelRuntime:
         runtime = bind_panel(
             ObservationDataset.from_frame(
                 data_for_model,
-                tuple(item.observation for item in inputs.compiled.observations),
+                tuple(item.observation for item in inputs.compiled_dynamical_model.observations),
                 time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             ),
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-            model=inputs.compiled,
+            compiled_dynamical_model=inputs.compiled_dynamical_model,
         )
 
         assert isinstance(runtime, BoundPanel)
@@ -649,18 +695,22 @@ class TestPrepareModelRuntime:
         runtime = bind_panel(
             ObservationDataset.from_frame(
                 data_for_model,
-                tuple(item.observation for item in model.compiled.observations),
+                tuple(item.observation for item in model.compiled_dynamical_model.observations),
                 time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             ),
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-            model=model.compiled,
+            compiled_dynamical_model=model.compiled_dynamical_model,
         )
 
         from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 
         assert isinstance(runtime, BoundPanel)
         batch = generate_simulation_batch(
-            runtime, start=float(runtime.times[0]), end=float(runtime.times[-1]), draws=3
+            runtime,
+            start=float(runtime.times[0]),
+            end=float(runtime.times[-1]),
+            draws=3,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         )
         from nof1_causal_lab.models.ssm.predictive.simulation import SimulationBatch
 
@@ -686,14 +736,14 @@ def test_compiled_inputs_own_runtime_derivations(monkeypatch):
 
     monkeypatch.setattr(prior_compilation, "compile_priors", unexpected_compile)
     monkeypatch.setattr(prior_compilation, "bind_parameters", unexpected_compile)
-    panel = bind_panel_fixture(inputs.compiled, jnp.zeros((2, 1)), jnp.arange(2.0))
-    assert panel.model is inputs.compiled
+    panel = bind_panel_fixture(inputs.compiled_dynamical_model, jnp.zeros((2, 1)), jnp.arange(2.0))
+    assert panel.compiled_dynamical_model is inputs.compiled_dynamical_model
     assert panel.indicator_ids == tuple(
-        observation.id for observation in inputs.compiled.observations
+        observation.id for observation in inputs.compiled_dynamical_model.observations
     )
     assert panel.rows.column("indicator_id").to_pylist() == [str(panel.indicator_ids[0])] * 2
     with pytest.raises(AttributeError):
-        panel.model = inputs.compiled
+        panel.compiled_dynamical_model = inputs.compiled_dynamical_model
     with pytest.raises(ValueError, match="read-only"):
         panel.observation_support.anchor_times[0] = 7
 
@@ -702,9 +752,11 @@ def test_compiled_inputs_own_runtime_derivations(monkeypatch):
 def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
     from nof1_causal_lab.models.ssm.compile import inputs as compiler
 
-    incomplete = compiler.compile_ssm_inputs_from_model(StructuralSelection(ModelSpec(), None))
+    incomplete = compiler.compile_ssm_inputs_from_model(
+        StructuralSelection(DynamicalModelSpec(), None)
+    )
     assert isinstance(incomplete, compiler.IncompleteModel)
-    spec = one_state_gaussian_model()
+    dynamical_model_spec = one_state_gaussian_model()
     unsupported = (
         _compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions()
     )
@@ -718,7 +770,7 @@ def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
 
     monkeypatch.setattr(compiler, "compile_priors", broken_compiler)
     with pytest.raises(ValueError, match="internal compiler bug"):
-        compiler.compile_ssm_inputs_from_model(StructuralSelection(spec, None))
+        compiler.compile_ssm_inputs_from_model(StructuralSelection(dynamical_model_spec, None))
 
 
 @pytest.mark.contract
@@ -731,9 +783,9 @@ def test_fit_resolves_incomplete_model_before_panel_preparation(monkeypatch):
 
     monkeypatch.setattr(runtime, "bind_panel", unexpected_panel)
     result = fitting.fit_model(
-        StructuralSelection(ModelSpec(), None),
-        ObservationDataset(series={}, time_origin=None),
-        time_origin=None,
+        StructuralSelection(DynamicalModelSpec(), None),
+        ObservationDataset(series={}, time_origin=datetime(2024, 1, 1, tzinfo=UTC)),
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         sampler=SamplerSpec(),
     )
     assert not result["fitted"]

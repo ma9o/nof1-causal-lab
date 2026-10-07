@@ -45,7 +45,7 @@ def invalid_dict_payload(value: object) -> Any:
 def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
     """A connected test graph; uncoupled states share an unmeasured downstream outcome."""
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
     constructs = {
         name: ConstructSpec.model_validate(
@@ -82,7 +82,7 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
             temporal_status="time_varying",
         )
         edges = [(name, outcome) for name in state_names]
-    return ModelSpec.from_entities(
+    return DynamicalModelSpec.from_entities(
         edges=tuple(
             CausalEdgeSpec(
                 id=fixture_entity_id("edge", cause + "->" + effect),

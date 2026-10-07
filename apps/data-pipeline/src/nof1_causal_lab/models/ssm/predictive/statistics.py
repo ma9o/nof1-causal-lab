@@ -27,14 +27,14 @@ from nof1_causal_lab.models.ssm.execution.observation_distributions import (
 from nof1_causal_lab.models.ssm.execution.observation_operator import compile_observation_operator
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
     from .types import PredictiveDraws
 
 
 def observation_signal_and_variance(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     prediction: PredictiveDraws,
     manifest_index: int,
     time_indices: np.ndarray,
@@ -46,11 +46,12 @@ def observation_signal_and_variance(
     operator = compile_observation_operator(observation_support)
     interval = operator is not None and manifest_index in operator.interval_summary_indices
     all_gaussian = all(
-        isinstance(observation.law, NormalLawSpec) for observation in spec.observations
+        isinstance(observation.law, NormalLawSpec)
+        for observation in compiled_dynamical_model.observations
     )
 
     def per_draw(means, predictors, parameters):
-        bound = materialize_observation_laws(spec, parameters)[manifest_index]
+        bound = materialize_observation_laws(compiled_dynamical_model, parameters)[manifest_index]
         covariance = parameters["manifest_cov"]
         scale = (
             jnp.sqrt(covariance[manifest_index, manifest_index])

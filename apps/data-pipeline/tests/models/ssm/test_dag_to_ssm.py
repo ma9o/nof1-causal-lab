@@ -55,28 +55,28 @@ from tests.model_fixtures import (
 )
 
 
-def _static_baseline_stress_sleep() -> ModelSpec:
+def _static_baseline_stress_sleep() -> DynamicalModelSpec:
     return load_model_fixture("dag_to_ssm/static_baseline_stress_sleep.json")
 
 
-def _freed_quartic_and_hill_sites_sample_finite_complete_test_model() -> ModelSpec:
+def _freed_quartic_and_hill_sites_sample_finite_complete_test_model() -> DynamicalModelSpec:
     return load_model_fixture(
         "dag_to_ssm/testgradualbuildcomponents_test_freed_quartic_and_hill_sites_sample_finite_complete_test_model.json"
     )
 
 
-def _site_registry_with_dynamics_support_model_fixture() -> ModelSpec:
+def _site_registry_with_dynamics_support_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "dag_to_ssm/testsiteregistrymasks_test_site_registry_with_dynamics_support_model_fixture.json"
     )
 
 
-def _hill_edge_emitted_for_saturating_edge_complete_test_model() -> ModelSpec:
-    model = _freed_quartic_and_hill_sites_sample_finite_complete_test_model()
-    y = construct_named(model, "Y")
+def _hill_edge_emitted_for_saturating_edge_complete_test_model() -> DynamicalModelSpec:
+    dynamical_model_spec = _freed_quartic_and_hill_sites_sample_finite_complete_test_model()
+    y = construct_named(dynamical_model_spec, "Y")
     (y_potential,) = y.dynamics
-    rho_y = parameter_named(model, "rho_Y")
-    self_limit_y = parameter_named(model, "self_limit_Y")
+    rho_y = parameter_named(dynamical_model_spec, "rho_Y")
+    self_limit_y = parameter_named(dynamical_model_spec, "self_limit_Y")
     y_revised = y.revised(
         dynamics=(
             y_potential.revised(
@@ -84,15 +84,15 @@ def _hill_edge_emitted_for_saturating_edge_complete_test_model() -> ModelSpec:
             ),
         )
     )
-    parameters, distributions = without_parameters(model, self_limit_y)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (y_revised,)),
+    parameters, distributions = without_parameters(dynamical_model_spec, self_limit_y)
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (y_revised,)),
         parameters=parameters,
         distributions=distributions,
     )
 
 
-def _x_z_measurements() -> ModelSpec:
+def _x_z_measurements() -> DynamicalModelSpec:
     _X_TO_Y_DRIFT_MECHANISM_ID = MechanismId(
         "mechanism:2ed9052dbe3b4b4ab136228e0619ab1d3ae146cdec8d269f39bf5f6854f0579d"
     )
@@ -102,27 +102,37 @@ def _x_z_measurements() -> ModelSpec:
     _BETA_X_Y_DISTRIBUTION_ID = DistributionId(
         "distribution:5af2717690bf131509e0e3929a3b66d08d6661bc9462a1b0e63ccad62bbfcdfe"
     )
-    model = _hill_edge_emitted_for_saturating_edge_complete_test_model()
-    x = construct_named(model, "X")
-    y = construct_named(model, "Y")
-    x_to_y = next(edge for edge in model.edges if edge.cause.id == x.id and edge.effect.id == y.id)
-    z = construct_named(model, "Z")
-    y_to_z = next(edge for edge in model.edges if edge.cause.id == y.id and edge.effect.id == z.id)
-    hill_emax_x_y = parameter_named(model, "hill_emax_X_Y")
-    hill_ec50_x_y = parameter_named(model, "hill_ec50_X_Y")
-    hill_n_x_y = parameter_named(model, "hill_n_X_Y")
-    rho_x = parameter_named(model, "rho_X")
-    rho_y = parameter_named(model, "rho_Y")
-    rho_z = parameter_named(model, "rho_Z")
-    beta_y_z = parameter_named(model, "beta_Y_Z")
-    sigma_x = parameter_named(model, "sigma_X")
-    obs_sd_x1 = parameter_named(model, "obs_sd_x1")
-    lambda_x2_x = parameter_named(model, "lambda_x2_X")
-    obs_sd_x2 = parameter_named(model, "obs_sd_x2")
-    sigma_y = parameter_named(model, "sigma_Y")
-    sigma_z = parameter_named(model, "sigma_Z")
-    _parameters, distributions = without_parameters(model, hill_emax_x_y, hill_ec50_x_y, hill_n_x_y)
-    return model.with_entities(
+    dynamical_model_spec = _hill_edge_emitted_for_saturating_edge_complete_test_model()
+    x = construct_named(dynamical_model_spec, "X")
+    y = construct_named(dynamical_model_spec, "Y")
+    x_to_y = next(
+        edge
+        for edge in dynamical_model_spec.edges
+        if edge.cause.id == x.id and edge.effect.id == y.id
+    )
+    z = construct_named(dynamical_model_spec, "Z")
+    y_to_z = next(
+        edge
+        for edge in dynamical_model_spec.edges
+        if edge.cause.id == y.id and edge.effect.id == z.id
+    )
+    hill_emax_x_y = parameter_named(dynamical_model_spec, "hill_emax_X_Y")
+    hill_ec50_x_y = parameter_named(dynamical_model_spec, "hill_ec50_X_Y")
+    hill_n_x_y = parameter_named(dynamical_model_spec, "hill_n_X_Y")
+    rho_x = parameter_named(dynamical_model_spec, "rho_X")
+    rho_y = parameter_named(dynamical_model_spec, "rho_Y")
+    rho_z = parameter_named(dynamical_model_spec, "rho_Z")
+    beta_y_z = parameter_named(dynamical_model_spec, "beta_Y_Z")
+    sigma_x = parameter_named(dynamical_model_spec, "sigma_X")
+    obs_sd_x1 = parameter_named(dynamical_model_spec, "obs_sd_x1")
+    lambda_x2_x = parameter_named(dynamical_model_spec, "lambda_x2_X")
+    obs_sd_x2 = parameter_named(dynamical_model_spec, "obs_sd_x2")
+    sigma_y = parameter_named(dynamical_model_spec, "sigma_Y")
+    sigma_z = parameter_named(dynamical_model_spec, "sigma_Z")
+    _parameters, distributions = without_parameters(
+        dynamical_model_spec, hill_emax_x_y, hill_ec50_x_y, hill_n_x_y
+    )
+    return dynamical_model_spec.with_entities(
         edges=(
             x_to_y.revised(
                 mechanisms=(
@@ -161,7 +171,7 @@ def _x_z_measurements() -> ModelSpec:
 
 
 def _translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coeff() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _COR0_PARAMETER_ID = ParameterId(
         "parameter:418d0717cfc9857102f86ab03eaa94a90f0757b6ac7826fc239d3167f7adaf50"
@@ -169,10 +179,10 @@ def _translate_spec_rejects_initial_state_correlation_parameters_with_scientific
     _COR0_DISTRIBUTION_ID = DistributionId(
         "distribution:37add4c0f63e0477b02d5f8319fc8527c467007b2ece06c089b72e3de2c48b09"
     )
-    model = _x_z_measurements()
-    z = construct_named(model, "Z")
-    sigma_z = parameter_named(model, "sigma_Z")
-    x = construct_named(model, "X")
+    dynamical_model_spec = _x_z_measurements()
+    z = construct_named(dynamical_model_spec, "Z")
+    sigma_z = parameter_named(dynamical_model_spec, "sigma_Z")
+    x = construct_named(dynamical_model_spec, "X")
     z_revised = z.revised(
         coefficients=(
             coefficient(sigma_z.id, "diffusion_scale"),
@@ -181,10 +191,10 @@ def _translate_spec_rejects_initial_state_correlation_parameters_with_scientific
             coefficient(_COR0_PARAMETER_ID, "initial_correlation", construct_ids=(x.id,)),
         )
     )
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (z_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (z_revised,)),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_COR0_PARAMETER_ID,
                 name="cor0",
@@ -194,33 +204,33 @@ def _translate_spec_rejects_initial_state_correlation_parameters_with_scientific
             ),
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _COR0_DISTRIBUTION_ID: dist.Normal(loc=0.2, scale=0.8, validate_args=False),
         },
     )
 
 
-def _quartic_freed_only_for_self_limiting_construct_complete_test_model() -> ModelSpec:
+def _quartic_freed_only_for_self_limiting_construct_complete_test_model() -> DynamicalModelSpec:
     _SELF_LIMIT_Y_PARAMETER_ID = ParameterId(
         "parameter:ab64427aa9da4f5f72753f200c603d31725edc0deb5ccbb6958c1186f5fd041b"
     )
     _SELF_LIMIT_Y_DISTRIBUTION_ID = DistributionId(
         "distribution:c23e111a0f275ce7c22f2d507b6e4d06ed3faba49cd67be9841ff42a322a0d16"
     )
-    model = _x_z_measurements()
-    y = construct_named(model, "Y")
+    dynamical_model_spec = _x_z_measurements()
+    y = construct_named(dynamical_model_spec, "Y")
     (y_potential,) = y.dynamics
-    rho_y = parameter_named(model, "rho_Y")
-    rho_x = parameter_named(model, "rho_X")
-    rho_z = parameter_named(model, "rho_Z")
-    beta_x_y = parameter_named(model, "beta_X_Y")
-    beta_y_z = parameter_named(model, "beta_Y_Z")
-    sigma_x = parameter_named(model, "sigma_X")
-    obs_sd_x1 = parameter_named(model, "obs_sd_x1")
-    lambda_x2_x = parameter_named(model, "lambda_x2_X")
-    obs_sd_x2 = parameter_named(model, "obs_sd_x2")
-    sigma_y = parameter_named(model, "sigma_Y")
-    sigma_z = parameter_named(model, "sigma_Z")
+    rho_y = parameter_named(dynamical_model_spec, "rho_Y")
+    rho_x = parameter_named(dynamical_model_spec, "rho_X")
+    rho_z = parameter_named(dynamical_model_spec, "rho_Z")
+    beta_x_y = parameter_named(dynamical_model_spec, "beta_X_Y")
+    beta_y_z = parameter_named(dynamical_model_spec, "beta_Y_Z")
+    sigma_x = parameter_named(dynamical_model_spec, "sigma_X")
+    obs_sd_x1 = parameter_named(dynamical_model_spec, "obs_sd_x1")
+    lambda_x2_x = parameter_named(dynamical_model_spec, "lambda_x2_X")
+    obs_sd_x2 = parameter_named(dynamical_model_spec, "obs_sd_x2")
+    sigma_y = parameter_named(dynamical_model_spec, "sigma_Y")
+    sigma_z = parameter_named(dynamical_model_spec, "sigma_Z")
     y_revised = y.revised(
         dynamics=(
             y_potential.revised(
@@ -230,8 +240,8 @@ def _quartic_freed_only_for_self_limiting_construct_complete_test_model() -> Mod
             ),
         )
     )
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (y_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (y_revised,)),
         parameters=(
             rho_x,
             rho_y,
@@ -252,42 +262,42 @@ def _quartic_freed_only_for_self_limiting_construct_complete_test_model() -> Mod
             sigma_z,
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _SELF_LIMIT_Y_DISTRIBUTION_ID: dist.HalfNormal(scale=1.0, validate_args=False),
         },
     )
 
 
-def _site_registry_with_lambda_support_model_fixture() -> ModelSpec:
+def _site_registry_with_lambda_support_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "dag_to_ssm/testsiteregistrymasks_test_site_registry_with_lambda_support_model_fixture.json"
     )
 
 
-def _per_element_prior_in_model_with_parameter_distributions() -> ModelSpec:
+def _per_element_prior_in_model_with_parameter_distributions() -> DynamicalModelSpec:
     return load_model_fixture(
         "dag_to_ssm/testperelementpriors_test_per_element_prior_in_model_with_parameter_distributions.json"
     )
 
 
-def _three_latent_unmasked() -> ModelSpec:
+def _three_latent_unmasked() -> DynamicalModelSpec:
     return load_model_fixture("dag_to_ssm/three_latent_unmasked.json")
 
 
-def _lambda_no_mask_returns_fixed__make_3latent_spec() -> ModelSpec:
+def _lambda_no_mask_returns_fixed__make_3latent_spec() -> DynamicalModelSpec:
     return load_model_fixture(
         "dag_to_ssm/testlambdamask_test_lambda_no_mask_returns_fixed__make_3latent_spec.json"
     )
 
 
-def _lambda_template_plus_mask__make_3latent_spec() -> ModelSpec:
+def _lambda_template_plus_mask__make_3latent_spec() -> DynamicalModelSpec:
     return load_model_fixture(
         "dag_to_ssm/testlambdamask_test_lambda_template_plus_mask__make_3latent_spec.json"
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -310,19 +320,21 @@ class TestDynamicsMask:
         offdiag_support[1, 0] = True  # X→Y
         offdiag_support[2, 1] = True  # Y→Z
 
-        spec = three_state_gaussian_model()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = three_state_gaussian_model()
+        model = compile_fit_fixture(dynamical_model_spec)
 
         rng = random.PRNGKey(42)
         trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         weight_sites = [
             site
-            for site in build_site_registry(compile_model_fixture(spec))
+            for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
             if site.site_kind == SiteKind.DYNAMICS_WEIGHT
         ]
         assert len(weight_sites) == 2
@@ -334,19 +346,21 @@ class TestDynamicsMask:
 
     def test_no_mask_fully_free(self):
         """Default dynamics mask expands to a fully free dynamics structure."""
-        spec = _three_latent_unmasked()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = _three_latent_unmasked()
+        model = compile_fit_fixture(dynamical_model_spec)
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         weight_sites = [
             site
-            for site in build_site_registry(compile_model_fixture(spec))
+            for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
             if site.site_kind == SiteKind.DYNAMICS_WEIGHT
         ]
         assert len(weight_sites) == 6
@@ -354,19 +368,21 @@ class TestDynamicsMask:
 
     def test_dynamics_support_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
-        spec = one_state_gaussian_model()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = one_state_gaussian_model()
+        model = compile_fit_fixture(dynamical_model_spec)
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 1)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 1)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         dynamics_sites = [
             site
-            for site in build_site_registry(compile_model_fixture(spec))
+            for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
             if site.assembly_group == "dynamics"
         ]
         assert [site.site_kind for site in dynamics_sites] == [SiteKind.DYNAMICS_DECAY]
@@ -389,12 +405,14 @@ class TestLambdaMask:
         lambda_support = np.zeros((4, 3), dtype=bool)
         lambda_support[1, 0] = True  # x2→X (free)
 
-        spec = _lambda_template_plus_mask__make_3latent_spec()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = _lambda_template_plus_mask__make_3latent_spec()
+        model = compile_fit_fixture(dynamical_model_spec)
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
@@ -415,12 +433,14 @@ class TestLambdaMask:
         lambda_mat = jnp.array(
             [[1.0, 0.0, 0.0], [0.75, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         )
-        spec = _lambda_no_mask_returns_fixed__make_3latent_spec()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = _lambda_no_mask_returns_fixed__make_3latent_spec()
+        model = compile_fit_fixture(dynamical_model_spec)
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
@@ -526,12 +546,14 @@ class TestPerElementPriors:
 
         # Per-element prior: single off-diagonal has mu=2.0
 
-        spec = _per_element_prior_in_model_with_parameter_distributions()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = _per_element_prior_in_model_with_parameter_distributions()
+        model = compile_fit_fixture(dynamical_model_spec)
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 2)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 2)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
@@ -549,12 +571,12 @@ class TestPerElementPriors:
 
 @pytest.mark.contract
 class TestRuntimeStructuralSupport:
-    """Test that compilation constructs correct block support from ModelSpec."""
+    """Test that compilation constructs correct block support from DynamicalModelSpec."""
 
     def test_compiled_mechanisms_and_loadings_preserve_structural_coordinates(self):
-        model = _three_latent_unmasked()
-        compiled = compile_model_fixture(model)
-        components = compiled.dynamics.spec.components
+        dynamical_model_spec = _three_latent_unmasked()
+        compiled_dynamical_model = compile_model_fixture(dynamical_model_spec)
+        components = compiled_dynamical_model.dynamics.spec.components
         assert {
             (component.source, component.target) for component in components if component.edge_owned
         } == {(0, 1), (1, 0), (0, 2), (2, 0), (1, 2), (2, 1)}
@@ -563,11 +585,13 @@ class TestRuntimeStructuralSupport:
             1,
             2,
         }
-        assert compiled.loading_block.free_support.shape == (4, 3)
-        np.testing.assert_array_equal(compiled.loading_block.template[[0, 2, 3], [0, 1, 2]], 1.0)
+        assert compiled_dynamical_model.loading_block.free_support.shape == (4, 3)
+        np.testing.assert_array_equal(
+            compiled_dynamical_model.loading_block.template[[0, 2, 3], [0, 1, 2]], 1.0
+        )
 
     def test_model_build_accepts_only_already_compiled_ssm_spec(self):
-        """Runtime construction consumes an ModelSpec without structural authoring inputs."""
+        """Runtime construction consumes an DynamicalModelSpec without structural authoring inputs."""
 
         pl.DataFrame(
             {
@@ -580,7 +604,7 @@ class TestRuntimeStructuralSupport:
         )
 
         model = compile_fit_fixture(_three_latent_unmasked())
-        assert numeric.n_states(model.compiled) == 3
+        assert numeric.n_states(model.compiled_dynamical_model) == 3
 
     @pytest.mark.parametrize(
         ("source_count", "complete_test_model_payload"),
@@ -646,9 +670,9 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_marks_standardizable_gaussian_mean_indicators(self):
 
-        model = _x_z_measurements()
-        spec = model
-        assert numeric.observation_standardized(compile_model_fixture(spec)) == (
+        dynamical_model_spec = _x_z_measurements()
+        dynamical_model_spec = dynamical_model_spec
+        assert numeric.observation_standardized(compile_model_fixture(dynamical_model_spec)) == (
             True,
             True,
             True,
@@ -657,26 +681,30 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
 
-        model = _x_z_measurements()
-        spec = model
-        assert isinstance(compile_model_fixture(spec).observation_noise_block.template, jnp.ndarray)
+        dynamical_model_spec = _x_z_measurements()
+        dynamical_model_spec = dynamical_model_spec
+        assert isinstance(
+            compile_model_fixture(dynamical_model_spec).observation_noise_block.template,
+            jnp.ndarray,
+        )
         np.testing.assert_array_equal(
-            compile_model_fixture(spec).observation_noise_block.diag_support,
+            compile_model_fixture(dynamical_model_spec).observation_noise_block.diag_support,
             [True, True, False, False],
         )
         np.testing.assert_allclose(
-            compile_model_fixture(spec).observation_noise_block.template, np.zeros((4, 4))
+            compile_model_fixture(dynamical_model_spec).observation_noise_block.template,
+            np.zeros((4, 4)),
         )
 
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model(
         self,
     ):
 
-        model = _translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coeff()
+        dynamical_model_spec = _translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coeff()
         with pytest.raises(
             ValueError, match=r"explicit latent confounder|two distinct state owners"
         ):
-            compile_model_fixture(model)
+            compile_model_fixture(dynamical_model_spec)
 
     def test_translate_spec_rejects_self_initial_state_correlation_with_scientific_model(self):
         from nof1_causal_lab.artifacts.parameter_spec import (
@@ -684,7 +712,7 @@ class TestRuntimeStructuralSupport:
             ParameterSpec,
         )
 
-        model = _x_z_measurements()
+        dynamical_model_spec = _x_z_measurements()
         parameter = ParameterSpec(
             id="parameter:77f3ac548e5c828bd95649d677ae53ce71c8dd33c2b1526961592ea56d79f013",
             name="cor0",
@@ -693,13 +721,13 @@ class TestRuntimeStructuralSupport:
         )
 
         with pytest.raises(ValueError, match="Joint coefficients require one other construct"):
-            model.constructs[0].revised(
+            dynamical_model_spec.constructs[0].revised(
                 coefficients=(
-                    *model.constructs[0].coefficients,
+                    *dynamical_model_spec.constructs[0].coefficients,
                     coefficient(
                         parameter.id,
                         "initial_correlation",
-                        construct_ids=(model.constructs[0].id,),
+                        construct_ids=(dynamical_model_spec.constructs[0].id,),
                     ),
                 )
             )
@@ -717,17 +745,17 @@ class TestRuntimeStructuralSupport:
             }
         )
         compile_model_fixture(science)
-        spec = science
+        dynamical_model_spec = science
         assert (
             sum(
                 site.site_kind == SiteKind.DYNAMICS_DECAY
-                for site in compile_model_fixture(spec).site_registry
+                for site in compile_model_fixture(dynamical_model_spec).site_registry
             )
             == 3
         )
-        assert compile_model_fixture(spec).loading_block.free_support is not None
-        assert numeric.n_states(compile_model_fixture(spec)) == 3
-        assert numeric.n_observations(compile_model_fixture(spec)) == 4
+        assert compile_model_fixture(dynamical_model_spec).loading_block.free_support is not None
+        assert numeric.n_states(compile_model_fixture(dynamical_model_spec)) == 3
+        assert numeric.n_observations(compile_model_fixture(dynamical_model_spec)) == 4
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -748,9 +776,12 @@ class TestSiteRegistryMasks:
         offdiag_support[1, 0] = True
         offdiag_support[2, 1] = True
 
-        spec = _site_registry_with_dynamics_support_model_fixture()
+        dynamical_model_spec = _site_registry_with_dynamics_support_model_fixture()
 
-        registry = {site.name: site for site in build_site_registry(compile_model_fixture(spec))}
+        registry = {
+            site.name: site
+            for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
+        }
 
         weight_sites = sorted(
             site.name for site in registry.values() if site.site_kind == SiteKind.DYNAMICS_WEIGHT
@@ -758,7 +789,7 @@ class TestSiteRegistryMasks:
         assert len(weight_sites) == 2
         assert {
             site.positions[0]
-            for site in build_site_registry(compile_model_fixture(spec))
+            for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
             if site.name in weight_sites
         } == {
             (1, 0),
@@ -776,9 +807,12 @@ class TestSiteRegistryMasks:
         """Site registry should size masked loading entries correctly."""
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        spec = _site_registry_with_lambda_support_model_fixture()
+        dynamical_model_spec = _site_registry_with_lambda_support_model_fixture()
 
-        registry = {site.name: site for site in build_site_registry(compile_model_fixture(spec))}
+        registry = {
+            site.name: site
+            for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
+        }
         assert registry["lambda_free"].shape == (1,)
 
 
@@ -793,21 +827,21 @@ class TestSiteRegistryMasks:
 
 
 class TestGradualBuildComponents:
-    """Quartic self-limitation and Hill edges materialize from the ModelSpec."""
+    """Quartic self-limitation and Hill edges materialize from the DynamicalModelSpec."""
 
     @pytest.mark.contract
     def test_quartic_freed_only_for_self_limiting_construct(self):
 
         from nof1_causal_lab.artifacts.expressions import expression_coefficients
 
-        model = _quartic_freed_only_for_self_limiting_construct_complete_test_model()
+        dynamical_model_spec = _quartic_freed_only_for_self_limiting_construct_complete_test_model()
         quartics = {
             component.target: next(
                 operand.value
                 for operand in expression_coefficients(component.expression)
                 if operand.role == "quartic"
             )
-            for component in compile_model_fixture(model).dynamics.spec.components
+            for component in compile_model_fixture(dynamical_model_spec).dynamics.spec.components
             if not component.edge_owned
         }
         assert isinstance(quartics[1], str)
@@ -818,10 +852,10 @@ class TestGradualBuildComponents:
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts.expressions import hill_applications
 
-        model = _hill_edge_emitted_for_saturating_edge_complete_test_model()
+        dynamical_model_spec = _hill_edge_emitted_for_saturating_edge_complete_test_model()
         edge_components = [
             item
-            for item in compile_model_fixture(model).dynamics.spec.components
+            for item in compile_model_fixture(dynamical_model_spec).dynamics.spec.components
             if item.edge_owned
         ]
         hill = [item for item in edge_components if any(hill_applications(item.expression))]
@@ -834,14 +868,16 @@ class TestGradualBuildComponents:
     def test_freed_quartic_and_hill_sites_sample_finite(self):
 
         science = _freed_quartic_and_hill_sites_sample_finite_complete_test_model()
-        spec = science
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = science
+        model = compile_fit_fixture(dynamical_model_spec)
         trace = handlers.trace(handlers.seed(numpyro_model, random.PRNGKey(0))).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
-        registry = build_site_registry(compile_model_fixture(spec))
+        registry = build_site_registry(compile_model_fixture(dynamical_model_spec))
         quartic_sites = [
             site.name for site in registry if site.site_kind == SiteKind.DYNAMICS_POTENTIAL_QUARTIC
         ]

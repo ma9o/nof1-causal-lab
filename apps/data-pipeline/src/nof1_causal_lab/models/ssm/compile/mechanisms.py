@@ -18,9 +18,9 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Iterator, Sequence
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
@@ -39,12 +39,12 @@ def _is_projected_loading(
 
 def lower_mechanisms(selection: StructuralSelection) -> tuple[ExpressionComponentSpec, ...]:
     """Require executable coverage, then bind every scalar expression without kind dispatch."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     states = set(selected_state_ids(selection))
     retained_edges = {edge.id for edge in selected_edges(selection)}
     modeled_edges: set[str] = set()
     modeled_nodes: set[str] = set()
-    for owner, mechanism in model.iter_mechanisms():
+    for owner, mechanism in dynamical_model_spec.iter_mechanisms():
         target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         if target not in states:
             continue
@@ -54,7 +54,7 @@ def lower_mechanisms(selection: StructuralSelection) -> tuple[ExpressionComponen
             dependencies = expression_states(mechanism.expression)
             modeled_edges.update(
                 edge.id
-                for edge in model.edges
+                for edge in dynamical_model_spec.edges
                 if edge.effect.id == owner.effect.id and edge.cause.id in dependencies
             )
         else:
@@ -62,7 +62,8 @@ def lower_mechanisms(selection: StructuralSelection) -> tuple[ExpressionComponen
     expected_nodes = {
         key
         for key in states
-        if model.get_construct(key).is_dynamic and model.get_construct(key).role == "endogenous"
+        if dynamical_model_spec.get_construct(key).is_dynamic
+        and dynamical_model_spec.get_construct(key).role == "endogenous"
     }
     if modeled_nodes != expected_nodes or modeled_edges != retained_edges:
         raise IncompleteModelError(
@@ -72,17 +73,19 @@ def lower_mechanisms(selection: StructuralSelection) -> tuple[ExpressionComponen
         )
     return tuple(
         component
-        for _, component in iter_mechanism_components(model, selected_state_ids(selection))
+        for _, component in iter_mechanism_components(
+            dynamical_model_spec, selected_state_ids(selection)
+        )
     )
 
 
 def iter_mechanism_components(
-    model: ModelSpec, state_order: Sequence[ConstructId]
+    dynamical_model_spec: DynamicalModelSpec, state_order: Sequence[ConstructId]
 ) -> Iterator[tuple[DynamicsMechanismSpec, ExpressionComponentSpec]]:
     """Emit a bound expression alongside the exact scientific term that produced it."""
     state_index = {key: index for index, key in enumerate(state_order)}
 
-    for owner, mechanism in model.iter_mechanisms():
+    for owner, mechanism in dynamical_model_spec.iter_mechanisms():
         target_id = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         if target_id not in state_index:
             continue

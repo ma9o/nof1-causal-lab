@@ -33,11 +33,6 @@ it.each([
         draws: 2,
         times: [0, 0.25, 8, 10],
         state_ids: [outcome.id],
-        design: {
-          start: "2026-01-01",
-          horizon: "10d",
-          interventions: kind === "paired" ? [{ target: outcome.id, after: null, value: 1 }] : [],
-        },
         arms:
           kind === "single"
             ? { kind, action }
@@ -45,6 +40,16 @@ it.each([
                 kind,
                 action,
                 reference: { latent_paths: reference, observations },
+                causal: {
+                  outcome: outcome.id,
+                  labels: { [outcome.id]: outcome.name },
+                  differences,
+                  frame: [1, 3],
+                  summary: { mean: 2, median: 2, lower_95: 1, upper_95: 3, prob_positive: 1 },
+                  reference_mean: 0,
+                  manifest_effects: {},
+                  warnings: [],
+                },
               },
         observation_layout: {
           ...visuals.simulation.report.evidence.observation_layout,
@@ -64,26 +69,9 @@ it.each([
         action_category_probabilities: {},
         reference_category_probabilities: {},
       },
-      causal:
-        kind === "single"
-          ? { kind: "not_applicable", reason: "No intervention." }
-          : {
-              kind: "available",
-              value: {
-                outcome: outcome.id,
-                labels: { [outcome.id]: outcome.name },
-                differences,
-                frame: [1, 3],
-                summary: { mean: 2, median: 2, lower_95: 1, upper_95: 3, prob_positive: 1 },
-                reference_mean: 0,
-                manifest_effects: {},
-                warnings: [],
-              },
-            },
     },
-
   };
-  const displayed = pathsView(saved, fixtureValue(fittedSnapshot.model));
+  const displayed = pathsView(saved, fixtureValue(fittedSnapshot.dynamical_model_spec));
   expect(displayed.times).toBe(saved.report.evidence.times);
   const series = fixtureValue(displayed.indicators[identity]);
   expect(series.action[1]).toEqual({ draw: 1, values: [1, 5, null, null] });

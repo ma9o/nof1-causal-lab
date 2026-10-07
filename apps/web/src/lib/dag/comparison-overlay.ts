@@ -2,7 +2,7 @@ import { modelEdges, presentEntries } from "@/lib/model-accessors";
 import type {
   ConstructId,
   ConstructSpec,
-  ModelSpec,
+  DynamicalModelSpec,
   ModelDiffOutput,
 } from "@nof1-causal-lab/api-types";
 import type { DagLayoutNode, Point } from "@/lib/utils/dag-graph-layout";
@@ -19,8 +19,8 @@ import {
 
 /** Saved spec changes joined to their original model values for presentation. */
 export type ModelComparison = ModelDiffOutput & {
-  beforeModel: ModelSpec | null;
-  afterModel: ModelSpec | null;
+  beforeDynamicalModelSpec: DynamicalModelSpec | null;
+  afterDynamicalModelSpec: DynamicalModelSpec | null;
 };
 
 type Change = "added" | "removed" | "revised";
@@ -44,13 +44,23 @@ export function placeComparisonOverlay(
 ) {
   const positions = new Map(nodes.map((node) => [node.id, node]));
   const beforeConstructs = new Map(
-    (comparison ? modelConstructs(comparison.beforeModel) : []).map((item) => [item.id, item]),
+    (comparison ? modelConstructs(comparison.beforeDynamicalModelSpec) : []).map((item) => [
+      item.id,
+      item,
+    ]),
   );
   const constructs = new Map(
-    (comparison ? modelConstructs(comparison.afterModel) : []).map((item) => [item.id, item]),
+    (comparison ? modelConstructs(comparison.afterDynamicalModelSpec) : []).map((item) => [
+      item.id,
+      item,
+    ]),
   );
-  const beforeEdges = new Map(modelEdges(comparison?.beforeModel).map((item) => [item.id, item]));
-  const afterEdges = new Map(modelEdges(comparison?.afterModel).map((item) => [item.id, item]));
+  const beforeEdges = new Map(
+    modelEdges(comparison?.beforeDynamicalModelSpec).map((item) => [item.id, item]),
+  );
+  const afterEdges = new Map(
+    modelEdges(comparison?.afterDynamicalModelSpec).map((item) => [item.id, item]),
+  );
   const dynamicIds = new Set(
     [...constructs.values()]
       .filter((item) => item.temporal_status === "time_varying")

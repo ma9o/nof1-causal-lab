@@ -23,15 +23,16 @@ def parameter_convergence(chains: ChainDiagnostics | None) -> ParameterConvergen
     """Assess retained chain convergence or report explicitly that chain evidence is unavailable."""
     if chains is None:
         return ParameterConvergenceReport(
-            assessments=(
+            findings=(
                 NotEvaluated(
+                    code="parameter_chains",
                     subject="recorded_parameter_chains",
                     reason="NO_RETAINED_CHAINS",
                     detail="No retained chain measurements are available.",
                 ),
             ),
         )
-    assessments = []
+    findings = []
     minimum = ESS_PER_CHAIN * chains.num_chains
     for parameter in chains.per_parameter:
         for criterion, value, lower, upper in (
@@ -39,12 +40,11 @@ def parameter_convergence(chains: ChainDiagnostics | None) -> ParameterConvergen
             (ConvergenceCriterion.ESS_BULK, parameter.ess_bulk, float(minimum), None),
             (ConvergenceCriterion.ESS_TAIL, parameter.ess_tail, float(minimum), None),
         ):
-            subject = ConvergenceSubject(
-                parameter=parameter.subject, criterion=criterion, label=parameter.parameter
-            )
+            subject = ConvergenceSubject(parameter=parameter.subject, label=parameter.parameter)
             if value is None:
-                assessments.append(
+                findings.append(
                     NotEvaluated(
+                        code=criterion.value,
                         subject=subject,
                         reason="INSUFFICIENT_CHAIN_SAMPLES",
                         detail=f"{parameter.parameter}: {criterion.value} is unavailable.",
@@ -60,12 +60,15 @@ def parameter_convergence(chains: ChainDiagnostics | None) -> ParameterConvergen
                     upper_inclusive=upper is None,
                     note=parameter.parameter,
                 )
-                assessments.append(
+                findings.append(
                     Evaluated(
-                        subject=subject, outcome="passed" if passes else "failed", evidence=evidence
+                        code=criterion.value,
+                        subject=subject,
+                        outcome="passed" if passes else "failed",
+                        evidence=evidence,
                     )
                 )
-    return ParameterConvergenceReport(assessments=tuple(assessments))
+    return ParameterConvergenceReport(findings=tuple(findings))
 
 
 def convergence_failures(report: ParameterConvergenceReport) -> tuple[str, ...]:

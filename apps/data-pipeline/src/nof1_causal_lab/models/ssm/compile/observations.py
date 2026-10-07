@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.models.likelihoods import LikelihoodAnalysis
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.dynamics.expression import OperandEvaluator
 
 
@@ -176,11 +176,13 @@ def bind_observation_law(
 
 
 def materialize_observation_laws(
-    model: CompiledModel, samples: Mapping[str, jax.Array]
+    compiled_dynamical_model: CompiledDynamicalModel, samples: Mapping[str, jax.Array]
 ) -> tuple[Law[BoundExpression], ...]:
     """Gather each law's dynamic leaves once from canonical parameter-site draws."""
 
     def bind(operand: BoundExpression) -> BoundExpression:
         return operand.bind(samples)
 
-    return tuple(map_law(observation.law, bind) for observation in model.observations)
+    return tuple(
+        map_law(observation.law, bind) for observation in compiled_dynamical_model.observations
+    )

@@ -5,11 +5,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import numpy as np
-from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.contracts import EditModelRequest, PrepareDataRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.io import (
@@ -19,11 +18,11 @@ from nof1_causal_lab.actions.io import (
     ModelDiffInput,
     SimulateInput,
 )
-from nof1_causal_lab.artifacts.availability import NotApplicable
-from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
+from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult, FileSourceRef
 from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     SimulationArm,
@@ -32,15 +31,7 @@ from nof1_causal_lab.artifacts.simulation import (
 )
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import (
-    Applied,
-    AttemptRecord,
-    DataPreparationResult,
-    PrepareAttempt,
-    Raised,
-    Rejected,
-)
-from nof1_causal_lab.study.snapshots import ModelReader
+from nof1_causal_lab.study.records import Applied, AttemptRecord, PrepareAttempt, Raised, Rejected
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from tests.action_fixtures import applied_record, empty_simulation_summary
@@ -101,7 +92,7 @@ def test_failed_attempt_and_invalid_publication_do_not_advance_scientific_state(
     assert repository.head() == head
     assert repository.record(failed).record.attempt.outcome.status == "raised"
     with pytest.raises(StudyLookupError):
-        ModelReader("STUDY", at=failed)
+        repository.resolve(at=failed)
     assert [record.record.seq for record in StudyRepository("STUDY").attempts()] == [1, 2]
 
 
@@ -120,7 +111,12 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         run_action_activity,
     )
     from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
-    from nof1_causal_lab.artifacts.data_comparison import DataComparisonReport
+    from nof1_causal_lab.artifacts.checks import Evaluated
+    from nof1_causal_lab.artifacts.data_comparison import (
+        DataComparisonReport,
+        DescriptiveIndicatorComparison,
+    )
+    from nof1_causal_lab.artifacts.identity import IndicatorRef
     from tests.helpers import run_async
 
     repository, store = study
@@ -139,17 +135,36 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
     intent = "Compare the candidates before choosing the next fit."
     request = (
         DataDiffRequest[GitOid](
-            input=DataDiffInput[GitOid](left_ref=left, right_ref=right), reasoning=intent
+            input=DataDiffInput[GitOid](left_ref=(left,), right_ref=(right,)), reasoning=intent
         )
         if comparison_action == "data_diff"
         else ModelDiffRequest[GitOid](
             reasoning=intent, input=ModelDiffInput[GitOid](before_ref=root, after_ref=head)
         )
     )
+    finding = Evaluated(
+        code="schedule_mismatch",
+        subject=IndicatorRef(id="indicator:sleep"),
+        outcome="failed",
+        evidence="The saved histories use different observation schedules.",
+    )
     report = (
-        DataDiffOutput(report=DataComparisonReport(left=(left,), right=(right,), variables=()))
+        DataDiffOutput(
+            report=DataComparisonReport(
+                left=(left,),
+                right=(right,),
+                variables=(
+                    DescriptiveIndicatorComparison(
+                        indicator_id="indicator:sleep",
+                        changes=(),
+                        statistics=(),
+                        findings=(finding,),
+                    ),
+                ),
+            )
+        )
         if comparison_action == "data_diff"
-        else ModelDiffOutput(changes=ModelSpec())
+        else ModelDiffOutput(changes=DynamicalModelSpec())
     )
 
     reads = []
@@ -192,7 +207,7 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
 
     monkeypatch.setattr(
         data_diff if comparison_action == "data_diff" else revisions,
-        "read_data_diff" if comparison_action == "data_diff" else "read_model_diff",
+        "read_data_diff" if comparison_action == "data_diff" else "model_diff",
         compare,
     )
     monkeypatch.setattr(study_workflow.workflow, "execute_activity", execute)
@@ -220,6 +235,14 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         assert outcome.effects.produced == outcome.effects.retracted == ()
         assert leaf.record.attempt.request == request
         assert outcome.effects.reports == {}
+        if comparison_action == "data_diff":
+            announcements = tuple(
+                message for message in leaf.record.messages if message.code == finding.code
+            )
+            assert len(announcements) == 1
+            assert announcements[0].severity == "warning"
+            assert announcements[0].subject == finding.subject
+            assert announcements[0].detail == finding.evidence
         from nof1_causal_lab.study.result_codec import unpack_result
 
         assert (
@@ -238,7 +261,7 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
             pytest.fail("A saved comparison must not recompute")
 
         monkeypatch.setattr(data_diff, "read_data_diff", unexpected_comparison)
-        monkeypatch.setattr(revisions, "read_model_diff", unexpected_comparison)
+        monkeypatch.setattr(revisions, "model_diff", unexpected_comparison)
         restarted = StudyRepository("STUDY")
         assert restarted.read_file(leaf.commit_id, "result.msgpack") == repository.read_file(
             leaf.commit_id, "result.msgpack"
@@ -307,7 +330,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
             for artifact_id, n, derived in produced
         )
         if action == "edit_model":
-            from nof1_causal_lab.artifacts.model_spec import ModelEditResult
+            from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
 
             result = Applied(
                 result=ModelEditResult(),
@@ -319,7 +342,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 request=EditModelRequest[GitOid](
                     input=EditModelInput[GitOid](
                         parent_ref=inputs["parent_ref"],
-                        model=ModelSpec(),
+                        dynamical_model_spec=DynamicalModelSpec(),
                     )
                 ),
             )
@@ -333,15 +356,14 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 request=PrepareDataRequest[GitOid, FileSourceRef](input=inputs["input"]),
             )
         elif action == "simulate":
-            ref = GitRef(workspace_id="STUDY", revision=inputs["model_ref"], path="model.json")
+            ref = GitRef(
+                workspace_id="STUDY", revision=inputs["dynamical_model_spec_ref"], path="model.json"
+            )
             report = SimulationReport(
                 summary=empty_simulation_summary(),
-                causal=NotApplicable(reason="No intervention was requested."),
                 fit_reliability="not_fitted",
                 law=AuthoredLawProvenance(),
                 evidence=SimulationEvidence(
-                    model=ref,
-                    design=SimulationSpec(start=date(2026, 1, 1), horizon="10d"),
                     time_origin=datetime(2026, 1, 1, tzinfo=UTC),
                     times=(0, 10),
                     draws=1,
@@ -349,14 +371,20 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                     state_ids=(),
                     parameter_draws={},
                     arms=SingleArmSimulation(
-                        action=SimulationArm(latent_paths=NumericalArray.from_numpy(np.zeros((1,2,0))), observations=NumericalArray.from_numpy(np.zeros((1,2,0)))),
+                        action=SimulationArm(
+                            latent_paths=NumericalArray.from_numpy(np.zeros((1, 2, 0))),
+                            observations=NumericalArray.from_numpy(np.zeros((1, 2, 0))),
+                        ),
                     ),
                     observation_layout={
                         "variables": [],
-                        "support_start_times": NumericalArray.from_numpy(np.zeros((2,0))),
-                        "support_end_times": NumericalArray.from_numpy(np.zeros((2,0))),
-                        "mask": NumericalArray.from_numpy(np.zeros((1,2,0),dtype=bool)),
+                        "support_start_times": NumericalArray.from_numpy(np.zeros((2, 0))),
+                        "support_end_times": NumericalArray.from_numpy(np.zeros((2, 0))),
+                        "mask": NumericalArray.from_numpy(np.zeros((1, 2, 0), dtype=bool)),
                     },
+                    assignments=SimulationSpec(start=date(2026, 1, 1), horizon="10d").assignments(
+                        datetime(2026, 1, 1, tzinfo=UTC)
+                    ),
                 ),
             )
             record = dependency_record(
@@ -368,12 +396,16 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 request=SimulateRequest[GitOid](
                     input=SimulateInput[GitOid](
                         simulation=SimulationSpec(start=date(2026, 1, 1), horizon="10d"),
-                        model_ref=ref.revision,
+                        dynamical_model_spec_ref=ref.revision,
                     )
                 ),
             )
         elif action == "fit":
-            request = FitRequest[GitOid](input=FitInput[GitOid](replicate_index=0, **inputs))
+            request = FitRequest[GitOid](
+                input=FitInput[GitOid].model_validate(
+                    {**inputs, "data_ref": {"revision": inputs["data_ref"], "replicate_index": 0}}
+                )
+            )
             if status == "raised":
                 record = AttemptRecord(
                     seq=seq,
@@ -385,15 +417,9 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                     ),
                 )
             else:
-                from nof1_causal_lab.artifacts.posterior import InferenceEvidence, ModelFitResult
+                from nof1_causal_lab.artifacts.posterior import InferenceEvidence
 
-                result = ModelFitResult(
-                    model=GitRef(
-                        workspace_id="STUDY", revision=inputs["model_ref"], path="model.json"
-                    ),
-                    data=DataRef[GitOid, int](revision=inputs["data_ref"], replicate_index=0),
-                    evidence=InferenceEvidence(),
-                )
+                result = InferenceEvidence()
                 record = dependency_record(
                     Applied(result=result, effects=ActionEffects(produced=artifacts)),
                     seq=seq,
@@ -417,13 +443,13 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
 
     records = [
         revision(1, "edit_model", {"parent_ref": oid(0)}, ("model", 1, {})),
-        revision(2, "simulate", {"model_ref": oid(1)}),
+        revision(2, "simulate", {"dynamical_model_spec_ref": oid(1)}),
         revision(
             3,
             "prepare_data",
             {
                 "input": {
-                    "model_ref": oid(1),
+                    "dynamical_model_spec_ref": oid(1),
                     "source": {"files": ["data.csv"]},
                     "extraction": {
                         "indicator:00000000000000000000": {
@@ -439,7 +465,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
         revision(
             4,
             "fit",
-            {"model_ref": oid(1), "data_ref": oid(4)},
+            {"dynamical_model_spec_ref": oid(1), "data_ref": oid(4)},
             ("model", 5, {"model": 1, "panel": 4}),
         ),
         revision(
@@ -450,7 +476,9 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
             # Carried forward unchanged: its first producer keeps it.
             ("panel", 4, {"raw_data": 3}),
         ),
-        revision(6, "fit", {"model_ref": oid(6), "data_ref": oid(4)}, status="raised"),
+        revision(
+            6, "fit", {"dynamical_model_spec_ref": oid(6), "data_ref": oid(4)}, status="raised"
+        ),
         revision(8, "edit_model", {"parent_ref": oid(6)}, ("model", 8, {"model": 6})),
         revision(
             7,
@@ -461,26 +489,31 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                     {"revision": oid(4), "replicate_index": 0},
                     {"revision": oid(102), "replicate_index": 0},
                 ],
-                "right_ref": {"revision": oid(102), "replicate_index": None},
+                "right_ref": [{"revision": oid(102), "replicate_index": None}],
             },
         ),
     ]
     records.extend(
         [
             # Failed commits and unknown revisions are never output producers.
-            revision(9, "fit", {"model_ref": oid(106), "data_ref": oid(999)}, status="raised"),
+            revision(
+                9,
+                "fit",
+                {"dynamical_model_spec_ref": oid(106), "data_ref": oid(999)},
+                status="raised",
+            ),
             revision(10, "model_diff", {"before_ref": oid(5), "after_ref": oid(6)}),
         ]
     )
     assert [
         (item.seq, item.source_seq, item.argument) for item in record_dependencies(records)
     ] == [
-        (2, 1, "model"),
-        (3, 1, "model"),
-        (4, 1, "model"),
+        (2, 1, "dynamical_model_spec"),
+        (3, 1, "dynamical_model_spec"),
+        (4, 1, "dynamical_model_spec"),
         (4, 3, "data"),
         (5, 4, "parent"),
-        (6, 5, "model"),
+        (6, 5, "dynamical_model_spec"),
         (6, 3, "data"),
         (8, 5, "parent"),
         (7, 3, "left"),

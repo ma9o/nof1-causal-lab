@@ -39,17 +39,17 @@ from tests.model_fixtures import (
 )
 
 
-def _shared_likelihood_parameter_owns_only_active_channels_complete_model() -> ModelSpec:
+def _shared_likelihood_parameter_owns_only_active_channels_complete_model() -> DynamicalModelSpec:
     _OBS_DF_PARAMETER_ID = ParameterId(
         "parameter:e9c414236abf8cbc520db01a7912d59c8e29aa890ad71833dceb4f3255f67e2e"
     )
     _OBS_DF_DISTRIBUTION_ID = DistributionId(
         "distribution:97e1aff2ec6681a794c808b35e7b30e9609ba25913dbfc5351baa0398a40b016"
     )
-    model = additive_a_b_model()
-    a = construct_named(model, "A")
-    a_obs = indicator_named(model, "A_obs")
-    a_obs_likelihood = likelihood_named(model, "A_obs")
+    dynamical_model_spec = additive_a_b_model()
+    a = construct_named(dynamical_model_spec, "A")
+    a_obs = indicator_named(dynamical_model_spec, "A_obs")
+    a_obs_likelihood = likelihood_named(dynamical_model_spec, "A_obs")
     a_obs_revised = a_obs.revised(
         likelihood=a_obs_likelihood.revised(
             law=StudentTLawSpec[Expression](
@@ -64,10 +64,10 @@ def _shared_likelihood_parameter_owns_only_active_channels_complete_model() -> M
         )
     )
     a_revised = a.revised(indicators=(a_obs_revised,))
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (a_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (a_revised,)),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_OBS_DF_PARAMETER_ID,
                 name="obs_df",
@@ -76,18 +76,18 @@ def _shared_likelihood_parameter_owns_only_active_channels_complete_model() -> M
             ),
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _OBS_DF_DISTRIBUTION_ID: dist.Gamma(concentration=5.0, rate=1.0, validate_args=False),
         },
     )
 
 
-def _shared_likelihood_parameter_owns_only_active_channels_complete_model_2() -> ModelSpec:
-    model = _shared_likelihood_parameter_owns_only_active_channels_complete_model()
-    b = construct_named(model, "B")
-    b_obs = indicator_named(model, "B_obs")
-    b_obs_likelihood = likelihood_named(model, "B_obs")
-    obs_df = parameter_named(model, "obs_df")
+def _shared_likelihood_parameter_owns_only_active_channels_complete_model_2() -> DynamicalModelSpec:
+    dynamical_model_spec = _shared_likelihood_parameter_owns_only_active_channels_complete_model()
+    b = construct_named(dynamical_model_spec, "B")
+    b_obs = indicator_named(dynamical_model_spec, "B_obs")
+    b_obs_likelihood = likelihood_named(dynamical_model_spec, "B_obs")
+    obs_df = parameter_named(dynamical_model_spec, "obs_df")
     b_obs_revised = b_obs.revised(
         likelihood=b_obs_likelihood.revised(
             law=StudentTLawSpec[Expression](
@@ -102,21 +102,23 @@ def _shared_likelihood_parameter_owns_only_active_channels_complete_model_2() ->
         )
     )
     b_revised = b.revised(indicators=(b_obs_revised,))
-    return model.with_entities(edges=replace_constructs(model.edges, (b_revised,)))
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (b_revised,))
+    )
 
 
-def _student_innovation_model() -> ModelSpec:
+def _student_innovation_model() -> DynamicalModelSpec:
     _PROC_DF_PARAMETER_ID = ParameterId(
         "parameter:cda322d07f43753b6303431fe88a8d86238b54e2a7f366cecd07b25c754971b6"
     )
     _PROC_DF_DISTRIBUTION_ID = DistributionId(
         "distribution:8b5923f7a2b2d83dbc2d3961d34d000cfa280f81457d2e3b222014b086954b66"
     )
-    model = additive_a_b_model()
-    a = construct_named(model, "A")
-    sigma_a = parameter_named(model, "sigma_A")
-    b = construct_named(model, "B")
-    sigma_b = parameter_named(model, "sigma_B")
+    dynamical_model_spec = additive_a_b_model()
+    a = construct_named(dynamical_model_spec, "A")
+    sigma_a = parameter_named(dynamical_model_spec, "sigma_A")
+    b = construct_named(dynamical_model_spec, "B")
+    sigma_b = parameter_named(dynamical_model_spec, "sigma_B")
     a_revised = a.revised(
         coefficients=(
             coefficient(sigma_a.id, "diffusion_scale"),
@@ -135,16 +137,16 @@ def _student_innovation_model() -> ModelSpec:
         ),
         innovation_family=DistributionFamily.STUDENT_T,
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 a_revised,
                 b_revised,
             ),
         ),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_PROC_DF_PARAMETER_ID,
                 name="proc_df",
@@ -153,23 +155,23 @@ def _student_innovation_model() -> ModelSpec:
             ),
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _PROC_DF_DISTRIBUTION_ID: dist.Gamma(concentration=5.0, rate=1.0, validate_args=False),
         },
     )
 
 
-def _rename_preserves_parameter_and_element_identity__compile_2() -> ModelSpec:
-    model = additive_a_b_model()
-    a = construct_named(model, "A")
-    a_obs = indicator_named(model, "A_obs")
-    b = construct_named(model, "B")
-    b_obs = indicator_named(model, "B_obs")
-    rho_a = parameter_named(model, "rho_A")
-    rho_b = parameter_named(model, "rho_B")
-    beta_a_b = parameter_named(model, "beta_A_B")
-    sigma_a = parameter_named(model, "sigma_A")
-    sigma_b = parameter_named(model, "sigma_B")
+def _rename_preserves_parameter_and_element_identity__compile_2() -> DynamicalModelSpec:
+    dynamical_model_spec = additive_a_b_model()
+    a = construct_named(dynamical_model_spec, "A")
+    a_obs = indicator_named(dynamical_model_spec, "A_obs")
+    b = construct_named(dynamical_model_spec, "B")
+    b_obs = indicator_named(dynamical_model_spec, "B_obs")
+    rho_a = parameter_named(dynamical_model_spec, "rho_A")
+    rho_b = parameter_named(dynamical_model_spec, "rho_B")
+    beta_a_b = parameter_named(dynamical_model_spec, "beta_A_B")
+    sigma_a = parameter_named(dynamical_model_spec, "sigma_A")
+    sigma_b = parameter_named(dynamical_model_spec, "sigma_B")
     a_obs_revised = a_obs.revised(
         observation=a_obs.observation.revised(name="renamed measurement 0")
     )
@@ -178,16 +180,16 @@ def _rename_preserves_parameter_and_element_identity__compile_2() -> ModelSpec:
         observation=b_obs.observation.revised(name="renamed measurement 1")
     )
     b_revised = b.revised(name="renamed construct 1", indicators=(b_obs_revised,))
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 a_revised,
                 b_revised,
             ),
         ),
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             rho_a.revised(
                 name="rho_renamed construct 0", description="stiffness of rho_renamed construct 0"
             ),
@@ -211,7 +213,7 @@ def _rename_preserves_parameter_and_element_identity__compile_2() -> ModelSpec:
 
 
 def _additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions.json"
@@ -219,7 +221,7 @@ def _additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_di
 
 
 def _initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _T0_SD_A_PARAMETER_ID = ParameterId(
         "parameter:78a820c678a86f96a375ac708343df8e24b0d62b74d344a2ab12637121eadd5e"
@@ -233,11 +235,11 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
     _T0_SD_B_DISTRIBUTION_ID = DistributionId(
         "distribution:4405cbecb2b23c024b8f1ca97701f3be9df5104733d4425b50e1955801b005d1"
     )
-    model = additive_a_b_model()
-    a = construct_named(model, "A")
-    sigma_a = parameter_named(model, "sigma_A")
-    b = construct_named(model, "B")
-    sigma_b = parameter_named(model, "sigma_B")
+    dynamical_model_spec = additive_a_b_model()
+    a = construct_named(dynamical_model_spec, "A")
+    sigma_a = parameter_named(dynamical_model_spec, "sigma_A")
+    b = construct_named(dynamical_model_spec, "B")
+    sigma_b = parameter_named(dynamical_model_spec, "sigma_B")
     a_revised = a.revised(
         coefficients=(
             coefficient(sigma_a.id, "diffusion_scale"),
@@ -252,16 +254,16 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
             coefficient(_T0_SD_B_PARAMETER_ID, "initial_scale"),
         )
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 a_revised,
                 b_revised,
             ),
         ),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_T0_SD_A_PARAMETER_ID,
                 name="t0_sd_A",
@@ -276,7 +278,7 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
             ),
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _T0_SD_A_DISTRIBUTION_ID: dist.HalfNormal(scale=2.0, validate_args=False),
             _T0_SD_B_DISTRIBUTION_ID: dist.HalfNormal(scale=2.0, validate_args=False),
         },
@@ -284,7 +286,7 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
 
 
 def _initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _T0_MEAN_A_PARAMETER_ID = ParameterId(
         "parameter:1776151c61f063b055fe8347ef429b23283aba9338c3b772714bc055b2f26cf4"
@@ -298,11 +300,11 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
     _T0_MEAN_B_DISTRIBUTION_ID = DistributionId(
         "distribution:b600d6c6f149d7851b1186b692be93f2838f38762e670f3e4d130a37f5a128b0"
     )
-    model = additive_a_b_model()
-    a = construct_named(model, "A")
-    sigma_a = parameter_named(model, "sigma_A")
-    b = construct_named(model, "B")
-    sigma_b = parameter_named(model, "sigma_B")
+    dynamical_model_spec = additive_a_b_model()
+    a = construct_named(dynamical_model_spec, "A")
+    sigma_a = parameter_named(dynamical_model_spec, "sigma_A")
+    b = construct_named(dynamical_model_spec, "B")
+    sigma_b = parameter_named(dynamical_model_spec, "sigma_B")
     a_revised = a.revised(
         coefficients=(
             coefficient(sigma_a.id, "diffusion_scale"),
@@ -317,16 +319,16 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
             coefficient(_T0_MEAN_B_PARAMETER_ID, "initial_mean"),
         )
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 a_revised,
                 b_revised,
             ),
         ),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_T0_MEAN_A_PARAMETER_ID,
                 name="t0_mean_A",
@@ -341,44 +343,56 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
             ),
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _T0_MEAN_A_DISTRIBUTION_ID: dist.Normal(loc=0.0, scale=2.0, validate_args=False),
             _T0_MEAN_B_DISTRIBUTION_ID: dist.Normal(loc=0.0, scale=2.0, validate_args=False),
         },
     )
 
 
-def _initial_state_defaults_are_authored_before_compilation_complete_model_none() -> ModelSpec:
+def _initial_state_defaults_are_authored_before_compilation_complete_model_none() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_none.json"
     )
 
 
-def _ordinal_components_have_label_identity_and_padding_is_explicit__compile() -> ModelSpec:
+def _ordinal_components_have_label_identity_and_padding_is_explicit__compile() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "scientific_parameter_identity/ordinal_components_have_label_identity_and_padding_is_explicit__compile.json"
     )
 
 
-def _scalar_identity_survives_reordered_execution_axes__compile_2() -> ModelSpec:
+def _scalar_identity_survives_reordered_execution_axes__compile_2() -> DynamicalModelSpec:
     return load_model_fixture(
         "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json"
     )
 
 
-def _scalar_identity_survives_reordered_execution_axes__compile() -> ModelSpec:
-    model = _scalar_identity_survives_reordered_execution_axes__compile_2()
-    a = construct_named(model, "A")
-    b = construct_named(model, "B")
-    a_to_b = next(edge for edge in model.edges if edge.cause.id == a.id and edge.effect.id == b.id)
-    b_to_a = next(edge for edge in model.edges if edge.cause.id == b.id and edge.effect.id == a.id)
-    rho_a = parameter_named(model, "rho_A")
-    rho_b = parameter_named(model, "rho_B")
-    beta_a_b = parameter_named(model, "beta_A_B")
-    beta_b_a = parameter_named(model, "beta_B_A")
-    sigma_a = parameter_named(model, "sigma_A")
-    sigma_b = parameter_named(model, "sigma_B")
-    return model.with_entities(
+def _scalar_identity_survives_reordered_execution_axes__compile() -> DynamicalModelSpec:
+    dynamical_model_spec = _scalar_identity_survives_reordered_execution_axes__compile_2()
+    a = construct_named(dynamical_model_spec, "A")
+    b = construct_named(dynamical_model_spec, "B")
+    a_to_b = next(
+        edge
+        for edge in dynamical_model_spec.edges
+        if edge.cause.id == a.id and edge.effect.id == b.id
+    )
+    b_to_a = next(
+        edge
+        for edge in dynamical_model_spec.edges
+        if edge.cause.id == b.id and edge.effect.id == a.id
+    )
+    rho_a = parameter_named(dynamical_model_spec, "rho_A")
+    rho_b = parameter_named(dynamical_model_spec, "rho_B")
+    beta_a_b = parameter_named(dynamical_model_spec, "beta_A_B")
+    beta_b_a = parameter_named(dynamical_model_spec, "beta_B_A")
+    sigma_a = parameter_named(dynamical_model_spec, "sigma_A")
+    sigma_b = parameter_named(dynamical_model_spec, "sigma_B")
+    return dynamical_model_spec.with_entities(
         edges=(
             a_to_b,
             b_to_a,
@@ -395,7 +409,7 @@ def _scalar_identity_survives_reordered_execution_axes__compile() -> ModelSpec:
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 @pytest.mark.contract
@@ -414,18 +428,20 @@ def test_rename_preserves_parameter_and_element_identity():
 
 @pytest.mark.contract
 def test_scalar_identity_survives_reordered_execution_axes():
-    model = _scalar_identity_survives_reordered_execution_axes__compile()
+    dynamical_model_spec = _scalar_identity_survives_reordered_execution_axes__compile()
     reordered = _scalar_identity_survives_reordered_execution_axes__compile_2()
-    assert selected_state_ids(StructuralSelection(model, None)) == tuple(
+    assert selected_state_ids(StructuralSelection(dynamical_model_spec, None)) == tuple(
         reversed(selected_state_ids(StructuralSelection(reordered, None)))
     )
     decay = next(
         p
-        for p in model.parameters
-        if model.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
+        for p in dynamical_model_spec.parameters
+        if dynamical_model_spec.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
     )
     old_binding = next(
-        b for b in parameter_bindings(compile_model_fixture(model))[0] if b.parameter_id == decay.id
+        b
+        for b in parameter_bindings(compile_model_fixture(dynamical_model_spec))[0]
+        if b.parameter_id == decay.id
     )
     new_binding = next(
         b
@@ -438,19 +454,19 @@ def test_scalar_identity_survives_reordered_execution_axes():
 
 @pytest.mark.contract
 def test_model_rejects_forged_owner_before_compilation():
-    model = additive_a_b_model()
-    payload = model.model_dump(mode="json")
+    dynamical_model_spec = additive_a_b_model()
+    payload = dynamical_model_spec.model_dump(mode="json")
     next(iter(payload["parameters"].values()))["owners"] = [
         {"kind": "construct", "id": "construct:forged"}
     ]
     with pytest.raises(ValueError, match=r"Extra inputs|owner"):
-        type(model).model_validate(payload)
+        type(dynamical_model_spec).model_validate(payload)
 
 
 @pytest.mark.contract
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
-    model = additive_a_b_model()
-    binding = parameter_bindings(compile_model_fixture(model))[0][0]
+    dynamical_model_spec = additive_a_b_model()
+    binding = parameter_bindings(compile_model_fixture(dynamical_model_spec))[0][0]
     element, coordinate = next(iter(binding.coordinates.items()))
     from nof1_causal_lab.artifacts.identity import ParameterRef
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
@@ -471,24 +487,28 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
 
 @pytest.mark.contract
 def test_ordinal_components_have_label_identity_and_padding_is_explicit():
-    model = _ordinal_components_have_label_identity_and_padding_is_explicit__compile()
+    dynamical_model_spec = (
+        _ordinal_components_have_label_identity_and_padding_is_explicit__compile()
+    )
     gaps = {
         p.id
-        for p in model.parameters
-        if model.parameter_context(p.id).quantity == SiteKind.OBS_ORDERED_GAPS
+        for p in dynamical_model_spec.parameters
+        if dynamical_model_spec.parameter_context(p.id).quantity == SiteKind.OBS_ORDERED_GAPS
     }
     gap_bindings = [
-        b for b in parameter_bindings(compile_model_fixture(model))[0] if b.parameter_id in gaps
+        b
+        for b in parameter_bindings(compile_model_fixture(dynamical_model_spec))[0]
+        if b.parameter_id in gaps
     ]
     assert len(gap_bindings) == 1
     assert list(gap_bindings[0].elements.values()) == ["A_obs: gap low / mid / high"]
-    assert parameter_bindings(compile_model_fixture(model))[1]
+    assert parameter_bindings(compile_model_fixture(dynamical_model_spec))[1]
 
 
 @pytest.mark.contract
 def test_shared_likelihood_parameter_owns_only_active_channels():
-    model = additive_a_b_model()
-    first, second = model.constructs
+    dynamical_model_spec = additive_a_b_model()
+    first, second = dynamical_model_spec.constructs
     student = LikelihoodSpec(
         law=TypeAdapter(ObservationLawSpec).validate_json(
             (
@@ -501,11 +521,13 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
         standardized=True,
     )
     first = first.revised(indicators=(first.indicators[0].revised(likelihood=student),))
-    model = _shared_likelihood_parameter_owns_only_active_channels_complete_model()
+    dynamical_model_spec = _shared_likelihood_parameter_owns_only_active_channels_complete_model()
     shared = next(
-        p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.OBS_DF
+        p
+        for p in dynamical_model_spec.parameters
+        if dynamical_model_spec.parameter_context(p.id).quantity == SiteKind.OBS_DF
     )
-    assert {o.id for o in model.parameter_context(shared.id).owners} == {
+    assert {o.id for o in dynamical_model_spec.parameter_context(shared.id).owners} == {
         first.id,
         first.indicators[0].observation.id,
     }
@@ -546,15 +568,15 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
 @pytest.mark.contract
 def test_student_innovation_tail_is_explicit_and_shared_through_completion():
 
-    model = _student_innovation_model()
-    parameter = next(p for p in model.parameters if p.name == "proc_df")
-    for construct in model.constructs:
-        assert parameter in model.parameters_for(construct.id)
-    compile_model_fixture(model)
-    first, second = model.constructs
-    candidate = model.with_entities(
+    dynamical_model_spec = _student_innovation_model()
+    parameter = next(p for p in dynamical_model_spec.parameters if p.name == "proc_df")
+    for construct in dynamical_model_spec.constructs:
+        assert parameter in dynamical_model_spec.parameters_for(construct.id)
+    compile_model_fixture(dynamical_model_spec)
+    first, second = dynamical_model_spec.constructs
+    candidate = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 first.revised(
                     coefficients=tuple(
@@ -642,14 +664,17 @@ def test_initial_state_defaults_are_authored_before_compilation(
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
-    model = additive_a_b_model()
-    renamed = model.with_entities(
-        parameters=tuple(p.revised(name=f"display {n}") for n, p in enumerate(model.parameters))
+    dynamical_model_spec = additive_a_b_model()
+    renamed = dynamical_model_spec.with_entities(
+        parameters=tuple(
+            p.revised(name=f"display {n}") for n, p in enumerate(dynamical_model_spec.parameters)
+        )
     )
     compile_model_fixture(renamed)
-    _assert_same_prior_laws(model, renamed)
+    _assert_same_prior_laws(dynamical_model_spec, renamed)
     assert {
-        b.parameter_id: b.coordinates for b in parameter_bindings(compile_model_fixture(model))[0]
+        b.parameter_id: b.coordinates
+        for b in parameter_bindings(compile_model_fixture(dynamical_model_spec))[0]
     } == {
         b.parameter_id: b.coordinates for b in parameter_bindings(compile_model_fixture(renamed))[0]
     }
@@ -657,7 +682,7 @@ def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
 
 @pytest.mark.inference(concern="sampling")
 def test_additive_hill_and_linear_terms_survive_parameter_renaming():
-    model = additive_a_b_model()
+    dynamical_model_spec = additive_a_b_model()
 
     additive = (
         _additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions()
@@ -669,7 +694,7 @@ def test_additive_hill_and_linear_terms_survive_parameter_renaming():
     compile_model_fixture(renamed)
     _assert_same_prior_laws(additive, renamed)
     components = compile_model_fixture(additive).dynamics.spec.components
-    original_components = compile_model_fixture(model).dynamics.spec.components
+    original_components = compile_model_fixture(dynamical_model_spec).dynamics.spec.components
     assert isinstance(components, tuple)
     assert isinstance(original_components, tuple)
     assert len(components) == len(original_components) + 1

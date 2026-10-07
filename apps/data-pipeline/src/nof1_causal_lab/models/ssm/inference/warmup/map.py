@@ -789,7 +789,9 @@ def fit_map(
     phase_started_at = clock()
     logger.info("MAP phase start: phase=build_likelihood_backend")
     with jax.named_scope("map/build_likelihood_backend"):
-        backend = build_laplace_backend(panel.model, n_ieks_iters, panel.observation_support)
+        backend = build_laplace_backend(
+            panel.compiled_dynamical_model, n_ieks_iters, panel.observation_support
+        )
     logger.info(
         "MAP phase complete: phase=build_likelihood_backend elapsed=%.1fs backend=%s",
         (clock() - phase_started_at),
@@ -1030,7 +1032,7 @@ def _build_eval_fns(
     Callable[..., tuple[jax.Array, LaplaceEvaluationResult]],
 ]:
     """Build initialization evaluators with explicit observations, times and solver state."""
-    model = panel.model
+    compiled_dynamical_model = panel.compiled_dynamical_model
 
     def _inputs(
         z: jax.Array, times: jax.Array
@@ -1043,7 +1045,7 @@ def _build_eval_fns(
     ]:
         dynamics, measurement, initial, extra = assemble_likelihood_inputs(
             parameters.constrain(z),
-            model,
+            compiled_dynamical_model,
             intervention=initialization_input_intervention(panel, times),
             input_values=panel.input_values,
         )

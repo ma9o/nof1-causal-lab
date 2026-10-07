@@ -9,10 +9,11 @@ import type {
   FileSourceRef,
   GitOid,
   ModelSnapshot,
-  ModelSpec,
+  DynamicalModelSpec,
   PrepareDataRequest,
   RecordDependency,
   SimulationReport,
+  SimulationSpec,
   SpecificationAssessment,
   StudyRevision,
   TimelineResponse,
@@ -24,19 +25,23 @@ import { modelConstructs } from "@/lib/model-accessors";
 import { modelResult } from "./action-results";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
-import comparisonFixture from "./workbench-comparisons.json";
+import rawComparisonFixture from "./workbench-comparisons.json";
 import rawVisualFixture from "./workbench-visuals.json";
 
 const visualFixture = decodeFixture(rawVisualFixture);
+const comparisonFixture = decodeFixture(rawComparisonFixture);
 export const WORKBENCH_WORKSPACE = "STORYBOOK";
 const stamp = "2026-09-16T12:00:00Z";
 // Illustrative interface data. Parameter decisions are staged;
 // retained HEALTHDEMO evidence is reused for presentation, not claimed as new inference.
-const freeModel = structuredClone(fixtureValue(demoModelSnapshot.model));
+const freeDynamicalModelSpec = structuredClone(
+  fixtureValue(demoModelSnapshot.dynamical_model_spec),
+);
 // Generated and validated by scripts/fixtures/study.py.
-const pinnedModel = comparisonFixture.pinned_model;
+const pinnedDynamicalModelSpec = comparisonFixture.pinned_dynamical_model_spec;
 const checks: SpecificationAssessment[] = [
   {
+    code: "specification",
     kind: "not_evaluated",
     subject: "specification",
     reason: "MODEL_INCOMPLETE",
@@ -52,11 +57,6 @@ const modelId = (ordinal: number): string =>
     : ordinal.toString(16).padStart(40, "a");
 const questionId = fixtureValue(demoModelSnapshot.state.current.question).revision;
 const panelId = fixtureValue(demoModelSnapshot.state.current.panel).revision;
-const modelRef = (revision: string) => ({
-  workspace_id: WORKBENCH_WORKSPACE,
-  revision,
-  path: "model.json",
-});
 function record(seq: number, attempt: ActionAttempt, trace_ids: string[] = []): StudyRevision {
   return {
     commit_id: commitId(seq),
@@ -68,7 +68,14 @@ function record(seq: number, attempt: ActionAttempt, trace_ids: string[] = []): 
       attempt,
       trace_ids,
       messages: [
-        { kind: "log", timestamp: stamp, level: "info", label: "ACTION_COMPLETED", details: {} },
+        {
+          kind: "log",
+          timestamp: stamp,
+          severity: "info",
+          code: "ACTION_COMPLETED",
+          subject: "action",
+          detail: "",
+        },
       ],
     },
   };
@@ -87,9 +94,16 @@ function metadata(revision: string, parent: string, produced_by: string): Artifa
     source: { kind: "result", result: commitId(0) },
   };
 }
+const simulationDesign: SimulationSpec = {
+  start: "2026-09-01",
+  horizon: "1w",
+  interventions: [{ target: "construct:27f64faaddd59b2ad491", after: null, value: 10.0 }],
+};
 function simulation(revision: string): SimulationReport {
   const outcome = fixtureValue(
-    modelConstructs(freeModel).find((item) => item.name === "internalizing_symptom_burden"),
+    modelConstructs(freeDynamicalModelSpec).find(
+      (item) => item.name === "internalizing_symptom_burden",
+    ),
   );
   const indicator = fixtureValue(
     outcome.indicators.find((item) => item.observation.name === "gad7_screening_score"),
@@ -98,40 +112,45 @@ function simulation(revision: string): SimulationReport {
     ...structuredClone(visualFixture.simulation.report),
     evidence: {
       ...structuredClone(visualFixture.simulation.report.evidence),
-      model: modelRef(revision),
+      arms:
+        revision === modelId(7) && visualFixture.simulation.report.evidence.arms.kind === "paired"
+          ? {
+              ...visualFixture.simulation.report.evidence.arms,
+              causal: {
+                kind: "not_evaluated",
+                code: "causal_effect",
+                subject: "causal_effect",
+                reason: "CAUSAL_EVALUATION_FAILED",
+                detail: "This edited model has no committed production fit at this revision.",
+              },
+            }
+          : visualFixture.simulation.report.evidence.arms,
     },
     findings: [
       { kind: "construct" as const, id: outcome.id },
       { kind: "indicator" as const, id: indicator.observation.id },
     ].map((target) => ({
+      code: "dispersion",
       kind: "not_evaluated" as const,
-      subject: { check: "dispersion", target, construct_id: outcome.id },
+      subject: { target, construct_id: outcome.id },
       reason: "COMPARISON_INPUTS_MISSING" as const,
       detail: "This illustrative record has no observed comparison for the saved simulation draws.",
     })),
-    ...(revision === modelId(7)
-      ? {
-          causal: {
-            kind: "unavailable" as const,
-            reason: "This edited model has no committed production fit at this revision.",
-          },
-        }
-      : {}),
   };
 }
 const simulations = new Map([
   [4, simulation(modelId(4))],
   [7, simulation(modelId(7))],
 ]);
-const models = new Map<string, ModelSpec>(
+const models = new Map<string, DynamicalModelSpec>(
   [1, 2, 3, 4].map((revision) => {
     const seq = fixtureValue([2, 3, 4, 7][revision - 1]);
-    return [modelId(revision), fixtureValue(demoSnapshotAt(seq).model)];
+    return [modelId(revision), fixtureValue(demoSnapshotAt(seq).dynamical_model_spec)];
   }),
 );
-models.set(modelId(5), freeModel);
-models.set(modelId(6), freeModel);
-models.set(modelId(7), pinnedModel);
+models.set(modelId(5), freeDynamicalModelSpec);
+models.set(modelId(6), freeDynamicalModelSpec);
+models.set(modelId(7), pinnedDynamicalModelSpec);
 const snapshots = new Map<number, ModelSnapshot>(
   [0, 2, 3, 4, 5, 7].map((seq) => {
     const snapshot = demoSnapshotAt(seq);
@@ -146,13 +165,13 @@ function illustratedSnapshot(
   report?: SimulationReport,
 ): ModelSnapshot {
   const snapshot = demoModelSnapshot;
-  const model = fixtureValue(models.get(info.revision));
+  const dynamicalModelSpec = fixtureValue(models.get(info.revision));
   return {
     ...snapshot,
     selected_seq: seq,
     workspace_id: WORKBENCH_WORKSPACE,
     state: { ...snapshot.state, current: { ...snapshot.state.current, model: info } },
-    model,
+    dynamical_model_spec: dynamicalModelSpec,
     specification: checks,
     fit: fitted ? snapshot.fit : null,
     simulation: report ? report : null,
@@ -166,9 +185,9 @@ snapshots.set(10, illustratedSnapshot(10, authored, false, simulations.get(4)));
 snapshots.set(11, illustratedSnapshot(11, v7, false));
 snapshots.set(12, illustratedSnapshot(12, v7, false, simulations.get(7)));
 const comparisonIndicator = fixtureValue(
-  modelConstructs(freeModel)
+  modelConstructs(freeDynamicalModelSpec)
     .flatMap((construct) => construct.indicators)
-    .find((indicator) => indicator.observation.name === "gad7_screening_score"),
+    .find((indicator) => indicator.observation.name === "phq9_screening_score"),
 );
 // These illustrative histories are returned by their producing actions below.
 const comparedHistory = (values: number[]) => ({
@@ -197,76 +216,72 @@ const dataComparison: DataDiffOutput = {
       {
         indicator_id: comparisonIndicator.observation.id,
         changes: [],
-        comparison_issues: [],
+        findings: [],
         statistics: [
           {
             statistic: "mean",
-            level: null,
+
             left: [2.67],
             right: [1, 2, 3],
           },
         ],
         predictive: {
-          kind: "comparison",
           reference_side: "left",
           evaluation: {
-            kind: "available",
-            value: {
-              n_subsample: 3,
-              per_variable_warnings: [
-                {
-                  kind: "evaluated",
-                  subject: {
-                    target: { kind: "indicator", id: comparisonIndicator.observation.id },
-                    check: "calibration",
-                  },
-                  outcome: "warning",
-                  evidence: {
-                    criterion: "calibration",
-                    note: "Observed values fall outside the replicated range.",
-                    value: 0.67,
-                    lower: 0.7,
-                    upper: 0.98,
-                    lower_inclusive: true,
-                    upper_inclusive: true,
-                    display_value: "",
-                    band_label: "",
-                  },
+            n_subsample: 3,
+            findings: [
+              {
+                code: "calibration",
+                kind: "evaluated",
+                subject: {
+                  target: { kind: "indicator", id: comparisonIndicator.observation.id },
                 },
-              ],
-              test_stats: [
-                {
-                  indicator_id: comparisonIndicator.observation.id,
-                  stat_name: "mean",
-                  observed_value: 2.67,
-                  rep_values: [1, 2, 3],
-                  p_value: 0.33,
-                  histogram: [1, 2, 3].map((value) => ({
-                    bin_center: value,
-                    bin_start: value - 0.5,
-                    bin_end: value + 0.5,
-                    count: 1,
-                  })),
-                  frame: [1, 3],
+                outcome: "failed",
+                evidence: {
+                  criterion: "calibration",
+                  note: "Observed values fall outside the replicated range.",
+                  value: 0.67,
+                  lower: 0.7,
+                  upper: 0.98,
+                  lower_inclusive: true,
+                  upper_inclusive: true,
+                  display_value: "",
+                  band_label: "",
                 },
-              ],
-              overlays: [
-                {
-                  indicator_id: comparisonIndicator.observation.id,
-                  times: [0, 1, 2],
-                  time_origin: null,
-                  standardized: false,
-                  observed: [1, 4, 3],
-                  median: [1, 2, 3],
-                  spaghetti_draws: [
-                    [0, 1, 2],
-                    [1, 2, 3],
-                    [2, 3, 4],
-                  ],
-                  frame: [0, 4],
-                },
-              ],
-            },
+              },
+            ],
+            test_stats: [
+              {
+                indicator_id: comparisonIndicator.observation.id,
+                stat_name: "mean",
+                observed_value: 2.67,
+                rep_values: [1, 2, 3],
+                p_value: 0.33,
+                histogram: [1, 2, 3].map((value) => ({
+                  bin_center: value,
+                  bin_start: value - 0.5,
+                  bin_end: value + 0.5,
+                  count: 1,
+                })),
+                frame: [1, 3],
+              },
+            ],
+            overlays: [
+              {
+                indicator_id: comparisonIndicator.observation.id,
+                times: [0, 1, 2],
+                time_origin: "2026-09-01T00:00:00Z",
+                standardized: false,
+                observed: [1, 4, 3],
+                median: [1, 2, 3],
+                spaghetti_draws: [
+                  [0, 1, 2],
+                  [1, 2, 3],
+                  [2, 3, 4],
+                ],
+                frame: [0, 4],
+              },
+            ],
           },
         },
       },
@@ -281,12 +296,12 @@ function preparation(seq: number): PrepareDataRequest<GitOid, FileSourceRef> {
     action: "prepare_data",
     reasoning: null,
     input: {
-      model_ref: modelId(3),
+      dynamical_model_spec_ref: modelId(3),
       source: {
-        ...retainedMetadata.source,
-        hashes: Object.fromEntries(
-          retainedMetadata.source.files.map((name) => [name, "0".repeat(64)]),
-        ),
+        files: ["input/observations.csv"],
+        hashes: { "input/observations.csv": "0".repeat(64) },
+        start: null,
+        end: null,
       },
       extraction: Object.fromEntries(
         retainedMetadata.preparation.variables.map((variable) => [
@@ -299,10 +314,10 @@ function preparation(seq: number): PrepareDataRequest<GitOid, FileSourceRef> {
   };
 }
 const settings = (seed: number) => ({
-  num_samples: null,
+  num_samples_per_chain: null,
   num_warmup: null,
   num_chains: null,
-  n_particles: null,
+  num_particles: null,
   seed,
 });
 const workbenchRecords: StudyRevision[] = [
@@ -333,7 +348,9 @@ const workbenchRecords: StudyRevision[] = [
           reasoning: null,
           input: {
             parent_ref: seq === 2 ? questionId : modelId(seq - 2),
-            model: fixtureValue(fixtureValue(snapshots.get(seq)).model),
+            dynamical_model_spec: fixtureValue(
+              fixtureValue(snapshots.get(seq)).dynamical_model_spec,
+            ),
           },
         },
         outcome: {
@@ -385,7 +402,7 @@ const workbenchRecords: StudyRevision[] = [
         reasoning: null,
         input: {
           parent_ref: modelId(3),
-          model: fixtureValue(models.get(modelId(4))),
+          dynamical_model_spec: fixtureValue(models.get(modelId(4))),
         },
       },
       outcome: {
@@ -406,10 +423,9 @@ const workbenchRecords: StudyRevision[] = [
       action: "fit",
       reasoning: null,
       input: {
-        model_ref: modelId(4),
-        data_ref: panelId,
+        dynamical_model_spec_ref: modelId(4),
+        data_ref: { revision: panelId, replicate_index: 0 },
         settings: settings(8),
-        replicate_index: 0,
       },
     },
     outcome: {
@@ -425,8 +441,8 @@ const workbenchRecords: StudyRevision[] = [
       action: "simulate",
       reasoning: null,
       input: {
-        model_ref: modelId(4),
-        simulation: fixtureValue(simulations.get(4)).evidence.design,
+        dynamical_model_spec_ref: modelId(4),
+        simulation: simulationDesign,
       },
     },
     outcome: {
@@ -441,10 +457,9 @@ const workbenchRecords: StudyRevision[] = [
       action: "fit",
       reasoning: null,
       input: {
-        model_ref: modelId(4),
-        data_ref: panelId,
+        dynamical_model_spec_ref: modelId(4),
+        data_ref: { revision: panelId, replicate_index: 0 },
         settings: settings(10),
-        replicate_index: 0,
       },
     },
     outcome: {
@@ -461,7 +476,7 @@ const workbenchRecords: StudyRevision[] = [
       reasoning: null,
       input: {
         parent_ref: modelId(4),
-        model: pinnedModel,
+        dynamical_model_spec: pinnedDynamicalModelSpec,
       },
     },
     outcome: {
@@ -476,8 +491,8 @@ const workbenchRecords: StudyRevision[] = [
       action: "simulate",
       reasoning: null,
       input: {
-        model_ref: modelId(7),
-        simulation: fixtureValue(simulations.get(7)).evidence.design,
+        dynamical_model_spec_ref: modelId(7),
+        simulation: simulationDesign,
       },
     },
     outcome: {
@@ -492,7 +507,7 @@ const workbenchRecords: StudyRevision[] = [
       action: "data_diff",
       reasoning: null,
       input: {
-        left_ref: fixtureValue(dataComparison.report.left[0]),
+        left_ref: [fixtureValue(dataComparison.report.left[0])],
         right_ref: dataComparison.report.right,
       },
     },
@@ -536,17 +551,17 @@ snapshots.set(13, {
 export const workbenchDependencies: RecordDependency[] = (
   [
     [2, 1, "parent"],
-    [5, 4, "model"],
+    [5, 4, "dynamical_model_spec"],
     [3, 2, "parent"],
     [4, 3, "parent"],
     [7, 4, "parent"],
-    [8, 7, "model"],
+    [8, 7, "dynamical_model_spec"],
     [8, 5, "data"],
-    [9, 7, "model"],
-    [10, 7, "model"],
+    [9, 7, "dynamical_model_spec"],
+    [10, 7, "dynamical_model_spec"],
     [10, 5, "data"],
     [11, 7, "parent"],
-    [12, 11, "model"],
+    [12, 11, "dynamical_model_spec"],
     [13, 5, "left"],
     [13, 9, "right"],
   ] as const
@@ -599,9 +614,10 @@ export function workbenchResult(seq: number): ActionPoll {
           {
             kind: "log" as const,
             timestamp: stamp,
-            level: "warn" as const,
-            label: "EXTRACTION_PARTIAL",
-            details: {},
+            severity: "warning" as const,
+            code: "EXTRACTION_PARTIAL",
+            subject: "action",
+            detail: "",
           },
         ]
       : []),
@@ -632,6 +648,7 @@ export function workbenchResult(seq: number): ActionPoll {
         ...envelope,
         action: attempt.action,
         body: {
+          extraction: { workers: [], extraction_reused: null },
           metadata: fixtureValue(snapshot.metadata),
           profile: fixtureValue(snapshot.profile),
           data: {
@@ -655,7 +672,6 @@ export function workbenchResult(seq: number): ActionPoll {
               .map((_, index) => comparisonReplicate(index + 1)),
           ],
           report: fixtureValue(snapshot.simulation),
-
         },
       };
     case "data_diff":
@@ -677,19 +693,19 @@ export function workbenchHandlers() {
         action: "fit",
         reasoning: null,
         input: {
-          model_ref: modelId(7),
-          data_ref: panelId,
+          dynamical_model_spec_ref: modelId(7),
+          data_ref: { revision: panelId, replicate_index: 0 },
           settings: settings(13),
-          replicate_index: 0,
         },
       },
       messages: [
         {
           kind: "log",
           timestamp: "2026-09-16T12:05:00Z",
-          level: "info",
-          label: "FIT_STARTED",
-          details: {},
+          severity: "info",
+          code: "FIT_STARTED",
+          subject: "action",
+          detail: "",
         },
       ],
     },

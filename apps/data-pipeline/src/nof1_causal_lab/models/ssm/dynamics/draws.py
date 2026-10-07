@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from jax import Array
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
 
     from .vector_field import VectorField
 
@@ -51,14 +51,14 @@ class DynamicsDraws:
 
 
 def dynamics_from_samples(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     samples: Mapping[str, Array],
     *,
     n_draws: int,
     prefix: str = "vf",
 ) -> DynamicsDraws:
     """Pack already batched site arrays without unstacking individual draws."""
-    dynamics = spec.dynamics.spec
+    dynamics = compiled_dynamical_model.dynamics.spec
     return DynamicsDraws(
         vector_field=compile_dynamics(dynamics, prefix=prefix).vector_field,
         parameters=pack_component_params_from_samples(dynamics, samples, prefix=prefix),

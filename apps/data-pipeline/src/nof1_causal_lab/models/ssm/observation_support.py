@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
 
 
 @dataclass(frozen=True)
@@ -267,7 +267,7 @@ def compile_observation_support_runtime(
     wide_data: pl.DataFrame,
     manifest_names: Sequence[str],
     *,
-    time_origin: datetime | None,
+    time_origin: datetime,
 ) -> ObservationSupportRuntime | ObservationPreflightFailure:
     """Compile long-format observation support metadata into wide aligned arrays."""
     df = observation_data
@@ -278,7 +278,7 @@ def compile_observation_support_runtime(
         _datetime_expr(df, "support_end").alias("__support_end_dt"),
     ).drop_nulls(subset=["__anchor_dt"])
 
-    origin = ObservationInstant.origin(time_origin)
+    origin = ObservationInstant(time_origin)
     df = df.with_columns(
         ModelTime.bind_column(pl.col("__anchor_dt"), origin).alias("time"),
         ModelTime.bind_column(pl.col("__support_start_dt"), origin).alias("__support_start_time"),
@@ -347,7 +347,7 @@ def augment_wide_data_with_support_boundaries(
     observation_data: pl.DataFrame,
     wide_data: pl.DataFrame,
     *,
-    time_origin: datetime | None,
+    time_origin: datetime,
 ) -> pl.DataFrame:
     """Add missing support-boundary rows to the wide matrix.
 
@@ -382,7 +382,7 @@ def augment_wide_data_with_support_boundaries(
     if interval_df.is_empty():
         return wide_data
 
-    origin = ObservationInstant.origin(time_origin)
+    origin = ObservationInstant(time_origin)
     boundary_times = (
         pl.concat(
             [
@@ -423,7 +423,7 @@ def extract_numeric_column_values(X: pl.DataFrame, column: str) -> np.ndarray:
 
 
 def validate_observation_support(
-    spec: CompiledModel, X: pl.DataFrame
+    compiled_dynamical_model: CompiledDynamicalModel, X: pl.DataFrame
 ) -> ObservationPreflightFailure | None:
     """Reject likelihoods whose support is incompatible with observed data."""
     from nof1_causal_lab.artifacts.likelihood import (
@@ -436,7 +436,7 @@ def validate_observation_support(
     )
 
     issues: list[str] = []
-    for observation in spec.observations:
+    for observation in compiled_dynamical_model.observations:
         column, law, family = observation.name, observation.law, observation.law.family
         values = extract_numeric_column_values(X, column)
         if values.size == 0:
@@ -508,10 +508,10 @@ def recorded_observation_support(
 
 
 def simulation_observation_support(
-    spec: CompiledModel, times: np.ndarray
+    compiled_dynamical_model: CompiledDynamicalModel, times: np.ndarray
 ) -> ObservationSupportRuntime:
     """Schedule declared indicators on a simulation grid, omitting unavailable prehistory."""
-    ordered = spec.observations
+    ordered = compiled_dynamical_model.observations
     names = [indicator.name for indicator in ordered]
     kinds: list[str | None] = [indicator.support.support_kind.value for indicator in ordered]
     windows: list[str | None] = [indicator.observation_window.source for indicator in ordered]

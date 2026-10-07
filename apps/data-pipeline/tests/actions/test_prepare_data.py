@@ -10,7 +10,7 @@ import pytest
 from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 from nof1_causal_lab.actions.io import PrepareDataInput
-from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.actions.messages import preparation_messages
 from nof1_causal_lab.actions.temporal.measurement_activities import (
     finalize_measurements_activity,
     plan_measurements_activity,
@@ -111,7 +111,7 @@ def test_preparation_from_model_combines_computed_and_semantic_workers(monkeypat
             )
         )
     )
-    assert plan.pins == {"raw_data": raw.revision, "model": request.input.model_ref}
+    assert plan.pins == {"raw_data": raw.revision, "model": request.input.dynamical_model_spec_ref}
     scores = {"2026-01-01T00:00:00": "0", "2026-01-03T00:00:00": "2"}
     assert len(plan.chunks) == len(scores)
     results = []
@@ -161,7 +161,7 @@ def test_preparation_from_model_combines_computed_and_semantic_workers(monkeypat
     panel = next(item for item in effects.effects.produced if item.artifact_id == "panel")
     assert panel.derived_from == {
         "raw_data": raw.revision,
-        "model": prepared_input.model_ref,
+        "model": prepared_input.dynamical_model_spec_ref,
     }
     observations = store.read_parquet_file("panel", panel.revision, "panel.parquet")
     assert observations.select("indicator_id", "value").rows() == [
@@ -180,10 +180,11 @@ def test_preparation_from_model_combines_computed_and_semantic_workers(monkeypat
     )
     assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
-    labels = completion_messages(effects.result, datetime.now(UTC), (profile,))
-    assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
+    labels = preparation_messages(profile, effects.result, datetime.now(UTC))
+    assert "EXTRACTION_COMPLETED" in {label.code for label in labels}
     assert all(
-        set(label.model_dump()) == {"kind", "timestamp", "level", "label"} for label in labels
+        set(label.model_dump()) == {"kind", "timestamp", "severity", "code", "subject", "detail"}
+        for label in labels
     )
 
 

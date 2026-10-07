@@ -6,7 +6,7 @@ import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 
 /** The viewed version and the selection shared by the graph and details. */
 export interface ScopeContext {
-  model: ModelSnapshot;
+  modelSnapshot: ModelSnapshot;
   entities: ModelEntities;
   select: (selection: EntitySelection | null) => void;
   ticks: readonly TimelineRevision[];

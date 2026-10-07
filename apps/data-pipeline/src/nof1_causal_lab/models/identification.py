@@ -17,19 +17,19 @@ if TYPE_CHECKING:
 
 def identify_model(selection: StructuralSelection) -> IdentificationReport:
     """Identify each treatment's effect on the outcome that scopes the selection."""
-    model, outcome = selection.model, selection.outcome
+    dynamical_model_spec, outcome = selection.dynamical_model_spec, selection.outcome
     if outcome is None:
         return IdentificationReport(outcome=None)
-    # ModelSpec permits nonlinear dynamics; a linear-IV argument cannot establish
+    # DynamicalModelSpec permits nonlinear dynamics; a linear-IV argument cannot establish
     # identification for this model, including during partial authoring.
     result = check_identifiability(
-        model.constructs,
-        model.edges,
+        dynamical_model_spec.constructs,
+        dynamical_model_spec.edges,
         outcome_id=outcome,
-        observed_constructs=get_observed_constructs(model.constructs),
+        observed_constructs=get_observed_constructs(dynamical_model_spec.constructs),
         iv_allowed=False,
     )
-    by_name = {construct.name: construct.id for construct in model.constructs}
+    by_name = {construct.name: construct.id for construct in dynamical_model_spec.constructs}
     return IdentificationReport(
         outcome=outcome,
         treatments={

@@ -13,14 +13,16 @@ from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 if TYPE_CHECKING:
     import jax
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
 
 
-def sample_model_laws(model: CompiledModel, *, draws: int, key: jax.Array) -> JointPosteriorDraws:
+def sample_model_laws(
+    compiled_dynamical_model: CompiledDynamicalModel, *, draws: int, key: jax.Array
+) -> JointPosteriorDraws:
     """Sample every active law once, retaining the compiler's joint event order."""
     values: dict[str, jnp.ndarray] = {}
     paths: dict[str, jnp.ndarray] = {}
-    for law in model.laws:
+    for law in compiled_dynamical_model.laws:
         shape = (
             (draws,)
             if law.distribution.batch_shape or law.distribution.event_shape
@@ -30,9 +32,9 @@ def sample_model_laws(model: CompiledModel, *, draws: int, key: jax.Array) -> Jo
         parameter_draws, trajectories = law.layout.unpack(jnp.asarray(sampled))
         values.update(parameter_draws.items())
         paths.update(trajectories.items())
-    state_ids = tuple(state.id for state in model.states if not state.is_input)
+    state_ids = tuple(state.id for state in compiled_dynamical_model.states if not state.is_input)
     return JointPosteriorDraws(
-        parameters=assemble_parameter_draws(model, values, count=draws),
+        parameters=assemble_parameter_draws(compiled_dynamical_model, values, count=draws),
         latent_paths=jnp.stack([paths[identity] for identity in state_ids], axis=-1)
         if paths
         else None,

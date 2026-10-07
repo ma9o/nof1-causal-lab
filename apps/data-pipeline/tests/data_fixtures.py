@@ -30,7 +30,6 @@ def metadata_for_model(model):
     )
     return PreparedDataMetadata(
         time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-        source=FileSourceRef(files=("observations.csv",)),
         preparation=preparation,
     )
 
@@ -38,12 +37,12 @@ def metadata_for_model(model):
 def simulation_layout(model, times, mask, write_array):
     from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
 
-    compiled = compile_model_fixture(model)
-    support = simulation_observation_support(compiled, np.asarray(times))
+    compiled_dynamical_model = compile_model_fixture(model)
+    support = simulation_observation_support(compiled_dynamical_model, np.asarray(times))
     return SimulationObservationLayout(
         variables=tuple(
             model.indicator(observation.id).observation.resolved(observation.observation_window)
-            for observation in compiled.observations
+            for observation in compiled_dynamical_model.observations
         ),
         support_start_times=write_array(support.support_start_times),
         support_end_times=write_array(support.support_end_times),
@@ -60,17 +59,19 @@ def preparation_input(store, preparation):
     from tests.helpers import make_model
 
     variables = preparation.definition.variables
-    model = make_model([item.observation.name for item in variables])
-    model = model.revised(measurement_clock=preparation.definition.default_window).with_entities(
+    dynamical_model_spec = make_model([item.observation.name for item in variables])
+    dynamical_model_spec = dynamical_model_spec.revised(
+        measurement_clock=preparation.definition.default_window
+    ).with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             tuple(
                 construct.revised(
                     indicators=(
                         IndicatorSpec(observation=item.observation, construct_polarity="positive"),
                     )
                 )
-                for construct in model.constructs
+                for construct in dynamical_model_spec.constructs
                 for item in variables
                 if construct.name == item.observation.name
             ),
@@ -80,10 +81,10 @@ def preparation_input(store, preparation):
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": model.model_dump(mode="json")},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json")},
     )
     return PrepareDataInput[GitOid, FileSourceRef](
-        model_ref=info.revision,
+        dynamical_model_spec_ref=info.revision,
         source=preparation.source,
         extraction={item.observation.id: item.extraction for item in variables},
         context=preparation.definition.context,

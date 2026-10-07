@@ -9,11 +9,11 @@ from pydantic import ValidationError
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.edit_model import edit_model
 from nof1_causal_lab.actions.io import EditModelInput
-from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.actions.messages import edit_messages
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec, apply_model_edit
 from nof1_causal_lab.artifacts.expressions import coefficient, state
 from nof1_causal_lab.artifacts.identity import GitOid, scientific_id
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec, apply_model_edit
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.study.records import Applied, Rejected
 from nof1_causal_lab.study.store import ArtifactStore, read_model
@@ -44,14 +44,16 @@ def test_partial_document_round_trip_and_nested_merge_preserve_omission():
             }
         },
     }
-    Draft202012Validator(ModelSpec.model_json_schema()).validate(payload)
-    supplied = ModelSpec.model_validate(payload)
+    Draft202012Validator(DynamicalModelSpec.model_json_schema()).validate(payload)
+    supplied = DynamicalModelSpec.model_validate(payload)
     request = EditModelRequest[GitOid](
-        input=EditModelInput[GitOid](parent_ref="a" * 40, model=supplied)
+        input=EditModelInput[GitOid](parent_ref="a" * 40, dynamical_model_spec=supplied)
     )
     restored = EditModelRequest[GitOid].model_validate_json(request.model_dump_json())
-    assert restored.input.model.model_dump(mode="json") == payload
-    edited = apply_model_edit(original, restored.input.model, outcome.id).model
+    assert restored.input.dynamical_model_spec.model_dump(mode="json") == payload
+    edited = apply_model_edit(
+        original, restored.input.dynamical_model_spec, outcome.id
+    ).dynamical_model_spec
     assert edited.measurement_clock == original.measurement_clock
     assert edited.edges[0].id == original.edges[0].id
     assert edited.get_construct(source.id).description == source.description
@@ -81,19 +83,28 @@ def test_null_edge_prunes_ancestors_and_their_owned_parameters_and_laws():
     document["distributions"] = {
         "distribution:initial": {"distribution": "Normal", "params": {"loc": 0, "scale": 1}}
     }
-    parent = ModelSpec.model_validate(document).materialized()
-    edit = ModelSpec.model_validate({"edges": {parent.edges[1].id: None}})
+    parent = DynamicalModelSpec.model_validate(document).materialized()
+    edit = DynamicalModelSpec.model_validate({"edges": {parent.edges[1].id: None}})
     result = apply_model_edit(parent, edit, outcome.id)
-    assert result.model.constructs == (outcome,)
-    assert result.model.edges == result.model.parameters == ()
-    assert not result.model.distributions
+    assert result.dynamical_model_spec.constructs == (outcome,)
+    assert result.dynamical_model_spec.edges == result.dynamical_model_spec.parameters == ()
+    assert not result.dynamical_model_spec.distributions
     assert result.pruning.constructs == (ancestor.id, middle.id)
     assert result.pruning.edges == (parent.edges[0].id,)
     assert result.pruning.parameters == (identity,)
     assert result.pruning.distributions == ("distribution:initial",)
-    (warning,) = completion_messages(result.pruning, datetime(2026, 1, 1, tzinfo=UTC))
-    assert (warning.level, warning.label) == ("warn", "MODEL_COMPONENTS_PRUNED")
-    assert warning.details["constructs"] == (ancestor.id, middle.id)
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport, QuestionCheckReport
+
+    (warning,) = edit_messages(
+        ModelCheckReport(specification=(), question=QuestionCheckReport(findings=())),
+        IdentificationReport(outcome=None),
+        result.pruning,
+        datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert (warning.severity, warning.code) == ("warning", "MODEL_COMPONENTS_PRUNED")
+    assert warning.subject == "model"
+    assert "details" not in warning.model_dump()
 
 
 def test_disconnected_creation_prunes_before_whole_model_validation():
@@ -101,9 +112,9 @@ def test_disconnected_creation_prunes_before_whole_model_validation():
     payload = source.model_dump(mode="json")
     payload["edges"].pop(source.edges[1].id)
     result = apply_model_edit(
-        ModelSpec(), ModelSpec.model_validate(payload), source.constructs[1].id
+        DynamicalModelSpec(), DynamicalModelSpec.model_validate(payload), source.constructs[1].id
     )
-    assert tuple(node.name for node in result.model.constructs) == ("A", "Y")
+    assert tuple(node.name for node in result.dynamical_model_spec.constructs) == ("A", "Y")
     assert len(result.pruning.constructs) == 2
 
 
@@ -111,10 +122,10 @@ def test_null_nested_entity_and_nullable_field_remove_only_the_supplied_values()
     parent = make_model(["X", "Y"], [("X", "Y")])
     source, outcome = parent.constructs
     indicator = source.indicators[0].observation.id
-    supplied = ModelSpec.model_validate(
+    supplied = DynamicalModelSpec.model_validate(
         {"constructs": {source.id: {"indicators": {indicator: None}}}, "measurement_clock": None}
     )
-    result = apply_model_edit(parent, supplied, outcome.id).model
+    result = apply_model_edit(parent, supplied, outcome.id).dynamical_model_spec
     assert result.get_construct(source.id).indicators == ()
     assert result.measurement_clock is None
     assert result.get_construct(outcome.id).indicators == outcome.indicators
@@ -135,7 +146,7 @@ def test_retained_invalid_edits_fail_only_at_materialization(violation):
             "constructs": {source.id: {"indicators": {source.indicators[0].observation.id: 42}}}
         },
     }[violation]
-    supplied = ModelSpec.model_validate(payload)
+    supplied = DynamicalModelSpec.model_validate(payload)
     with pytest.raises(ValidationError):
         apply_model_edit(parent, supplied, outcome.id)
 
@@ -145,8 +156,8 @@ def test_action_uses_selected_parent_and_rejects_without_writing(tmp_path, monke
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("EDIT")
-    model = make_model(["X", "Y"], [("X", "Y")])
-    source, outcome = model.constructs
+    dynamical_model_spec = make_model(["X", "Y"], [("X", "Y")])
+    source, outcome = dynamical_model_spec.constructs
     question = write_question(
         store,
         QuestionSpec(
@@ -167,12 +178,13 @@ def test_action_uses_selected_parent_and_rejects_without_writing(tmp_path, monke
             "EDIT",
             EditModelRequest[GitOid](
                 input=EditModelInput[GitOid](
-                    parent_ref=parent, model=ModelSpec.model_validate(payload)
+                    parent_ref=parent,
+                    dynamical_model_spec=DynamicalModelSpec.model_validate(payload),
                 )
             ),
         )
 
-    created = run(question.revision, model.model_dump(mode="json"))
+    created = run(question.revision, dynamical_model_spec.model_dump(mode="json"))
     assert isinstance(created, Applied)
     parent = created.effects.produced[0]
     changed = run(parent.revision, {"constructs": {source.id: {"name": "renamed"}}})
@@ -184,7 +196,7 @@ def test_action_uses_selected_parent_and_rejects_without_writing(tmp_path, monke
     standalone = run(question.revision, {"constructs": {source.id: {"name": "renamed"}}})
     assert isinstance(standalone, Rejected)
     before = tuple(store.repo.references)
-    rejected = run(parent.revision, {"edges": {model.edges[0].id: None}})
+    rejected = run(parent.revision, {"edges": {dynamical_model_spec.edges[0].id: None}})
     assert isinstance(rejected, Rejected)
     assert str(source.id) in rejected.detail
     assert tuple(store.repo.references) == before
@@ -198,7 +210,7 @@ def test_partial_law_parameters_merge_and_a_changed_family_replaces_them():
     parameter = scientific_id("parameter", "baseline")
     parent = apply_model_edit(
         parent,
-        ModelSpec.model_validate(
+        DynamicalModelSpec.model_validate(
             {
                 "constructs": {
                     source.id: {
@@ -223,16 +235,16 @@ def test_partial_law_parameters_merge_and_a_changed_family_replaces_them():
             }
         ),
         outcome.id,
-    ).model
-    supplied = ModelSpec.model_validate(
+    ).dynamical_model_spec
+    supplied = DynamicalModelSpec.model_validate(
         {"distributions": {"distribution:baseline": {"params": {"loc": 3}}}}
     )
-    edited = apply_model_edit(parent, supplied, outcome.id).model
+    edited = apply_model_edit(parent, supplied, outcome.id).dynamical_model_spec
     law = edited.distribution_for(parameter)
     assert isinstance(law, dist.Normal)
     assert float(law.loc) == 3
     assert float(law.scale) == 2
-    replacement = ModelSpec.model_validate(
+    replacement = DynamicalModelSpec.model_validate(
         {
             "distributions": {
                 "distribution:baseline": {
@@ -242,5 +254,5 @@ def test_partial_law_parameters_merge_and_a_changed_family_replaces_them():
             }
         }
     )
-    changed = apply_model_edit(edited, replacement, outcome.id).model
+    changed = apply_model_edit(edited, replacement, outcome.id).dynamical_model_spec
     assert isinstance(changed.distribution_for(parameter), dist.Uniform)

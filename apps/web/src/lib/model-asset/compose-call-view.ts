@@ -9,15 +9,15 @@ import type {
 } from "@nof1-causal-lab/api-types";
 import { questionCall } from "./call-dependencies";
 
-export function callModel(result: ActionSuccess | undefined): EditModelOutput | null {
+export function callModelOutput(result: ActionSuccess | undefined): EditModelOutput | null {
   return result?.action === "edit_model" ? result.body : null;
 }
 
 interface ViewParts {
   artifacts: ModelSnapshot["state"]["current"];
   question: ModelSnapshot["question"];
-  model: EditModelOutput | null;
-  definition: ModelSnapshot["model"];
+  modelOutput: EditModelOutput | null;
+  dynamicalModelSpec: ModelSnapshot["dynamical_model_spec"];
   fitOutput: FitOutput | null;
   prepared: PrepareDataOutput | null;
   data: ModelSnapshot["state"]["data"];
@@ -28,8 +28,8 @@ interface ViewParts {
 const empty: ViewParts = {
   artifacts: {},
   question: null,
-  model: null,
-  definition: null,
+  modelOutput: null,
+  dynamicalModelSpec: null,
   fitOutput: null,
   prepared: null,
   data: null,
@@ -86,19 +86,19 @@ export function composeCallView(
           ...empty,
           question: question.question,
           artifacts: { ...question.artifacts, ...produced },
-          model: result.body,
-          definition: result.body.model,
+          modelOutput: result.body,
+          dynamicalModelSpec: result.body.dynamical_model_spec,
         };
         break;
       }
       case "prepare_data": {
-        const model = input(entry, "model");
+        const modelView = input(entry, "dynamical_model_spec");
         const panel = produced.panel;
         view = {
-          ...model,
+          ...modelView,
           artifacts: {
             ...Object.fromEntries(
-              Object.entries(model.artifacts).filter(
+              Object.entries(modelView.artifacts).filter(
                 ([key]) => key === "model" || key === "question",
               ),
             ),
@@ -115,13 +115,13 @@ export function composeCallView(
         if (request?.action !== "fit") throw new Error("Saved fit is missing its input references");
         const dataCall = inputCall(entry, "data");
         const data = parts(dataCall);
-        const model = input(entry, "model");
+        const modelView = input(entry, "dynamical_model_spec");
         view = {
           ...empty,
-          question: model.question,
+          question: modelView.question,
           artifacts: {
             ...Object.fromEntries(
-              Object.entries(model.artifacts).filter(
+              Object.entries(modelView.artifacts).filter(
                 ([key]) => key === "model" || key === "question",
               ),
             ),
@@ -134,14 +134,11 @@ export function composeCallView(
               : {}),
             ...produced,
           },
-          model: model.model,
-          definition: result.body.model,
+          modelOutput: modelView.modelOutput,
+          dynamicalModelSpec: result.body.dynamical_model_spec,
           fitOutput: result.body,
           prepared: dataCall.record.attempt.action === "prepare_data" ? data.prepared : null,
-          data: {
-            revision: request.input.data_ref,
-            replicate_index: request.input.replicate_index,
-          },
+          data: request.input.data_ref,
           fit: result.body.inference.core,
         };
         break;
@@ -149,12 +146,12 @@ export function composeCallView(
       case "simulate": {
         if (request?.action !== "simulate")
           throw new Error("Saved simulation is missing its input references");
-        const model = input(entry, "model");
+        const modelView = input(entry, "dynamical_model_spec");
         view = {
-          ...model,
+          ...modelView,
           artifacts: {
             ...Object.fromEntries(
-              Object.entries(model.artifacts).filter(
+              Object.entries(modelView.artifacts).filter(
                 ([key]) => key === "model" || key === "question",
               ),
             ),
@@ -177,7 +174,7 @@ export function composeCallView(
   }
 
   const view = parts(selected);
-  const model = view.model;
+  const modelOutput = view.modelOutput;
   const prepared = view.prepared;
   return {
     workspace_id: workspaceId,
@@ -188,13 +185,20 @@ export function composeCallView(
       current: view.artifacts,
       data: view.data,
     },
-    model: view.definition,
+    dynamical_model_spec: view.dynamicalModelSpec,
     metadata: prepared?.metadata ?? null,
     profile: prepared?.profile ?? null,
-    identification: model?.identification ?? null,
-    validation_report: view.fitOutput?.checks.validation ?? null,
-    specification: model?.checks?.specification ?? null,
-    question_checks: view.fitOutput?.checks.question ?? model?.checks?.question ?? null,
+    identification: modelOutput?.identification ?? null,
+    fit_checks: view.fitOutput?.checks ?? null,
+    specification: modelOutput?.checks.specification ?? null,
+    question_checks: modelOutput
+      ? {
+          findings: [
+            ...modelOutput.checks.question.findings,
+            ...(view.fitOutput?.checks.question.findings ?? []),
+          ],
+        }
+      : null,
     fit: view.fit,
     simulation: view.simulation,
   };

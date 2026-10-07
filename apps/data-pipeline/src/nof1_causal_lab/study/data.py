@@ -111,8 +111,8 @@ class DataHistory:
         return self.observations.variables
 
     @property
-    def time_origin(self) -> datetime | None:
-        """Calendar instant of model day zero, or ``None`` for a calendar-free history."""
+    def time_origin(self) -> datetime:
+        """Calendar instant of model day zero."""
         return self.observations.time_origin
 
 
@@ -235,7 +235,7 @@ def prepared_frame(result: PrepareDataOutput) -> pl.DataFrame:
     rows = []
     for variable in result.metadata.variables:
         history = result.data[variable.id]
-        origin = ObservationInstant.origin(history.time_origin)
+        origin = ObservationInstant(result.metadata.time_origin)
 
         def instant(day: float | None, origin: ObservationInstant = origin) -> datetime | None:
             return ModelTime(day).at(origin).value.replace(tzinfo=None) if day is not None else None

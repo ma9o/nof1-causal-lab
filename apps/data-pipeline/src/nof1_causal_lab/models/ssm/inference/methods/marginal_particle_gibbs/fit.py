@@ -64,13 +64,13 @@ def fit_marginal_particle_gibbs(
     overall_t0 = clock()
     logger.info(
         "marginal_particle_gibbs entry: chains=%d warmup=%d samples=%d T=%d "
-        "n_manifest=%d n_particles=%d n_parameter_particles=%d init_method=%s",
+        "n_manifest=%d num_particles=%d n_parameter_particles=%d init_method=%s",
         sampler.num_chains,
         sampler.num_warmup,
-        sampler.num_samples,
+        sampler.num_samples_per_chain,
         int(observations.shape[0]),
         int(observations.shape[1]) if observations.ndim >= 2 else 0,
-        sampler.n_particles,
+        sampler.num_particles,
         options.n_parameter_particles,
         options.init_method,
     )
@@ -175,7 +175,7 @@ def fit_marginal_particle_gibbs(
     kernel = build_marginal_particle_gibbs_kernel(
         bundle.runtime,
         exact_constraints=bundle.exact_constraints,
-        num_particles=sampler.n_particles,
+        num_particles=sampler.num_particles,
         num_parameter_particles=options.n_parameter_particles,
         param_step_size=options.param_step_size,
         target_accept=options.param_target_accept,
@@ -216,7 +216,7 @@ def fit_marginal_particle_gibbs(
         bundle.runtime,
         kernel=kernel,
         num_warmup=sampler.num_warmup,
-        num_samples=sampler.num_samples,
+        num_samples=sampler.num_samples_per_chain,
         num_chains=sampler.num_chains,
         seed=sampler.seed,
         init_scale=options.init_scale,
@@ -237,20 +237,22 @@ def fit_marginal_particle_gibbs(
         run_result.grouped_positions,
         bundle=bundle,
         num_chains=sampler.num_chains,
-        num_samples=sampler.num_samples,
+        num_samples=sampler.num_samples_per_chain,
     )
     mcmc = build_pmcmc_mcmc_result(
         chain_samples=grouped_public_samples,
         chain_extra_fields=run_result.chain_extra_fields,
         num_chains=sampler.num_chains,
-        num_samples=sampler.num_samples,
+        num_samples=sampler.num_samples_per_chain,
         backend="marginal_particle_gibbs",
     )
     chain_extra_fields = run_result.chain_extra_fields
     summary_extra_fields = (
-        chain_extra_fields if sampler.num_samples > 0 else run_result.warmup_chain_extra_fields
+        chain_extra_fields
+        if sampler.num_samples_per_chain > 0
+        else run_result.warmup_chain_extra_fields
     )
-    diagnostic_summary_phase = "post_warmup" if sampler.num_samples > 0 else "warmup"
+    diagnostic_summary_phase = "post_warmup" if sampler.num_samples_per_chain > 0 else "warmup"
     kernel_diagnostics = ParticleSamplerDiagnostics(
         settings=sampler,
         parameter_kernel="m_pgibbs_random_walk"

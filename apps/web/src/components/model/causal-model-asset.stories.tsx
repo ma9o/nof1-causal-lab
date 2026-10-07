@@ -191,14 +191,14 @@ export const Complete: Story = {
     await expect(record.getByText(/Panel from prepare_data · c000005/)).toBeVisible();
     await expect(record.getByText(/Observed values fall outside/)).toBeVisible();
     await expect(
-      await details.findByRole("img", { name: "gad7_screening_score: data comparison" }),
+      await details.findByRole("img", { name: "phq9_screening_score: data comparison" }),
     ).toBeInTheDocument();
     await userEvent.click(
       await within(canvas.getByRole("region", { name: "Causal graph" })).findByRole("button", {
-        name: "gad7 screening score comparison",
+        name: "phq9 screening score comparison",
       }),
     );
-    await expect(details.getByRole("heading", { name: "gad7 screening score" })).toBeVisible();
+    await expect(details.getByRole("heading", { name: "phq9 screening score" })).toBeVisible();
     await expect(
       details.getByRole("table", { name: /statistic distributions/ }),
     ).toBeInTheDocument();

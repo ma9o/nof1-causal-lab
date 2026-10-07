@@ -31,7 +31,7 @@ from nof1_causal_lab.models.ssm.execution.dynamical_model import (
 from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices, sample_sites
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.execution.contracts import InitializationLikelihoodBackend
     from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
@@ -68,11 +68,15 @@ def _nan_safe_ll_bwd(is_finite, g):
 _nan_safe_ll.defvjp(_nan_safe_ll_fwd, _nan_safe_ll_bwd)
 
 
-def sample_parameters(model: CompiledModel, priors: PriorRuntimeBundle) -> dict[str, jnp.ndarray]:
+def sample_parameters(
+    compiled_dynamical_model: CompiledDynamicalModel, priors: PriorRuntimeBundle
+) -> dict[str, jnp.ndarray]:
     """Sample declared sites and emit the canonical scientific matrices."""
-    sites = chain.from_iterable(block.iter_sites() for block in numeric.parameter_blocks(model))
+    sites = chain.from_iterable(
+        block.iter_sites() for block in numeric.parameter_blocks(compiled_dynamical_model)
+    )
     matrices, min_eigenvalue = assemble_model_matrices(
-        model, sample_sites(sites, priors.priors.__getitem__)
+        compiled_dynamical_model, sample_sites(sites, priors.priors.__getitem__)
     )
     for name, value in matrices.items():
         # Empty input/static-factor blocks have no public deterministic site.
@@ -97,7 +101,7 @@ def initialization_input_intervention(panel: BoundPanel, times: jnp.ndarray) -> 
                 int(index),
                 PrecomputedValueFn(times - times[0], panel.input_values[:, index]),
             )
-            for index in np.flatnonzero(numeric.input_mask(panel.model))
+            for index in np.flatnonzero(numeric.input_mask(panel.compiled_dynamical_model))
         )
     )
 
@@ -108,9 +112,9 @@ def numpyro_model(
     likelihood_backend: InitializationLikelihoodBackend,
 ) -> None:
     """Replay compiled priors and the particle-initialization likelihood."""
-    spec = panel.model
+    compiled_dynamical_model = panel.compiled_dynamical_model
     observations, times = panel.observations, panel.times
-    sampled = sample_parameters(spec, priors)
+    sampled = sample_parameters(compiled_dynamical_model, priors)
 
     diffusion_chol = sampled["diffusion"]
     lambda_mat = sampled["lambda"]
@@ -119,13 +123,14 @@ def numpyro_model(
 
     manifest_cov = sampled["manifest_cov"]
     t0_cov = sampled["t0_cov"]
-    sample_sites(process_sites(spec), priors.priors.__getitem__)
+    sample_sites(process_sites(compiled_dynamical_model), priors.priors.__getitem__)
     observation_laws = materialize_observation_laws(
-        spec, sample_sites(likelihood_sites(spec), priors.priors.__getitem__)
+        compiled_dynamical_model,
+        sample_sites(likelihood_sites(compiled_dynamical_model), priors.priors.__getitem__),
     )
     dynamics = continuous_state_evolution(
-        vector_field=spec.dynamics.vector_field,
-        vf_params=spec.dynamics.sample_params(priors.priors.__getitem__),
+        vector_field=compiled_dynamical_model.dynamics.vector_field,
+        vf_params=compiled_dynamical_model.dynamics.sample_params(priors.priors.__getitem__),
         diffusion=diffusion_chol,
         intervention=initialization_input_intervention(panel, times),
     )
@@ -139,7 +144,9 @@ def numpyro_model(
     time_intervals = jnp.diff(times, prepend=times[0])
     time_intervals = time_intervals.at[0].set(MIN_DT)
 
-    init = initial_state_distribution(spec, t0_means, t0_cov, input_values=panel.input_values)
+    init = initial_state_distribution(
+        compiled_dynamical_model, t0_means, t0_cov, input_values=panel.input_values
+    )
     lnc = likelihood_backend.compute_log_likelihood(
         dynamics,
         meas_params,

@@ -39,25 +39,24 @@ describe("scoped model inspection", () => {
 
   it("attributes recorded data and identification issues without requiring a fit", () => {
     const indicator = fixtureValue(outcome.indicators[0]);
-    const model = {
+    const modelSnapshot = {
       ...authoredSnapshot,
       profile: {
         indicators: {
           [indicator.observation.id]: {
             profile: null,
-            checks: {},
-            issues: [
+            findings: [
               {
-                indicator_id: indicator.observation.id,
-                issue_type: "missing",
-                severity: "warning" as const,
-                message: "Missing observations.",
+                code: "missing",
+                kind: "evaluated" as const,
+                subject: { kind: "indicator" as const, id: indicator.observation.id },
+                outcome: "failed" as const,
+                evidence: "Missing observations.",
               },
             ],
           },
         },
-        dataset_issues: [],
-        is_valid: true,
+        findings: [],
       },
       identification: {
         outcome: outcome.id,
@@ -66,9 +65,11 @@ describe("scoped model inspection", () => {
         },
       },
     };
-    expect(entityFailures(model, indicator)).toEqual(["Data quality: outcome_reading"]);
-    expect(entityFailures(model, outcome)).toEqual(["Data quality: outcome_reading"]);
-    expect(entityFailures(model, treatment)).toEqual(["Identification against ★: treatment"]);
+    expect(entityFailures(modelSnapshot, indicator)).toEqual(["Data quality: outcome_reading"]);
+    expect(entityFailures(modelSnapshot, outcome)).toEqual(["Data quality: outcome_reading"]);
+    expect(entityFailures(modelSnapshot, treatment)).toEqual([
+      "Identification against ★: treatment",
+    ]);
     expect(entityFailures(authoredSnapshot, outcome)).toEqual([]);
   });
 });

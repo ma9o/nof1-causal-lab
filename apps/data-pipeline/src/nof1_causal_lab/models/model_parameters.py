@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec, _ModelEntities
     from nof1_causal_lab.artifacts.identity import EntityRef, ParameterId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec, _ModelEntities
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
@@ -60,9 +60,11 @@ class ParameterContext:
         return tuple({owner.id: owner for use in self.uses for owner in use.owners}.values())
 
 
-def iter_coefficient_uses(model: ModelSpec | _ModelEntities) -> Iterator[CoefficientUse]:
+def iter_coefficient_uses(
+    dynamical_model_spec: DynamicalModelSpec | _ModelEntities,
+) -> Iterator[CoefficientUse]:
     """Yield model coefficient uses with their quantity meanings, owners, and authored locations."""
-    for owner, mechanism in model.iter_mechanisms():
+    for owner, mechanism in dynamical_model_spec.iter_mechanisms():
         refs: list[EntityRef] = [MechanismRef(id=mechanism.id)]
         target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         refs.append(ConstructRef(id=target))
@@ -79,7 +81,7 @@ def iter_coefficient_uses(model: ModelSpec | _ModelEntities) -> Iterator[Coeffic
             yield CoefficientUse(
                 quantity, tuple(refs), operand.value, f"{mechanism.id}.expression.{index}"
             )
-    for construct in model.constructs:
+    for construct in dynamical_model_spec.constructs:
         ref = ConstructRef(id=construct.id)
         for operand in construct.coefficients:
             if operand.value is None:
@@ -120,10 +122,12 @@ def iter_coefficient_uses(model: ModelSpec | _ModelEntities) -> Iterator[Coeffic
                     )
 
 
-def parameter_contexts(model: ModelSpec | _ModelEntities) -> dict[ParameterId, ParameterContext]:
+def parameter_contexts(
+    dynamical_model_spec: DynamicalModelSpec | _ModelEntities,
+) -> dict[ParameterId, ParameterContext]:
     """Group symbolic coefficient uses by parameter identity to establish each parameter's context."""
     grouped: dict[ParameterId, list[CoefficientUse]] = {}
-    for use in iter_coefficient_uses(model):
+    for use in iter_coefficient_uses(dynamical_model_spec):
         if isinstance(use.value, str):
             grouped.setdefault(use.value, []).append(use)
     return {identity: ParameterContext(tuple(uses)) for identity, uses in grouped.items()}
@@ -131,16 +135,16 @@ def parameter_contexts(model: ModelSpec | _ModelEntities) -> dict[ParameterId, P
 
 def execution_coefficient_uses(selection: StructuralSelection) -> Iterator[CoefficientUse]:
     """Exclude coefficients owned only by structure outside the numerical selection."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     states = set(selected_state_ids(selection))
     roots = {
         edge.cause.id
-        for edge in model.edges
+        for edge in dynamical_model_spec.edges
         if edge.cause.id in selection.marginalized_construct_ids and edge.effect.id in states
     }
     edges = {
         edge.id
-        for edge in model.edges
+        for edge in dynamical_model_spec.edges
         if edge.cause.id in states | roots and edge.effect.id in states
     }
     active = {
@@ -148,7 +152,7 @@ def execution_coefficient_uses(selection: StructuralSelection) -> Iterator[Coeff
         "edge": edges,
         "indicator": {indicator.observation.id for indicator in selected_indicators(selection)},
     }
-    for use in iter_coefficient_uses(model):
+    for use in iter_coefficient_uses(dynamical_model_spec):
         if all(owner.kind == "mechanism" or owner.id in active[owner.kind] for owner in use.owners):
             yield use
 
@@ -157,7 +161,9 @@ def execution_parameters(selection: StructuralSelection) -> tuple[ParameterSpec,
     """Select the scientific coefficients used by the current retained structure."""
     referenced = {use.value for use in execution_coefficient_uses(selection)}
     return tuple(
-        parameter for parameter in selection.model.parameters if parameter.id in referenced
+        parameter
+        for parameter in selection.dynamical_model_spec.parameters
+        if parameter.id in referenced
     )
 
 
@@ -181,11 +187,13 @@ def baseline_factor_groups(
     selection: StructuralSelection,
 ) -> tuple[tuple[ConstructSpec, ...], ...]:
     """A shared scale denotes one identifiable factor for marginalized baseline roots."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     grouped: dict[str, list[ConstructSpec]] = {}
     states = set(selected_state_ids(selection))
-    retained_parents = {edge.cause.id for edge in model.edges if edge.effect.id in states}
-    for construct in model.constructs:
+    retained_parents = {
+        edge.cause.id for edge in dynamical_model_spec.edges if edge.effect.id in states
+    }
+    for construct in dynamical_model_spec.constructs:
         if (
             construct.indicators
             or construct.id not in retained_parents

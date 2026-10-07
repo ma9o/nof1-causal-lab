@@ -3,8 +3,7 @@
 from typing import Any
 
 from pydantic import TypeAdapter
-
-from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
+from scripts.artifact_contracts import ARTIFACT_CONTRACTS
 
 
 def validate_artifact_payload(artifact_id: str, data: dict[str, Any]) -> dict[str, Any]:

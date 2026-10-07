@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import BinaryExpression
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
@@ -14,7 +14,7 @@ from tests.inference_fixtures import compile_model_fixture
 from tests.model_fixtures import load_model_fixture
 
 
-def _two_hills_model() -> ModelSpec:
+def _two_hills_model() -> DynamicalModelSpec:
     return load_model_fixture("mechanism_identity/two_hills_model.json")
 
 
@@ -56,7 +56,7 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
         )
     # Incremental edits submit the whole authored model directly.
 
-    submitted = ModelSpec.model_validate(revised.model_dump(mode="json")).materialized()
+    submitted = DynamicalModelSpec.model_validate(revised.model_dump(mode="json")).materialized()
     assert submitted.edges[0].mechanisms == revised.edges[0].mechanisms
     removed_ids = {p.id for p in model.parameters_for(edge.mechanisms[1].id)}
     remaining = tuple(p for p in model.parameters if p.id not in removed_ids)

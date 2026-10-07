@@ -348,7 +348,7 @@ def annotate_observation_rows(
     return df
 
 
-def pivot_to_wide(df: pl.DataFrame, *, time_origin: datetime | None) -> pl.DataFrame:
+def pivot_to_wide(df: pl.DataFrame, *, time_origin: datetime) -> pl.DataFrame:
     """Pivot recorded observations onto a shared model-day axis.
 
     Args:
@@ -384,7 +384,7 @@ def pivot_to_wide(df: pl.DataFrame, *, time_origin: datetime | None) -> pl.DataF
     if wide_data.schema[time_col].base_type() in (pl.Datetime, pl.Date):
         from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
-        origin = ObservationInstant.origin(time_origin)
+        origin = ObservationInstant(time_origin)
         wide_data = wide_data.with_columns(
             ModelTime.bind_column(pl.col(time_col), origin).alias(time_col)
         )

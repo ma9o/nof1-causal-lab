@@ -53,9 +53,9 @@ TypeScript exports use the same names.
 
 | Role | Convention | Examples |
 |------|------------|----------|
-| Declarative model or configuration definition, consumed by validation or compilation | `...Spec` | `ModelSpec`, `ParameterSpec`, `LikelihoodSpec`, `DynamicsSpec` |
+| Declarative model or configuration definition, consumed by validation or compilation | `...Spec` | `DynamicalModelSpec`, `ParameterSpec`, `LikelihoodSpec`, `DynamicsSpec` |
 | Symbolic formula or formula node | `...Expression` | `StateExpression`, `CoefficientExpression`, `BinaryExpression` |
-| Compiled implementation or execution state | `Compiled...` or `...Runtime` | `CompiledDynamics`, `CompiledObservationModel`, `ObservationSupportRuntime` |
+| Compiled implementation or execution state | `Compiled...` or `...Runtime` | `CompiledDynamicalModel`, `CompiledDynamics`, `CompiledObservationModel`, `ObservationSupportRuntime` |
 | Executable mathematical operation | Name the operation | `ObservationKernel`, `ObservationOperator`, `VectorField` |
 | Validation, identification, or inference findings | `...Report` or a specific finding name | `IdentificationReport`, `InferenceReport`, `ValidationIssue` |
 | Completed operation output | `...Result` | `CausalEffectResult`, `PriorPredictiveResult` |
@@ -70,12 +70,18 @@ Public action input and output types are paired in
 [`actions/io.py`](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py),
 with request and polling envelopes defined separately.
 
-The scientific definition types are `ModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
+The scientific definition types are `DynamicalModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
 `IndicatorSpec`, `DriftMechanismSpec`, `PotentialMechanismSpec`, `LikelihoodSpec`,
 `ObservationLawSpec` (the closed union of per-family law specifications),
 and `ParameterSpec`. A spec may be partial during authoring, complete before
 execution, or enriched with conditioned distributions after inference. Its suffix
 describes its declarative role throughout those revisions.
+
+Name fields and variables by the same role: `dynamical_model_spec`,
+`compiled_dynamical_model`, and `dynamical_model` for the instantiated Dynestyx
+value. Use `dynamical_model_spec_ref` for references and `model_snapshot` for
+snapshots. TypeScript locals and view properties use the corresponding camelCase
+names; generated API fields retain their Python names.
 
 Use the scientific nouns in prose and UI labels: "construct", "indicator", and
 "observation law". Keep identity names and serialized field names tied to those
@@ -93,7 +99,7 @@ without retaining compatibility aliases.
 Use a scalar ID when a field identifies one known kind of entity: scenario
 `target` and `outcome`, question `outcome`, and validation `indicator_id`.
 Keep tagged references for mixed entity kinds.
-[`ModelSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/model_spec.py)
+[`DynamicalModelSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/dynamical_model_spec.py)
 owns ID-keyed construct, edge and parameter definitions. Its edges refer to scalar
 construct IDs; resolved Python edges hold canonical `ConstructSpec` objects.
 The same document represents creation, partial edits and materialized models.
@@ -119,7 +125,7 @@ records own their input references and produced artifact revisions.
 
 Workflow: **edit Python → `bun run codegen` → commit both**.
 
-Follow the [type naming conventions](#type-naming-conventions). `ModelSpec` is the
+Follow the [type naming conventions](#type-naming-conventions). `DynamicalModelSpec` is the
 scientific definition retained inside the owning [action result](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py); `ConstructSpec`, `IndicatorSpec`, and
 `ParameterSpec` retain their canonical ownership inside it, while [`Value`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/base.py) supplies the shared immutable
 base. Server-composed views and study records share this export. Frontend code
@@ -140,7 +146,7 @@ uses shared payload variants for simulation effects and predictive comparisons;
 consumers narrow their discriminator before reading
 the payload or its absence reason.
 
-[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and inference plot series come from the backend. The [authored-law renderer](../../apps/web/src/lib/model-asset/authored-prior-plot.ts) evaluates supported scalar laws from `ModelSpec` solely for display; those plot points are not saved action results. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
+[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and inference plot series come from the backend. The [authored-law renderer](../../apps/web/src/lib/model-asset/authored-prior-plot.ts) evaluates supported scalar laws from `DynamicalModelSpec` solely for display; those plot points are not saved action results. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.

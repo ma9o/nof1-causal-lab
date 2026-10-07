@@ -24,13 +24,13 @@ from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture
 from tests.model_fixtures import load_model_fixture
 
 
-def _sleep_state_model() -> ModelSpec:
-    model = load_model_fixture("inference/sleep_state_model.json")
-    first = model.constructs[0]
+def _sleep_state_model() -> DynamicalModelSpec:
+    dynamical_model_spec = load_model_fixture("inference/sleep_state_model.json")
+    first = dynamical_model_spec.constructs[0]
     indicator = first.indicators[0]
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 first.revised(
                     indicators=(
@@ -46,7 +46,7 @@ def _sleep_state_model() -> ModelSpec:
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.contract
@@ -94,7 +94,7 @@ def _make_observation_support_runtime() -> ObservationSupportRuntime:
 
 def _make_panel(inputs: CompiledFitInputs) -> BoundPanel:
     return bind_panel_fixture(
-        inputs.compiled,
+        inputs.compiled_dynamical_model,
         jnp.array([[jnp.nan, 0.8], [0.2, 0.5]], dtype=jnp.float32),
         jnp.array([0.0, 1.5], dtype=jnp.float32),
         support=_make_observation_support_runtime(),
@@ -103,8 +103,8 @@ def _make_panel(inputs: CompiledFitInputs) -> BoundPanel:
 
 def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, caplog):
     fake_result = _fake_result()
-    spec = _sleep_state_model()
-    fake_model = compile_fit_fixture(spec)
+    dynamical_model_spec = _sleep_state_model()
+    fake_model = compile_fit_fixture(dynamical_model_spec)
     runtime = _make_panel(fake_model)
 
     monkeypatch.setattr(compilation, "compile_ssm_inputs_from_model", lambda _selection: fake_model)
@@ -115,13 +115,13 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
     data_for_model = ObservationDataset.from_frame(
         pl.DataFrame(runtime.rows),
-        tuple(item.observation for item in runtime.model.observations),
+        tuple(item.observation for item in runtime.compiled_dynamical_model.observations),
         time_origin=runtime.time_origin,
     )
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            StructuralSelection(spec, None),
+            StructuralSelection(dynamical_model_spec, None),
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             sampler=SamplerSpec(),

@@ -1,4 +1,3 @@
-import { presentEntries } from "@/lib/model-accessors";
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
 import { indicatorPresentation } from "@/lib/model-asset/inspector";
 import { observationEquation } from "@/lib/model-asset/equations";
@@ -10,23 +9,16 @@ import { LawSections, SimulatedHistory } from "./law-sections";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { ObservationPlots, ObservedProfile } from "./recorded-history";
 
-const CHECK_STATUS = {
-  ok: "passed",
-  warning: "warning",
-  error: "failed",
-  not_evaluated: "not_evaluated",
-} as const;
-
 export function IndicatorScope({ context, id }: { context: ScopeContext; id: IndicatorId }) {
   const scope = indicatorPresentation(context, id);
   if (!scope) return null;
-  const { indicator, audit, likelihood, issues } = scope;
-  const metadata = context.model.metadata;
+  const { indicator, audit, likelihood, findings } = scope;
+  const metadata = context.modelSnapshot.metadata;
   const preparation = metadata?.preparation.variables.find(
     (variable) => variable.observation.id === id,
   );
   const equation = observationEquation(indicator, context.entities);
-  const empirical = context.model.profile?.indicators[id]?.profile;
+  const empirical = context.modelSnapshot.profile?.indicators[id]?.profile;
   return (
     <>
       <Section title="Measurement">
@@ -40,7 +32,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
                 [
                   "Window",
                   indicator.observation.observation_window ??
-                    context.model.model?.measurement_clock,
+                    context.modelSnapshot.dynamical_model_spec?.measurement_clock,
                 ],
                 ["Polarity", indicator.construct_polarity],
                 ...(likelihood
@@ -77,10 +69,10 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
 
       {preparation && (
         <Section title="Observations" wide>
-          <ObservationPlots model={context.model} id={id} />
+          <ObservationPlots modelSnapshot={context.modelSnapshot} id={id} />
           {empirical && (
             <>
-              <ObservedProfile model={context.model} id={id} profile={empirical} />
+              <ObservedProfile modelSnapshot={context.modelSnapshot} id={id} profile={empirical} />
               <Hint>
                 Every prepared value as a dot over the interquartile box; the bar is the median and
                 the diamond the mean.
@@ -91,19 +83,23 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       )}
       {audit && (
         <Section title="Validation">
-          {issues.map((issue) => (
-            <div key={`${issue.issue_type}-${issue.message}`} className="flex items-start gap-2">
-              <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
-              <Hint issue>{issue.message}</Hint>
+          {findings.map((finding) => (
+            <div key={finding.code} className="flex items-start gap-2">
+              <StatusIcon
+                status={finding.kind === "evaluated" ? finding.outcome : "not_evaluated"}
+              />
+              <Hint issue>{finding.kind === "evaluated" ? finding.evidence : finding.detail}</Hint>
             </div>
           ))}
           <details>
             <summary className="cursor-pointer text-muted-foreground">All checks</summary>
             <ul className="mt-2 space-y-2">
-              {presentEntries(audit.checks).map(([check, status]) => (
-                <li key={check} className="flex items-center gap-2">
-                  <StatusIcon status={CHECK_STATUS[status]} />
-                  <span>{humanize(check)}</span>
+              {audit.findings.map((finding) => (
+                <li key={finding.code} className="flex items-center gap-2">
+                  <StatusIcon
+                    status={finding.kind === "evaluated" ? finding.outcome : "not_evaluated"}
+                  />
+                  <span>{humanize(finding.code)}</span>
                 </li>
               ))}
             </ul>

@@ -63,8 +63,8 @@ def test_selection_accepts_renames_and_equivalent_windows_but_requires_identity(
 def test_fit_rejects_changed_definitions_before_projecting_observations(changes, monkeypatch):
     from nof1_causal_lab.models.ssm import runtime
 
-    model = compile_model_fixture(one_state_gaussian_model())
-    required = model.observations[0].observation
+    compiled_dynamical_model = compile_model_fixture(one_state_gaussian_model())
+    required = compiled_dynamical_model.observations[0].observation
     # The recorded panel has a valid, independently declared definition.
     recorded = required.revised(**changes)
     if recorded.support_kind == "interval":
@@ -86,7 +86,9 @@ def test_fit_rejects_changed_definitions_before_projecting_observations(changes,
         pytest.fail("Mismatched observations reached numerical preparation")
 
     monkeypatch.setattr(runtime, "project_observation_data", unexpected)
-    result = bind_panel(dataset, model=model, time_origin=_ORIGIN)
+    result = bind_panel(
+        dataset, compiled_dynamical_model=compiled_dynamical_model, time_origin=_ORIGIN
+    )
     assert isinstance(result, PanelPreparationFailure)
     assert result.message == mismatch.message
 

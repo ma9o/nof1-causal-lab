@@ -1,4 +1,4 @@
-"""Condition one ModelSpec and derive numerical draws from its current joint law."""
+"""Condition one DynamicalModelSpec and derive numerical draws from its current joint law."""
 
 from __future__ import annotations
 
@@ -17,37 +17,37 @@ if TYPE_CHECKING:
 
     from jax.typing import ArrayLike
 
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import DistributionId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
     from nof1_causal_lab.numpyro_json import ArrayLoader
 
 
 def condition_model(
-    model_spec: ModelSpec,
-    compiled: CompiledModel,
+    dynamical_model_spec: DynamicalModelSpec,
+    compiled_dynamical_model: CompiledDynamicalModel,
     result: ParticleMCMCPosterior,
     *,
     times: ArrayLike,
-    time_origin: datetime | None,
+    time_origin: datetime,
     array_writer: Callable[[np.ndarray], str] | None = None,
     array_loader: ArrayLoader | None = None,
-) -> tuple[ModelSpec, DistributionId]:
+) -> tuple[DynamicalModelSpec, DistributionId]:
     """Replace the current uncertainty with the engine's full joint empirical law.
 
     The original distributions survive in the input revision. No run metadata,
     posterior containers, compiler bindings, or independent fitted marginals
     are attached to the scientific model.
     """
-    bindings = compiled.bindings
+    bindings = compiled_dynamical_model.bindings
     samples = result.get_samples()
     paths = result.draws.latent_paths
-    state_ids = numeric.state_ids(compiled)
+    state_ids = numeric.state_ids(compiled_dynamical_model)
     modeled_ids = [
         identity
         for identity in state_ids
-        if model_spec.get_construct(identity).role == "endogenous"
+        if dynamical_model_spec.get_construct(identity).role == "endogenous"
     ]
     grid = np.asarray(times)
     if paths is None or paths.shape[1:] != (len(grid), len(state_ids)):
@@ -60,16 +60,18 @@ def condition_model(
         parameters=conditioned_parameters,
         constructs=modeled_ids,
         time_points=grid.tolist(),
-        time_origin=time_origin if time_origin is not None else "relative",
+        time_origin=time_origin,
     )
     # Relative input paths acquire the same calendar binding as the conditioned states.
     input_layouts = {
         key: value.revised(time_origin=time_origin)
-        for key, value in model_spec.law_layouts.items()
-        if time_origin is not None
-        and value.time_origin == "relative"
+        for key, value in dynamical_model_spec.law_layouts.items()
+        if value.time_origin == "relative"
         and value.constructs
-        and all(model_spec.get_construct(member).role == "exogenous" for member in value.constructs)
+        and all(
+            dynamical_model_spec.get_construct(member).role == "exogenous"
+            for member in value.constructs
+        )
     }
     joint = layout.pack(
         {
@@ -89,12 +91,12 @@ def condition_model(
             if construct.distribution is not None and construct.distribution in input_layouts
             else construct.distribution
         )
-        for construct in model_spec.constructs
+        for construct in dynamical_model_spec.constructs
     )
-    edges = replace_constructs(model_spec.edges, constructs)
+    edges = replace_constructs(dynamical_model_spec.edges, constructs)
     parameters = tuple(
         parameter if parameter.id not in conditioned_parameters else parameter.conditioned(identity)
-        for parameter in model_spec.parameters
+        for parameter in dynamical_model_spec.parameters
     )
     retained_laws = {
         member.distribution
@@ -104,14 +106,14 @@ def condition_model(
         )
         if member.distribution is not None
     }
-    conditioned = model_spec.with_entities(
+    conditioned = dynamical_model_spec.with_entities(
         constructs=constructs,
         edges=edges,
         parameters=parameters,
         distributions={
             **{
                 input_layouts[key].distribution_id if key in input_layouts else key: value
-                for key, value in model_spec.distributions.items()
+                for key, value in dynamical_model_spec.distributions.items()
                 if (input_layouts[key].distribution_id if key in input_layouts else key)
                 in retained_laws
             },
@@ -122,7 +124,7 @@ def condition_model(
                 input_layouts[key].distribution_id
                 if key in input_layouts
                 else key: input_layouts.get(key, value)
-                for key, value in model_spec.law_layouts.items()
+                for key, value in dynamical_model_spec.law_layouts.items()
                 if (input_layouts[key].distribution_id if key in input_layouts else key)
                 in retained_laws
             },

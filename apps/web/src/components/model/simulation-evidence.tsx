@@ -4,7 +4,7 @@ import type { ArmChoice } from "@/components/charts/series-adapters";
 import { resolveEntity, type ModelEntities } from "@/lib/model-asset/entities";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
-import { hasCausalEffects } from "@/lib/simulation-report";
+import { causalEffect } from "@/lib/simulation-report";
 import { ALL_DRAWS, type DrawSelection } from "@/lib/hooks/use-visuals";
 import { formatModelDate } from "@/lib/utils/format";
 import { SimulationHistory } from "./scopes/recorded-history";
@@ -130,8 +130,8 @@ function SimulationControls({
  * observation in the same chart, all following one draw and arm control.
  */
 export function SimulationEvidence({ context }: { context: ScopeContext }) {
-  const { model, entities } = context;
-  const simulation = model.simulation;
+  const { modelSnapshot, entities } = context;
+  const simulation = modelSnapshot.simulation;
   const [view, setView] = useState<SimulationView>({ mode: "all", start: 0, arms: "both" });
   const selection = selectionOf(view);
   if (!simulation)
@@ -142,14 +142,13 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
     );
   const report = simulation;
   const names = new Map(entities.constructs.map((item) => [item.id, humanize(item.name)]));
-  const outcome = hasCausalEffects(report)
-    ? report.causal.value.outcome
-    : (model.question?.outcome ?? null);
+  const effect = causalEffect(report);
+  const outcome = effect?.outcome ?? modelSnapshot.question?.outcome ?? null;
   const simulatedOutcome =
     outcome !== null && report.evidence.state_ids.some((id) => id === outcome) ? outcome : null;
   const timeLabel = (day: number) =>
     `${formatModelDate(day, report.evidence.time_origin)} (day ${day})`;
-  const chart = { model, selection, arms: view.arms };
+  const chart = { modelSnapshot, selection, arms: view.arms };
   return (
     <>
       <Section title="The question's outcome" wide>
@@ -170,63 +169,58 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
         ) : (
           <Hint>The question names no simulated outcome.</Hint>
         )}
-        {hasCausalEffects(report) ? (
+        {effect ? (
           <>
             <Hint>
-              Certified effect on{" "}
-              {humanize(
-                report.causal.value.labels[report.causal.value.outcome] ??
-                  report.causal.value.outcome,
-              )}{" "}
-              at the end of the simulation.
+              Certified effect on {humanize(effect.labels[effect.outcome] ?? effect.outcome)} at the
+              end of the simulation.
             </Hint>
             <KeyValue
               rows={[
-                ["Mean", formatPlain(report.causal.value.summary.mean)],
-                ["Median", formatPlain(report.causal.value.summary.median)],
+                ["Mean", formatPlain(effect.summary.mean)],
+                ["Median", formatPlain(effect.summary.median)],
                 [
                   "95% interval",
-                  `[${formatPlain(report.causal.value.summary.lower_95)}, ${formatPlain(report.causal.value.summary.upper_95)}]`,
+                  `[${formatPlain(effect.summary.lower_95)}, ${formatPlain(effect.summary.upper_95)}]`,
                 ],
-                ["Probability positive", formatPlain(report.causal.value.summary.prob_positive)],
+                ["Probability positive", formatPlain(effect.summary.prob_positive)],
               ]}
             />
             <SimulationHistory
               {...chart}
-              id={report.causal.value.outcome}
+              id={effect.outcome}
               kind="effect"
               title="Paired effect"
               height={160}
             />
-            {report.causal.value.warnings.map((warning) => (
+            {effect.warnings.map((warning) => (
               <Hint key={warning} issue>
                 {warning}
               </Hint>
             ))}
           </>
         ) : (
-          <Hint>{report.causal.kind !== "available" && report.causal.reason}</Hint>
+          report.evidence.arms.kind === "paired" &&
+          "kind" in report.evidence.arms.causal && <Hint>{report.evidence.arms.causal.detail}</Hint>
         )}
       </Section>
       <Section title="Simulation design">
         <KeyValue
           rows={[
             ["Start", timeLabel(report.evidence.times[0])],
-            ["Horizon", report.evidence.design.horizon],
             ["End", timeLabel(report.evidence.times.at(-1) ?? report.evidence.times[1])],
             ["Draws", report.evidence.draws.toLocaleString()],
             ["Fit reliability", humanize(report.fit_reliability)],
             ["Laws", humanize(report.law.interpretation)],
           ]}
         />
-        {report.evidence.design.interventions.length === 0 ? (
+        {report.evidence.assignments.length === 0 ? (
           <Hint>No intervention requested.</Hint>
         ) : (
-          report.evidence.design.interventions.map((event, index) => (
-            <p key={`${event.target}-${event.after ?? "start"}`} className="m-0 border-t pt-2">
-              {event.after ? `${event.after} after the start` : "At the start"} (
-              {timeLabel(report.evidence.assignments[index]?.time ?? report.evidence.times[0])}):
-              set {names.get(event.target) ?? event.target} to {event.value}.
+          report.evidence.assignments.map((event) => (
+            <p key={`${event.target}-${event.time}`} className="m-0 border-t pt-2">
+              {timeLabel(event.time)}: set {names.get(event.target) ?? event.target} to{" "}
+              {event.value}.
             </p>
           ))
         )}
@@ -304,13 +298,13 @@ export function PredictiveFindings({
               ? finding.subject.target
               : finding.subject.target.id;
           return (
-            <tr key={`${finding.subject.check}-${target}`} className="border-t align-top">
+            <tr key={`${finding.code}-${target}`} className="border-t align-top">
               <td className="py-2 pr-2">
                 <div className="flex items-start gap-1">
                   <StatusIcon
                     status={finding.kind === "evaluated" ? finding.outcome : "not_evaluated"}
                   />
-                  <span>{finding.subject.check.replaceAll("_", " ")}</span>
+                  <span>{finding.code.replaceAll("_", " ")}</span>
                 </div>
                 {target !== "whole_model" && (
                   <span className="mt-1 block text-[10px] text-muted-foreground">

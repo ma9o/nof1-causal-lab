@@ -1,136 +1,194 @@
-"""Action-scoped labels from findings already evaluated during execution."""
+"""Pure action policies announcing retained findings without carrying their evidence."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from nof1_causal_lab.artifacts.availability import Unavailable
-from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
-from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.model_spec import ModelEditResult
-from nof1_causal_lab.artifacts.validation_report import (
-    DataProfileArtifact,
-    ValidationReportArtifact,
+from nof1_causal_lab.artifacts.checks import (
+    Assessment,
+    FindingSubject,
+    NotEvaluated,
+    NumericCriterionEvidence,
+    QueryTargetSubject,
 )
-from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
-from nof1_causal_lab.study.records import ActionMessage, DataPreparationResult
+from nof1_causal_lab.artifacts.data_comparison import PredictiveIndicatorComparison
+from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.simulation import PairedArmSimulation
+from nof1_causal_lab.study.records import ActionMessage
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
 
+    from nof1_causal_lab.artifacts.data_comparison import DataComparisonReport
+    from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+    from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-    from nof1_causal_lab.artifacts.posterior import InferenceReport, ModelFitResult
-    from nof1_causal_lab.artifacts.simulation import ModelSimulationResult, SimulationReport
+    from nof1_causal_lab.artifacts.posterior import FitCheckReport, InferenceReport
+    from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.artifacts.validation_report import DataProfileReport
 
 
-_QUESTION_LABELS = {
-    "outcome": "QUESTION_MODEL_INCOMPATIBLE",
-    "target": "QUESTION_MODEL_INCOMPATIBLE",
-    "identification": "QUERY_NOT_IDENTIFIED",
-    "window": "QUERY_OUTSIDE_RECORD",
-    "range": "INTERVENTION_OUTSIDE_RECORDED_RANGE",
-}
+type FindingEvidence = str | NumericCriterionEvidence | tuple[NumericCriterionEvidence, ...]
 
 
-def completion_messages(
-    result: DataPreparationResult | ModelFitResult | ModelSimulationResult | ModelEditResult | None,
+def _explanation(evidence: FindingEvidence) -> str:
+    if isinstance(evidence, str):
+        return evidence
+    values = evidence if isinstance(evidence, tuple) else (evidence,)
+    return "; ".join(
+        dict.fromkeys(item.note or f"{item.criterion}: {item.value:g}" for item in values)
+    )
+
+
+def _findings[SubjectT: FindingSubject, EvidenceT: FindingEvidence](
+    findings: Iterable[Assessment[SubjectT, EvidenceT]],
     timestamp: datetime,
-    reports: tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...] = (),
     *,
-    checks: ModelCheckReport | None = None,
-    inference: InferenceReport | None = None,
-    simulation: SimulationReport | None = None,
+    unevaluated: Literal["info", "warning"] = "info",
 ) -> tuple[ActionMessage, ...]:
-    """Warnings annotate a completed result; they never decide whether to publish it."""
-    labels: dict[str, Literal["debug", "info", "warn"]] = {}
-    if checks is not None:
-        for finding in checks.specification:
-            if finding.subject == "model_execution" and isinstance(finding, NotEvaluated):
-                labels["MODEL_INCOMPLETE"] = "warn"
-            elif finding.subject == "dt_ct_approximation_warning":
-                labels["DT_CT_APPROXIMATION"] = "warn"
-            elif isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}:
-                labels[
-                    "MODEL_NOT_EXECUTABLE"
-                    if finding.subject == "model_execution"
-                    else "FIT_LAWS_UNSUPPORTED"
-                ] = "warn"
-        question = checks.question
-        for finding in question.findings if question is not None else ():
-            if isinstance(finding, NotEvaluated):
-                if finding.reason == "CONSTRUCT_UNDEFINED":
-                    labels["QUESTION_CONSTRUCTS_UNDEFINED"] = "info"
-            elif finding.outcome in {"failed", "error"}:
-                labels[_QUESTION_LABELS[finding.subject.check]] = "warn"
-
-    for report in reports:
-        if isinstance(report, IdentificationReport):
-            if report.non_identifiable:
-                labels["TARGET_NOT_IDENTIFIED"] = "warn"
-        else:
-            data = report.data if isinstance(report, ValidationReportArtifact) else report
-            issues = (
-                *data.dataset_issues,
-                *(issue for audit in data.indicators.values() for issue in audit.issues),
-            )
-            if any(issue.severity in {"error", "warning"} for issue in issues):
-                labels["DATA_QUALITY_FINDINGS"] = "warn"
-            if isinstance(report, ValidationReportArtifact) and any(
-                isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
-                for finding in report.preflight
-            ):
-                labels["MODEL_DATA_INCOMPATIBLE"] = "warn"
-
-    if inference is not None and convergence_failures(inference.core.convergence):
-        labels["CONVERGENCE_CHECK_FAILED"] = "warn"
-    if isinstance(result, DataPreparationResult):
-        if any(worker.status == "failed" for worker in result.workers):
-            labels["EXTRACTION_PARTIAL"] = "warn"
-        if result.extraction_reused:
-            labels["EXTRACTION_REUSED"] = "info"
-    if simulation is not None:
-        if any(
-            isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
-            for finding in simulation.findings
-        ):
-            labels["PREDICTIVE_CHECK_FAILED"] = "warn"
-        if any(isinstance(finding, NotEvaluated) for finding in simulation.findings):
-            labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"
-        if isinstance(simulation.causal, Unavailable):
-            labels["CAUSAL_EFFECT_NOT_REPORTABLE"] = "info"
-    execution = (
-        (
-            ActionMessage(
-                timestamp=timestamp,
-                level="info",
-                label="EXTRACTION_COMPLETED",
-                details={
-                    "workers": [worker.model_dump(mode="json") for worker in result.workers],
-                    "extraction_reused": result.extraction_reused,
-                },
-            ),
+    return tuple(
+        ActionMessage(
+            timestamp=timestamp,
+            severity=unevaluated if isinstance(finding, NotEvaluated) else "warning",
+            code=finding.code,
+            subject=finding.subject,
+            detail=finding.detail
+            if isinstance(finding, NotEvaluated)
+            else _explanation(finding.evidence),
         )
-        if isinstance(result, DataPreparationResult)
-        else ()
+        for finding in findings
+        if isinstance(finding, NotEvaluated) or finding.outcome == "failed"
     )
-    pruning = (
-        (
-            ActionMessage(
-                timestamp=timestamp,
-                level="warn",
-                label="MODEL_COMPONENTS_PRUNED",
-                details=result.model_dump(mode="json"),
-            ),
-        )
-        if isinstance(result, ModelEditResult)
-        and any((result.constructs, result.edges, result.parameters, result.distributions))
-        else ()
-    )
+
+
+def edit_messages(
+    checks: ModelCheckReport,
+    identification: IdentificationReport,
+    pruning: ModelEditResult,
+    timestamp: datetime,
+) -> tuple[ActionMessage, ...]:
+    """An incomplete edit remains useful; its execution and identification findings warn."""
+    queried = {
+        finding.subject.target.id
+        for finding in checks.question.findings
+        if finding.code == "identification" and isinstance(finding.subject, QueryTargetSubject)
+    }
     return (
-        *execution,
-        *pruning,
-        *tuple(
-            ActionMessage(timestamp=timestamp, level=level, label=label)
-            for label, level in labels.items()
+        *_findings(checks.specification, timestamp, unevaluated="warning"),
+        *_findings(checks.question.findings, timestamp),
+        *(
+            ActionMessage(
+                timestamp=timestamp,
+                severity="warning",
+                code="identification",
+                subject=ConstructRef(id=target),
+                detail="This target's causal effect is not identifiable.",
+            )
+            for target in identification.non_identifiable
+            if target not in queried
         ),
+        *(
+            (
+                ActionMessage(
+                    timestamp=timestamp,
+                    severity="warning",
+                    code="MODEL_COMPONENTS_PRUNED",
+                    subject="model",
+                    detail="Components outside the question's outcome ancestry were removed.",
+                ),
+            )
+            if any((pruning.constructs, pruning.edges, pruning.parameters, pruning.distributions))
+            else ()
+        ),
+    )
+
+
+def _data_messages(profile: DataProfileReport, timestamp: datetime) -> tuple[ActionMessage, ...]:
+    return _findings(
+        (
+            *profile.findings,
+            *(finding for audit in profile.indicators.values() for finding in audit.findings),
+        ),
+        timestamp,
+    )
+
+
+def preparation_messages(
+    profile: DataProfileReport, extraction: DataPreparationResult, timestamp: datetime
+) -> tuple[ActionMessage, ...]:
+    """Announce preparation findings while worker results remain in the saved body."""
+    failed = sum(worker.status == "failed" for worker in extraction.workers)
+    return (
+        *_data_messages(profile, timestamp),
+        ActionMessage(
+            timestamp=timestamp,
+            severity="warning" if failed else "info",
+            code="EXTRACTION_PARTIAL" if failed else "EXTRACTION_COMPLETED",
+            subject="data",
+            detail=f"Extraction completed with {failed} failed chunks.",
+        ),
+        *(
+            (
+                ActionMessage(
+                    timestamp=timestamp,
+                    severity="info",
+                    code="EXTRACTION_REUSED",
+                    subject="data",
+                    detail=f"Reused {extraction.extraction_reused} extraction results.",
+                ),
+            )
+            if extraction.extraction_reused
+            else ()
+        ),
+    )
+
+
+def fit_check_messages(checks: FitCheckReport, timestamp: datetime) -> tuple[ActionMessage, ...]:
+    """Announce only the selected record's fit checks; the model edit owns its own findings."""
+    return (
+        *_data_messages(checks.data, timestamp),
+        *_findings(checks.preflight, timestamp, unevaluated="warning"),
+        *_findings(checks.question.findings, timestamp),
+    )
+
+
+def inference_messages(report: InferenceReport, timestamp: datetime) -> tuple[ActionMessage, ...]:
+    """Retained convergence findings warn without changing completed inference evidence."""
+    return _findings(report.core.convergence.findings, timestamp)
+
+
+def simulation_messages(report: SimulationReport, timestamp: datetime) -> tuple[ActionMessage, ...]:
+    """Announce the findings actually evaluated on the generated histories."""
+    arms = report.evidence.arms
+    return (
+        *_findings(report.findings, timestamp),
+        *(
+            _findings((arms.causal,), timestamp)
+            if isinstance(arms, PairedArmSimulation) and isinstance(arms.causal, NotEvaluated)
+            else ()
+        ),
+    )
+
+
+def comparison_messages(
+    report: DataComparisonReport, timestamp: datetime
+) -> tuple[ActionMessage, ...]:
+    """Announce comparison findings and applicable predictive evaluations once."""
+    return tuple(
+        message
+        for variable in report.variables
+        for message in (
+            *_findings(variable.findings, timestamp),
+            *(
+                (
+                    _findings((variable.predictive.evaluation,), timestamp)
+                    if isinstance(variable.predictive.evaluation, NotEvaluated)
+                    else _findings(variable.predictive.evaluation.findings, timestamp)
+                )
+                if isinstance(variable, PredictiveIndicatorComparison)
+                else ()
+            ),
+        )
     )

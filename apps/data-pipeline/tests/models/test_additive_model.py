@@ -7,6 +7,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import (
     coefficient,
     hill,
@@ -18,7 +19,6 @@ from nof1_causal_lab.artifacts.identity import (
     scientific_id,
 )
 from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_parameters import require_priors
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from tests.helpers import graph_constructs
@@ -29,7 +29,7 @@ from tests.model_fixtures import (
 
 
 def _entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "additive_model/entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions.json"
@@ -42,7 +42,7 @@ pytestmark = pytest.mark.contract
 def _model():
     weight = scientific_id("parameter", "weight")
     emax = scientific_id("parameter", "emax")
-    return ModelSpec.model_validate(
+    return DynamicalModelSpec.model_validate(
         {
             "constructs": {
                 "construct:x": {
@@ -147,9 +147,9 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
 
 
 def test_partial_model_is_valid_but_operation_requirements_are_explicit():
-    initial = ModelSpec()
+    initial = DynamicalModelSpec()
     assert initial.edges == initial.constructs == ()
-    assert ModelSpec.model_validate({}).materialized().edges == ()
+    assert DynamicalModelSpec.model_validate({}).materialized().edges == ()
     with pytest.raises(ValueError, match="clock"):
         compile_model_fixture(initial)
     partial = _model()
@@ -198,50 +198,57 @@ def test_inconsistent_enrichment_is_rejected(change):
             "reasoning": "Wrong type",
         }
     with pytest.raises(ValidationError):
-        ModelSpec.model_validate(payload).materialized()
+        DynamicalModelSpec.model_validate(payload).materialized()
 
 
 def test_shared_endpoints_round_trip_once_and_resolve_forward_references():
     from tests.helpers import make_model
 
-    model = make_model(["A", "B", "Y"], [("A", "Y"), ("B", "Y")])
-    assert model.edges[0].effect is model.edges[1].effect
-    payload = model.model_dump(mode="json")
+    dynamical_model_spec = make_model(["A", "B", "Y"], [("A", "Y"), ("B", "Y")])
+    assert dynamical_model_spec.edges[0].effect is dynamical_model_spec.edges[1].effect
+    payload = dynamical_model_spec.model_dump(mode="json")
     assert len(payload["constructs"]) == 3
-    assert "constructs" in ModelSpec.model_json_schema()["properties"]
-    assert list(payload["edges"].values())[1]["effect"] == model.edges[0].effect.id
+    assert "constructs" in DynamicalModelSpec.model_json_schema()["properties"]
+    assert list(payload["edges"].values())[1]["effect"] == dynamical_model_spec.edges[0].effect.id
     payload["edges"] = dict(reversed(payload["edges"].items()))
-    restored = ModelSpec.model_validate(payload).materialized()
+    restored = DynamicalModelSpec.model_validate(payload).materialized()
     assert restored.edges[0].effect is restored.edges[1].effect
-    assert ModelSpec.model_validate_json(model.model_dump_json()).materialized() == model
-    changed = model.with_entities(
+    assert (
+        DynamicalModelSpec.model_validate_json(
+            dynamical_model_spec.model_dump_json()
+        ).materialized()
+        == dynamical_model_spec
+    )
+    changed = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
-            [model.edges[0].effect.revised(name="Renamed Y")],
+            dynamical_model_spec.edges,
+            [dynamical_model_spec.edges[0].effect.revised(name="Renamed Y")],
         )
     )
     assert changed.edges[0].effect is changed.edges[1].effect
     assert changed.edges[1].effect.name == "Renamed Y"
-    assert model.edges[1].effect.name == "Y"
+    assert dynamical_model_spec.edges[1].effect.name == "Y"
 
 
 def test_endpoint_identity_rejects_conflicting_definitions():
     from tests.helpers import make_model
 
-    model = make_model(["A", "B", "Y"], [("A", "Y"), ("B", "Y")])
-    payload = model.model_dump(mode="json")
-    payload["constructs"][model.edges[0].effect.id]["id"] = "construct:different"
+    dynamical_model_spec = make_model(["A", "B", "Y"], [("A", "Y"), ("B", "Y")])
+    payload = dynamical_model_spec.model_dump(mode="json")
+    payload["constructs"][dynamical_model_spec.edges[0].effect.id]["id"] = "construct:different"
     with pytest.raises(ValidationError, match="identities belong in their map keys"):
-        ModelSpec.model_validate(payload).materialized()
+        DynamicalModelSpec.model_validate(payload).materialized()
 
 
 def test_graph_membership_follows_edges_and_revisions_preserve_connectivity():
     from tests.helpers import make_model
 
-    model = make_model(["A", "B", "C", "D"], [("A", "B"), ("B", "C"), ("C", "D")])
+    dynamical_model_spec = make_model(["A", "B", "C", "D"], [("A", "B"), ("B", "C"), ("C", "D")])
     with pytest.raises(ValidationError, match="connected causal graph"):
-        model.with_entities(edges=(model.edges[0], model.edges[2]))
-    assert model.with_entities(edges=()).constructs == ()
-    shortened = model.with_entities(edges=model.edges[:-1])
+        dynamical_model_spec.with_entities(
+            edges=(dynamical_model_spec.edges[0], dynamical_model_spec.edges[2])
+        )
+    assert dynamical_model_spec.with_entities(edges=()).constructs == ()
+    shortened = dynamical_model_spec.with_entities(edges=dynamical_model_spec.edges[:-1])
     assert [construct.name for construct in shortened.constructs] == ["A", "B", "C"]
-    assert [construct.name for construct in model.constructs] == ["A", "B", "C", "D"]
+    assert [construct.name for construct in dynamical_model_spec.constructs] == ["A", "B", "C", "D"]

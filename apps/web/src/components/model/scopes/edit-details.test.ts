@@ -19,8 +19,8 @@ const context: ScopeContext = {
   ticks: [],
   dataDiff: null,
   result: undefined,
-  model: authoredSnapshot,
-  entities: indexModel(authoredSnapshot.model),
+  modelSnapshot: authoredSnapshot,
+  entities: indexModel(authoredSnapshot.dynamical_model_spec),
   select: vi.fn(),
 };
 const applied: Applied<null> = {
@@ -57,7 +57,7 @@ const tick: TimelineRevision = {
         reasoning: null,
         input: {
           parent_ref: "archived-authorship-base",
-          model: fixtureValue(authoredSnapshot.model),
+          dynamical_model_spec: fixtureValue(authoredSnapshot.dynamical_model_spec),
         },
       },
       outcome: applied,
@@ -75,9 +75,9 @@ describe("edit change summaries after history compaction", () => {
   it("compares the exact authored base named by the call", () => {
     renderToStaticMarkup(createElement(EditDetails, { context, tick }));
     expect(hooks.diff).toHaveBeenCalledWith(
-      context.model.workspace_id,
+      context.modelSnapshot.workspace_id,
       "archived-authorship-base",
-      "rewritten-edit",
+      "edited-model",
       context.ticks,
     );
   });
@@ -114,7 +114,12 @@ describe("edit change summaries after history compaction", () => {
       },
     };
     const html = renderToStaticMarkup(createElement(EditDetails, { context, tick: created }));
-    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, null, null, context.ticks);
+    expect(hooks.diff).toHaveBeenCalledWith(
+      context.modelSnapshot.workspace_id,
+      null,
+      null,
+      context.ticks,
+    );
     expect(html).toContain("Model created");
   });
 
@@ -168,17 +173,19 @@ describe("edit change summaries after history compaction", () => {
       commit_id: tick.commit_id,
       messages: [],
       body: {
-        ...modelResult(context.model),
+        ...modelResult(context.modelSnapshot),
         checks: {
-          question: null,
+          question: { findings: [] },
           specification: [
             {
+              code: "model_execution",
               kind: "evaluated",
               subject: "model_execution",
               outcome: "failed",
               evidence: `${indicator.observation.id} requires a likelihood.`,
             },
             {
+              code: "passed_check",
               kind: "evaluated",
               subject: "passed_check",
               outcome: "passed",

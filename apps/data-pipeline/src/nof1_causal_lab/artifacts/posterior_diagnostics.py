@@ -1,4 +1,4 @@
-"""Predictive assessments and scientific posterior summaries."""
+"""Predictive findings and scientific posterior summaries."""
 
 from typing import Annotated, Literal
 
@@ -74,7 +74,7 @@ class ChainDiagnostics(Value):
     """Compact retained-chain measurements; plot series compose the report detail."""
 
     num_chains: int
-    num_samples: int
+    num_samples_per_chain: int
     per_parameter: tuple[ParameterDiagnostics, ...]
     num_divergences: int | None = None
     divergence_rate: float | None = None
@@ -92,16 +92,16 @@ type ConvergenceAssessmentSubject = ConvergenceSubject | Literal["recorded_param
 class ParameterConvergenceReport(Value):
     """Recorded-chain criteria cover parameters, not latent-path mixing."""
 
-    assessments: tuple[Assessment[ConvergenceAssessmentSubject, NumericCriterionEvidence], ...]
+    findings: tuple[Assessment[ConvergenceAssessmentSubject, NumericCriterionEvidence], ...]
 
     @computed_field
     @property
     def checked(self) -> int:
-        """Number of distinct parameter references represented by convergence assessments."""
+        """Number of distinct parameter references represented by convergence findings."""
         return len(
             frozenset(
                 item.subject.parameter
-                for item in self.assessments
+                for item in self.findings
                 if isinstance(item.subject, ConvergenceSubject)
             )
         )
@@ -110,11 +110,9 @@ class ParameterConvergenceReport(Value):
     @property
     def status(self) -> Literal["passed", "failed", "not_evaluated"]:
         """Convergence verdict with failed checks taking precedence over unevaluated checks."""
-        if any(
-            isinstance(item, Evaluated) and item.outcome == "failed" for item in self.assessments
-        ):
+        if any(isinstance(item, Evaluated) and item.outcome == "failed" for item in self.findings):
             return "failed"
-        if not self.assessments or any(isinstance(item, NotEvaluated) for item in self.assessments):
+        if not self.findings or any(isinstance(item, NotEvaluated) for item in self.findings):
             return "not_evaluated"
         return "passed"
 
@@ -126,7 +124,7 @@ class ParameterConvergenceReport(Value):
             item.detail
             if isinstance(item, NotEvaluated)
             else f"{item.evidence.criterion} fails for {item.evidence.note}: {item.evidence.value:g}"
-            for item in self.assessments
+            for item in self.findings
             if isinstance(item, NotEvaluated) or item.outcome != "passed"
         )
 
@@ -136,7 +134,7 @@ class ParetoKPoint(Value):
 
     timestep: int
     k: float | Literal["infinity", "-infinity", "undefined"]
-    status: Literal["passed", "warning", "failed", "not_evaluated"]
+    status: Literal["passed", "failed", "not_evaluated"]
 
 
 class LOOPITPoint(Value):
@@ -194,7 +192,7 @@ class PPCOverlay(Value):
     """
 
     times: tuple[FiniteFloat, ...]
-    time_origin: AwareDatetime | None
+    time_origin: AwareDatetime
     standardized: bool
     indicator_id: IndicatorId
     observed: tuple[float | None, ...]
@@ -245,9 +243,9 @@ class PPCTestStat(Value):
 class PosteriorPredictiveChecks(Value):
     """Posterior predictive checks report exact-model checks and their supporting plot data."""
 
-    per_variable_warnings: tuple[
-        Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...
-    ] = Field(default_factory=tuple)
+    findings: tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...] = Field(
+        default_factory=tuple
+    )
     n_subsample: int = 0
     overlays: tuple[PPCOverlay, ...] = Field(default_factory=tuple)
     test_stats: tuple[PPCTestStat, ...] = Field(default_factory=tuple)

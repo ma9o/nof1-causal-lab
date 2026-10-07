@@ -13,7 +13,7 @@ from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
 
 
 @dataclass(frozen=True)
@@ -37,21 +37,29 @@ class ExactStateConstraints:
 
 
 def compile_exact_state_constraints(
-    spec: CompiledModel, observations: jnp.ndarray, *, input_values: jnp.ndarray | None = None
+    compiled_dynamical_model: CompiledDynamicalModel,
+    observations: jnp.ndarray,
+    *,
+    input_values: jnp.ndarray | None = None,
 ) -> ExactStateConstraints | None:
     """Condition direct state bindings without discarding their dynamics density."""
     exact = [
         (index, indicator)
-        for index, indicator in enumerate(spec.observations)
+        for index, indicator in enumerate(compiled_dynamical_model.observations)
         if isinstance(indicator.law, DeltaLawSpec)
     ]
     if not exact:
         return None
     observed = np.asarray(observations)
-    values = np.full((len(observed), numeric.n_states(spec)), np.nan, dtype=observed.dtype)
-    state_indices = {identity: index for index, identity in enumerate(numeric.state_ids(spec))}
+    values = np.full(
+        (len(observed), numeric.n_states(compiled_dynamical_model)), np.nan, dtype=observed.dtype
+    )
+    state_indices = {
+        identity: index
+        for index, identity in enumerate(numeric.state_ids(compiled_dynamical_model))
+    }
     for column, indicator in exact:
-        if spec.states[indicator.state_index].is_input:
+        if compiled_dynamical_model.states[indicator.state_index].is_input:
             if input_values is None:
                 raise ValueError("Exogenous inputs require a replayed panel path")
             continue
@@ -76,6 +84,6 @@ def compile_exact_state_constraints(
             )
         values[present, index] = readings[present]
     if input_values is not None:
-        inputs = numeric.input_mask(spec)
+        inputs = numeric.input_mask(compiled_dynamical_model)
         values[:, inputs] = np.asarray(input_values)[:, inputs]
     return ExactStateConstraints(jnp.asarray(values))

@@ -5,7 +5,7 @@ import { modelResult, fitResult } from "@/components/__fixtures__/action-results
 import { outcome } from "@/lib/__fixtures__/model";
 import { authoredSnapshot, fittedSnapshot } from "@/lib/__fixtures__/snapshot";
 import rawReports from "@/components/dag/__fixtures__/simulation-reports.json";
-import { callDependencies, producingCall } from "./call-dependencies";
+import { callDependencies, modelReference, producingCall } from "./call-dependencies";
 import { composeCallView } from "./compose-call-view";
 
 const reports = decodeFixture(rawReports);
@@ -23,24 +23,24 @@ const extraction = {
 const source = { files: ["input/test.csv"] as const, hashes: {}, start: null, end: null };
 const design = { start: "2026-01-01", horizon: "1d", interventions: [] };
 const settings = {
-  num_samples: null,
+  num_samples_per_chain: null,
   num_warmup: null,
   num_chains: null,
-  n_particles: null,
+  num_particles: null,
   seed: 0,
 };
 const dependencies: RecordDependency[] = [
   { seq: 4, source_seq: 1, argument: "parent" },
-  { seq: 5, source_seq: 4, argument: "model" },
+  { seq: 5, source_seq: 4, argument: "dynamical_model_spec" },
   { seq: 7, source_seq: 1, argument: "parent" },
-  { seq: 8, source_seq: 7, argument: "model" },
+  { seq: 8, source_seq: 7, argument: "dynamical_model_spec" },
   { seq: 8, source_seq: 5, argument: "data" },
-  { seq: 9, source_seq: 8, argument: "model" },
+  { seq: 9, source_seq: 8, argument: "dynamical_model_spec" },
   { seq: 9, source_seq: 5, argument: "panel" },
-  { seq: 10, source_seq: 7, argument: "model" },
+  { seq: 10, source_seq: 7, argument: "dynamical_model_spec" },
   { seq: 10, source_seq: 5, argument: "data" },
   { seq: 11, source_seq: 10, argument: "parent" },
-  { seq: 12, source_seq: 11, argument: "model" },
+  { seq: 12, source_seq: 11, argument: "dynamical_model_spec" },
   { seq: 13, source_seq: 5, argument: "left" },
   { seq: 13, source_seq: 9, argument: "right" },
 ];
@@ -53,7 +53,7 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
             action: "prepare_data",
             reasoning: null,
             input: {
-              model_ref: oid(4),
+              dynamical_model_spec_ref: oid(4),
               source,
               extraction: { [observation.id]: extraction },
               context: "",
@@ -63,14 +63,19 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
           ? {
               action: "fit",
               reasoning: null,
-              input: { model_ref: oid(7), data_ref: oid(5), replicate_index: 0, settings },
+              input: {
+                dynamical_model_spec_ref: oid(7),
+                data_ref: { revision: oid(5), replicate_index: 0 },
+
+                settings,
+              },
             }
           : seq === 9 || seq === 12
             ? {
                 action: "simulate",
                 reasoning: null,
                 input: {
-                  model_ref: oid(seq - 1),
+                  dynamical_model_spec_ref: oid(seq - 1),
                   simulation: design,
                 },
               }
@@ -79,8 +84,8 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
                   action: "data_diff",
                   reasoning: null,
                   input: {
-                    left_ref: { revision: oid(5), replicate_index: 0 },
-                    right_ref: { revision: oid(9), replicate_index: 1 },
+                    left_ref: [{ revision: oid(5), replicate_index: 0 }],
+                    right_ref: [{ revision: oid(9), replicate_index: 1 }],
                   },
                 }
               : {
@@ -88,7 +93,7 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
                   reasoning: null,
                   input: {
                     parent_ref: seq === 11 ? oid(10) : oid(1),
-                    model: model().model,
+                    dynamical_model_spec: model().dynamical_model_spec,
                   },
                 };
   return {
@@ -158,16 +163,16 @@ function savedResult(seq: number): ActionSuccess {
         ...envelope,
         action: "prepare_data",
         body: {
-          profile: { indicators: {}, dataset_issues: [], is_valid: true },
+          profile: { indicators: {}, findings: [] },
           data: {},
+          extraction: { workers: [], extraction_reused: null },
           metadata: {
-            source,
             preparation: {
               default_window: "1d",
               variables: [{ observation, extraction }],
               context: "",
             },
-            time_origin: null,
+            time_origin: "2026-01-01T00:00:00Z",
             variables: [{ ...observation, observation_window: "1d" }],
           },
         },
@@ -230,7 +235,7 @@ describe("views composed from recorded call dependencies", () => {
     const simulated = savedResult(9);
     if (fitted.action !== "fit" || simulated.action !== "simulate") throw new Error("Fixture");
     const { calls, view } = compose(entry(9));
-    expect(view.model).toEqual(fitted.body.model);
+    expect(view.dynamical_model_spec).toEqual(fitted.body.dynamical_model_spec);
     expect(view.fit).toEqual(fittedSnapshot.fit);
     expect(view.simulation).toEqual(simulated.body.report);
     expect(view.metadata).toBeNull();
@@ -288,7 +293,10 @@ describe("views composed from recorded call dependencies", () => {
           ...template.record.attempt,
           request: {
             ...request,
-            input: { ...request.input, data_ref: entry(9).commit_id, replicate_index: 1 },
+            input: {
+              ...request.input,
+              data_ref: { revision: entry(9).commit_id, replicate_index: 1 },
+            },
           },
         },
       },
@@ -300,12 +308,12 @@ describe("views composed from recorded call dependencies", () => {
       [...journal, selected],
       [
         ...dependencies,
-        { seq: 14, source_seq: 7, argument: "model" },
+        { seq: 14, source_seq: 7, argument: "dynamical_model_spec" },
         { seq: 14, source_seq: 9, argument: "data" },
       ],
       new Map([[14, fitted]]),
     );
-    expect(view.model).toEqual(fitted.body.model);
+    expect(view.dynamical_model_spec).toEqual(fitted.body.dynamical_model_spec);
     expect(view.state.data).toEqual({ revision: entry(9).commit_id, replicate_index: 1 });
     expect(view.metadata).toBeNull();
     expect(view.simulation).toBeNull();
@@ -313,7 +321,7 @@ describe("views composed from recorded call dependencies", () => {
 
   it("uses the recorded comparison endpoint and reports missing dependencies", () => {
     const compared = compose(entry(13)).view;
-    expect(compared.model).toEqual(compose(entry(9)).view.model);
+    expect(compared.dynamical_model_spec).toEqual(compose(entry(9)).view.dynamical_model_spec);
     expect(compared.commit_id).toBe(entry(13).commit_id);
     expect(() =>
       compose(
@@ -322,4 +330,24 @@ describe("views composed from recorded call dependencies", () => {
       ),
     ).toThrow("Missing recorded dependency 8");
   });
+});
+
+it("addresses models by their outputs or recorded inputs, including failed calls", () => {
+  expect(modelReference(entry(1), journal)).toBe(oid(1));
+  expect(modelReference(entry(4), journal)).toBe(oid(104));
+  expect(modelReference(entry(5), journal)).toBe(oid(4));
+  expect(modelReference(entry(9), journal)).toBe(oid(8));
+  expect(modelReference(entry(13), journal)).toBe(oid(8));
+  const failed: TimelineRevision = {
+    ...entry(10),
+    parent_ids: [oid(999)],
+    record: {
+      ...entry(10).record,
+      attempt: {
+        ...entry(10).record.attempt,
+        outcome: { status: "raised", error_type: "FitError", error_message: "Failed", details: [] },
+      },
+    },
+  };
+  expect(modelReference(failed, journal)).toBe(oid(7));
 });

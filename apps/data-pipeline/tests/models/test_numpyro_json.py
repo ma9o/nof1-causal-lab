@@ -21,16 +21,17 @@ from tests.model_fixtures import parameter_laws, parameter_named, replace_parame
 
 
 def _parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = x_model()
-    rho_x = parameter_named(model, "rho_X")
-    return model.with_entities(
+    dynamical_model_spec = x_model()
+    rho_x = parameter_named(dynamical_model_spec, "rho_X")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters, rho_x.revised(transform=rho_x.transform.revised(interval_days=7.0))
+            dynamical_model_spec.parameters,
+            rho_x.revised(transform=rho_x.transform.revised(interval_days=7.0)),
         ),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 rho_x.id: dist.Normal(
                     loc=jnp.array(0.4000000059604645, dtype=jnp.float32),
@@ -43,7 +44,7 @@ def _parameter_changes_distribution_without_keeping_authoring_history_model_with
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
@@ -104,10 +105,10 @@ def test_invalid_native_constructors_are_rejected(payload):
 
 @pytest.mark.contract
 def test_parameter_changes_distribution_without_keeping_authoring_history():
-    model = x_model()
-    parameter = model.parameters[0]
+    dynamical_model_spec = x_model()
+    parameter = dynamical_model_spec.parameters[0]
     specified = _parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads()
-    restored = type(model).model_validate_json(specified.model_dump_json())
+    restored = type(dynamical_model_spec).model_validate_json(specified.model_dump_json())
     assert restored == specified
     assert restored.parameter(parameter.id).id == parameter.id
     assert isinstance(restored.distribution_for(parameter.id), dist.Normal)
@@ -140,9 +141,9 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
 
 @pytest.mark.contract
 def test_parameter_tool_boundary_validates_the_reference_interval():
-    model = x_model()
+    dynamical_model_spec = x_model()
     with pytest.raises(ValidationError):
-        model.parameters[0].revised(
+        dynamical_model_spec.parameters[0].revised(
             transform={"kind": "dt_persistence_to_ct_decay", "interval_days": -7.0},
         )
 
@@ -168,25 +169,27 @@ def test_completed_model_requires_a_prior_on_each_parameter():
 
 @pytest.mark.contract
 def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws():
-    model = x_model()
-    first, second = model.parameters[:2]
+    dynamical_model_spec = x_model()
+    first, second = dynamical_model_spec.parameters[:2]
     assert first.distribution != second.distribution
     with pytest.raises(ValidationError, match="every reference must exist"):
-        model.with_entities(distributions={})
+        dynamical_model_spec.with_entities(distributions={})
     with pytest.raises(ValidationError, match="must be referenced"):
-        model.with_entities(
+        dynamical_model_spec.with_entities(
             distributions={
-                **model.distributions,
+                **dynamical_model_spec.distributions,
                 DistributionId("distribution:unused"): dist.Normal(0, 1),
             }
         )
     with pytest.raises(ValidationError, match="exactly one parameter"):
-        model.with_entities(
+        dynamical_model_spec.with_entities(
             parameters=tuple(
                 p.revised(distribution=first.distribution) if p.id == second.id else p
-                for p in model.parameters
+                for p in dynamical_model_spec.parameters
             ),
             distributions={
-                k: v for k, v in model.distributions.items() if k != second.distribution
+                k: v
+                for k, v in dynamical_model_spec.distributions.items()
+                if k != second.distribution
             },
         )

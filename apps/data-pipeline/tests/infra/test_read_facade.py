@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.io import EditModelInput
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import ConstructId, GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.study.records import Applied
@@ -34,9 +34,8 @@ def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
         json={
             "action": "fit",
             "input": {
-                "model_ref": str(git_oid(1)),
-                "data_ref": str(git_oid(2)),
-                "replicate_index": 0,
+                "dynamical_model_spec_ref": str(git_oid(1)),
+                "data_ref": {"revision": str(git_oid(2)), "replicate_index": 0},
             },
         },
     )
@@ -60,15 +59,17 @@ def test_saved_call_serves_pinned_artifacts_without_starting_new_actions(monkeyp
     client = TestClient(create_read_facade_app())
     saved = []
     for clock in ("1d", "2d"):
-        model = ModelSpec(measurement_clock=clock)
+        dynamical_model_spec = DynamicalModelSpec(measurement_clock=clock)
         request = EditModelRequest[GitOid](
-            input=EditModelInput[GitOid](parent_ref=repository.question().revision, model=model)
+            input=EditModelInput[GitOid](
+                parent_ref=repository.question().revision, dynamical_model_spec=dynamical_model_spec
+            )
         )
         artifact = store.write_artifact(
             "model",
             derived_from={},
             produced_by="edit_model",
-            json_files={"model.json": model.model_dump(mode="json")},
+            json_files={"model.json": dynamical_model_spec.model_dump(mode="json")},
         )
         assert (
             client.post(
@@ -91,7 +92,10 @@ def test_saved_call_serves_pinned_artifacts_without_starting_new_actions(monkeyp
         )
         assert response.status_code == 200, response.text
         assert msgpack.unpackb(response.content)["commit_id"] == revision.commit_id
-        assert msgpack.unpackb(response.content)["body"]["model"]["measurement_clock"] == clock
+        assert (
+            msgpack.unpackb(response.content)["body"]["dynamical_model_spec"]["measurement_clock"]
+            == clock
+        )
     assert len(repository.attempts()) == 3
 
 
@@ -107,14 +111,14 @@ def test_saved_call_returns_promoted_traces(monkeypatch, tmp_path):
     request = EditModelRequest[GitOid](
         input=EditModelInput[GitOid](
             parent_ref=StudyRepository("WS-TRACE").question().revision,
-            model=ModelSpec(),
+            dynamical_model_spec=DynamicalModelSpec(),
         )
     )
     model = ArtifactStore("WS-TRACE").write_artifact(
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": request.input.model.model_dump(mode="json")},
+        json_files={"model.json": request.input.dynamical_model_spec.model_dump(mode="json")},
     )
     source = str(tmp_path / "data/WS-TRACE/scratch/runs/seq-000002/llm/raw-data/trace.json")
     storage.write_text(

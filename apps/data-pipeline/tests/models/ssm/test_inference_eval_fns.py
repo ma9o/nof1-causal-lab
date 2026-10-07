@@ -42,13 +42,13 @@ from tests.model_fixtures import (
 )
 
 
-def _poisson_parameter_evaluator() -> ModelSpec:
-    model = one_state_gaussian_model()
-    latent_0 = construct_named(model, "latent_0")
-    manifest_0 = indicator_named(model, "manifest_0")
-    manifest_0_likelihood = likelihood_named(model, "manifest_0")
+def _poisson_parameter_evaluator() -> DynamicalModelSpec:
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
+    manifest_0 = indicator_named(dynamical_model_spec, "manifest_0")
+    manifest_0_likelihood = likelihood_named(dynamical_model_spec, "manifest_0")
     latent_0_manifest_0_manifest_var_diag = parameter_for(
-        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+        dynamical_model_spec, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
     )
     manifest_0_revised = manifest_0.revised(
         observation=manifest_0.observation.revised(measurement_dtype="count"),
@@ -67,16 +67,18 @@ def _poisson_parameter_evaluator() -> ModelSpec:
         ),
     )
     latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
-    parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    parameters, distributions = without_parameters(
+        dynamical_model_spec, latent_0_manifest_0_manifest_var_diag
+    )
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 class _RecordingBackend:
@@ -107,12 +109,12 @@ def _build_test_evaluators(monkeypatch, *, backend: _RecordingBackend):
     assembled_samples: list[dict[str, jnp.ndarray]] = []
     bound_observations = jnp.asarray([[1.0], [2.0], [3.0]])
     bound_times = jnp.asarray([0.0, 0.5, 1.5])
-    spec = _poisson_parameter_evaluator()
-    inputs = compile_fit_fixture(spec)
-    panel = bind_panel_fixture(inputs.compiled, bound_observations, bound_times)
+    dynamical_model_spec = _poisson_parameter_evaluator()
+    inputs = compile_fit_fixture(dynamical_model_spec)
+    panel = bind_panel_fixture(inputs.compiled_dynamical_model, bound_observations, bound_times)
 
     def assemble(samples, spec, *, intervention, input_values):
-        assert spec is panel.model
+        assert spec is panel.compiled_dynamical_model
         assert intervention.overrides == ()
         assert jnp.all(jnp.isnan(input_values))
         assembled_samples.append(samples)
@@ -262,8 +264,8 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = _poisson_parameter_evaluator()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = _poisson_parameter_evaluator()
+        model = compile_fit_fixture(dynamical_model_spec)
         observations = jnp.array([[4.0], [3.0], [5.0], [6.0]], dtype=jnp.float32)
         times = jnp.arange(observations.shape[0], dtype=jnp.float32) * 0.5
         return model, observations, times
@@ -276,20 +278,20 @@ class TestPureJaxLikelihoodEvaluator:
         )
         parameters, site_info, _ = prepare_model_parameters(
             model.prior_runtime_bundle,
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             random.PRNGKey(0),
             reparam,
         )
         z0, unravel_fn = parameters.initial_position, parameters.unravel
         log_lik_fn, _, _ = _build_eval_fns(
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             parameters,
             likelihood_backend=backend,
         )
 
         base_model_fn = functools.partial(
             numpyro_model,
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             model.prior_runtime_bundle,
             likelihood_backend=backend,
         )

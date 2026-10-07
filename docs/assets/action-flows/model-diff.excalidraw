@@ -697,8 +697,8 @@
           "id": "6ux5NPxtV6x_dEiMA5Kbj"
         },
         {
-          "id": "to-valid",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-valid"
         }
       ],
       "updated": 1791136345207,
@@ -736,16 +736,16 @@
           "id": "HumQM1YxGgKUd_Y9MqMiE"
         },
         {
-          "id": "valid-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "valid-no"
         },
         {
-          "id": "to-valid",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-valid"
         },
         {
-          "id": "to-call-saved",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-saved"
         }
       ],
       "updated": 1791136345207,
@@ -822,8 +822,8 @@
           "id": "BbhEZKqFVxp84bNZQk6i4"
         },
         {
-          "id": "valid-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "valid-no"
         }
       ],
       "updated": 1791136345206,
@@ -898,16 +898,16 @@
           "id": "QlyDT3pskL5PB0WJ0W_CB"
         },
         {
-          "id": "to-call-saved",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-saved"
         },
         {
-          "id": "call-saved-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-saved-yes"
         },
         {
-          "id": "to-writable",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-writable"
         }
       ],
       "updated": 1791136345208,
@@ -984,8 +984,8 @@
           "id": "PdjOfnqQQu2FlHtSW9y04"
         },
         {
-          "id": "call-saved-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-saved-yes"
         }
       ],
       "updated": 1791136345207,
@@ -1060,16 +1060,16 @@
           "id": "2sU4jmPdt3_wEQXZb5Sf3"
         },
         {
-          "id": "writable-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "writable-no"
         },
         {
-          "id": "to-writable",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-writable"
         },
         {
-          "id": "to-call-running",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-running"
         }
       ],
       "updated": 1791136345208,
@@ -1146,8 +1146,8 @@
           "id": "a3AGTe-0uqfwlmkr5lXnB"
         },
         {
-          "id": "writable-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "writable-no"
         }
       ],
       "updated": 1791136345207,
@@ -1222,16 +1222,16 @@
           "id": "Iqanw6wNLXdlt104jPeUp"
         },
         {
-          "id": "to-call-running",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-running"
         },
         {
-          "id": "call-running-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-running-yes"
         },
         {
-          "id": "to-inputs",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-inputs"
         }
       ],
       "updated": 1791136345208,
@@ -1308,8 +1308,8 @@
           "id": "mUE96lnHGNLkzRd0XDv5w"
         },
         {
-          "id": "call-running-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-running-yes"
         }
       ],
       "updated": 1791136345208,
@@ -1384,16 +1384,16 @@
           "id": "HlNOKQ_fz5YEjZCtNXSEe"
         },
         {
-          "id": "inputs-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "inputs-no"
         },
         {
-          "id": "to-inputs",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-inputs"
         },
         {
-          "id": "to-compare",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-compare"
         }
       ],
       "updated": 1791136345208,
@@ -1470,8 +1470,8 @@
           "id": "HpWVkvL-7hl1aNgsWHpU_"
         },
         {
-          "id": "inputs-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "inputs-no"
         }
       ],
       "updated": 1791136345208,
@@ -1548,8 +1548,8 @@
           "id": "CTuPiKBTrjJAKF9ko1Vlu"
         },
         {
-          "id": "to-compare",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-compare"
         }
       ],
       "updated": 1791136345208,
@@ -1589,8 +1589,8 @@
           "id": "888cqw7kxjlivCuU8pQ2e"
         },
         {
-          "id": "to-commit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-commit"
         }
       ],
       "updated": 1791136345208,
@@ -1630,8 +1630,8 @@
           "id": "wkZ3McAMel5hM1aTM_FFo"
         },
         {
-          "id": "to-commit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-commit"
         }
       ],
       "updated": 1791136345209,
@@ -2122,9 +2122,9 @@
     {
       "id": "6ux5NPxtV6x_dEiMA5Kbj",
       "type": "text",
-      "x": 636.78125,
+      "x": 599.52,
       "y": 83.5,
-      "width": 366.4375,
+      "width": 440.96000000000004,
       "height": 104,
       "angle": 0,
       "strokeColor": "#172033",
@@ -2139,20 +2139,20 @@
       "index": "ao",
       "roundness": null,
       "seed": 1423548941,
-      "version": 4,
+      "version": 5,
       "versionNonce": 1010772611,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136345209,
       "link": null,
       "locked": false,
-      "text": "POST {action, input, reasoning}\ninput.before_ref and input.after_ref: model revisions\nreasoning optional; excluded from call_id\nresolve latest once before call_id\nGET /{action}/{call_id} reads the same call",
+      "text": "POST {action, input, reasoning}\nbefore_ref and after_ref: question or model revisions\nreasoning optional; excluded from call_id\nlatest: current model, otherwise question\nGET /{action}/{call_id} reads the same call",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "request-body",
-      "originalText": "POST {action, input, reasoning}\ninput.before_ref and input.after_ref: model revisions\nreasoning optional; excluded from call_id\nresolve latest once before call_id\nGET /{action}/{call_id} reads the same call",
+      "originalText": "POST {action, input, reasoning}\nbefore_ref and after_ref: question or model revisions\nreasoning optional; excluded from call_id\nlatest: current model, otherwise question\nGET /{action}/{call_id} reads the same call",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -2701,13 +2701,13 @@
       "updated": 1791136345209,
       "link": null,
       "locked": false,
-      "text": "status: running · commit_id: null · body: null\nmessages: accumulated log, progress and traces",
+      "text": "status: running \u00b7 commit_id: null \u00b7 body: null\nmessages: accumulated log, progress and traces",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "running-result-body",
-      "originalText": "status: running · commit_id: null · body: null\nmessages: accumulated log, progress and traces",
+      "originalText": "status: running \u00b7 commit_id: null \u00b7 body: null\nmessages: accumulated log, progress and traces",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -2825,9 +2825,9 @@
     {
       "id": "HpWVkvL-7hl1aNgsWHpU_",
       "type": "text",
-      "x": 1170.16796875,
+      "x": 1146.88,
       "y": 1040.2,
-      "width": 219.6640625,
+      "width": 266.24,
       "height": 41.6,
       "angle": 0,
       "strokeColor": "#172033",
@@ -2842,20 +2842,20 @@
       "index": "b07",
       "roundness": null,
       "seed": 1259826477,
-      "version": 5,
+      "version": 6,
       "versionNonce": 1230760077,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136345209,
       "link": null,
       "locked": false,
-      "text": "select retained model revisions\nor study checkpoints",
+      "text": "select a saved question or model\nquestion means the empty spec",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "inputs-error-body",
-      "originalText": "select retained model revisions\nor study checkpoints",
+      "originalText": "select a saved question or model\nquestion means the empty spec",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -2886,13 +2886,13 @@
       "updated": 1791136345209,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "inputs-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -2936,9 +2936,9 @@
     {
       "id": "888cqw7kxjlivCuU8pQ2e",
       "type": "text",
-      "x": 639,
+      "x": 615.45703125,
       "y": 1231.2,
-      "width": 362,
+      "width": 409.0859375,
       "height": 62.400000000000006,
       "angle": 0,
       "strokeColor": "#172033",
@@ -2960,13 +2960,13 @@
       "updated": 1791136345209,
       "link": null,
       "locked": false,
-      "text": "changes: partial ModelSpec; omitted fields stay\nnull map entries delete; tagged alternatives replace\nmerge(before, changes) = after; save patch in Git",
+      "text": "changes: partial DynamicalModelSpec; omitted fields stay\nnull map entries delete; tagged alternatives replace\nmerge(before, changes) = after; save patch in Git",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "compare-body",
-      "originalText": "changes: partial ModelSpec; omitted fields stay\nnull map entries delete; tagged alternatives replace\nmerge(before, changes) = after; save patch in Git",
+      "originalText": "changes: partial DynamicalModelSpec; omitted fields stay\nnull map entries delete; tagged alternatives replace\nmerge(before, changes) = after; save patch in Git",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -3071,13 +3071,13 @@
       "updated": 1791136345209,
       "link": null,
       "locked": false,
-      "text": "status: success · commit_id · body · messages\nMessagePack · saved spec patch",
+      "text": "status: success \u00b7 commit_id \u00b7 body \u00b7 messages\nMessagePack \u00b7 saved spec patch",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "commit-outcome",
-      "originalText": "status: success · commit_id · body · messages\nMessagePack · saved spec patch",
+      "originalText": "status: success \u00b7 commit_id \u00b7 body \u00b7 messages\nMessagePack \u00b7 saved spec patch",
       "autoResize": true,
       "lineHeight": 1.3
     }

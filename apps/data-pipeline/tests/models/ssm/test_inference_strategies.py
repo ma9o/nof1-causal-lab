@@ -83,13 +83,15 @@ from tests.observation_fixtures import mean_density, observation_kernel, observa
 
 
 def _map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = one_state_gaussian_model()
-    latent_0 = construct_named(model, "latent_0")
-    latent_0_diffusion_diag = parameter_for(model, SiteKind.DIFFUSION_DIAG, "latent_0")
-    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
-    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
+    latent_0_diffusion_diag = parameter_for(
+        dynamical_model_spec, SiteKind.DIFFUSION_DIAG, "latent_0"
+    )
+    latent_0_t0_var_diag = parameter_for(dynamical_model_spec, SiteKind.T0_VAR_DIAG, "latent_0")
+    latent_0_t0_means = parameter_for(dynamical_model_spec, SiteKind.T0_MEANS, "latent_0")
     latent_0_revised = latent_0.revised(
         coefficients=(
             coefficient(latent_0_diffusion_diag.id, "diffusion_scale"),
@@ -97,16 +99,16 @@ def _map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_k
             coefficient(latent_0_t0_var_diag.id, "initial_scale"),
         )
     )
-    parameters, distributions = without_parameters(model, latent_0_t0_means)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    parameters, distributions = without_parameters(dynamical_model_spec, latent_0_t0_means)
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 def _runtime_dynamics(
@@ -867,8 +869,8 @@ class TestInferenceTracing:
 
     @pytest.mark.inference(concern="sampling")
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
-        spec = one_state_gaussian_model()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = one_state_gaussian_model()
+        model = compile_fit_fixture(dynamical_model_spec)
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
@@ -878,7 +880,7 @@ class TestInferenceTracing:
 
         site_info = _discover_sites(
             model.prior_runtime_bundle,
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             random.PRNGKey(0),
             _ExplodingBackend(),
         )
@@ -892,8 +894,8 @@ class TestDefaultMethodRouting:
     """Regression tests for default inference routing."""
 
     def test_fit_without_method_dispatches_to_marginal_particle_gibbs(self, monkeypatch):
-        spec = one_state_gaussian_model()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = one_state_gaussian_model()
+        model = compile_fit_fixture(dynamical_model_spec)
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
@@ -911,7 +913,7 @@ class TestDefaultMethodRouting:
 
         result = fit(
             model.prior_runtime_bundle,
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             sampler=SamplerSpec(),
             clock=time.monotonic,
         )
@@ -992,14 +994,14 @@ def test_map_objectives_receive_each_bound_dataset(monkeypatch):
     )
     bundle_a = _build_map_laplace_bundle(
         model.prior_runtime_bundle,
-        bind_panel_fixture(model.compiled, observations_a, times_a),
+        bind_panel_fixture(model.compiled_dynamical_model, observations_a, times_a),
         random.PRNGKey(0),
         backend,
         None,
     )
     bundle_b = _build_map_laplace_bundle(
         model.prior_runtime_bundle,
-        bind_panel_fixture(model.compiled, observations_b, times_b),
+        bind_panel_fixture(model.compiled_dynamical_model, observations_b, times_b),
         random.PRNGKey(1),
         backend,
         None,

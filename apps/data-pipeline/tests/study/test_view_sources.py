@@ -3,13 +3,9 @@
 import pytest
 
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.data_ref import DataRef
-from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied
-from nof1_causal_lab.study.snapshots import ModelReader
-from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.records import Applied, inference_record
+from nof1_causal_lab.study.store import ArtifactStore, read_model
 from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revision
 from tests.helpers import write_question
@@ -35,15 +31,15 @@ def test_authored_model_has_no_inference_report(monkeypatch, tmp_path):
             seq=1,
         )
     )
-    reader = ModelReader("ABSENT", at=journal.head())
-    assert reader.inference_report is None
-    assert reader.fit() is None
+    assert inference_record(journal.records(journal.head()), info.revision) is None
 
 
 @pytest.mark.inference(concern="sampling")
 def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(monkeypatch, tmp_path):
+    from nof1_causal_lab.actions.contracts import FitRequest
     from nof1_causal_lab.actions.fit import read_inference_report
-    from nof1_causal_lab.artifacts.identity import GitRef
+    from nof1_causal_lab.actions.io import FitInput, FitOutput
+    from nof1_causal_lab.artifacts.data_ref import DataRef
     from nof1_causal_lab.artifacts.posterior import InferenceEvidence
     from nof1_causal_lab.utils import data
     from tests.inference_fixtures import inference_metadata
@@ -51,10 +47,12 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store, journal = ArtifactStore("LABELS"), StudyRepository("LABELS")
-    model = load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
-    identity, layout = next(iter(model.law_layouts.items()))
+    dynamical_model_spec = load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
+    identity, layout = next(iter(dynamical_model_spec.law_layouts.items()))
     labels = {element: f"Production label {index}" for index, element in enumerate(layout.labels)}
-    model = model.with_entities(law_layouts={identity: layout.revised(labels=labels)})
+    dynamical_model_spec = dynamical_model_spec.with_entities(
+        law_layouts={identity: layout.revised(labels=labels)}
+    )
     prior = store.write_artifact(
         "model",
         derived_from={},
@@ -72,14 +70,10 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
         "model",
         derived_from={"model": prior.revision, "panel": panel.revision},
         produced_by="fit",
-        json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json", round_trip=True)},
     )
-    result = ModelFitResult(
-        model=GitRef(workspace_id="LABELS", revision=prior.revision, path="model.json"),
-        data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
-        evidence=InferenceEvidence(),
-    )
-    journal.append(
+    result = InferenceEvidence()
+    published = journal.append(
         applied_record(
             store.workspace_id,
             Applied(
@@ -89,11 +83,20 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
                     reports={
                         "inference": store.write_report(
                             read_inference_report(
-                                store, info.revision, result, inference_metadata(model)
+                                store,
+                                info.revision,
+                                result,
+                                inference_metadata(dynamical_model_spec),
                             )
                         )
                     },
                 ),
+            ),
+            request=FitRequest(
+                input=FitInput(
+                    dynamical_model_spec_ref=prior.revision,
+                    data_ref=DataRef(revision=panel.revision, replicate_index=0),
+                )
             ),
             seq=1,
         ),
@@ -102,21 +105,22 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
         "nof1_causal_lab.models.ssm.compile.inputs.compile_model",
         lambda *_args: pytest.fail("Reports and raw atoms do not need the compiler"),
     )
-    reader = ModelReader("LABELS", at=journal.head())
-    report = reader.inference_report
-    assert report is not None
+    assert published.record.attempt.outcome.status == "applied"
+    output = store.read_result(published.record.attempt.outcome.result, FitOutput)
+    report = output.inference
     marginals = report.core.posterior_marginals
     assert marginals is not None
     assert {row.parameter for row in marginals} == set(labels.values())
     assert report.core.inference_metadata.num_chains == 1
     assert report.core.inference_diagnostics is not None
-    assert reader.fit_result is not None
-    assert set(reader.fit_result.model_dump()) == {"model", "checks", "inference", "arrays"}
+    assert set(output.model_dump()) == {"dynamical_model_spec", "checks", "inference"}
     from nof1_causal_lab.numpyro_json import empirical_atoms
 
-    np_atoms = empirical_atoms(reader.fit_result.model.distributions[identity])
-    assert len(np_atoms) == report.core.inference_metadata.n_samples
-    assert {row.subject.element_id for row in marginals} == set(model.law_layouts[identity].labels)
+    np_atoms = empirical_atoms(output.dynamical_model_spec.distributions[identity])
+    assert len(np_atoms) == report.core.inference_metadata.num_samples_total
+    assert {row.subject.element_id for row in marginals} == set(
+        dynamical_model_spec.law_layouts[identity].labels
+    )
     assert all(row.empirical[-1].probability == 1 for row in marginals)
 
 
@@ -127,12 +131,12 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("DEFINITION")
-    model = x_y_model()
+    dynamical_model_spec = x_y_model()
     info = store.write_artifact(
         "model",
         derived_from={},
         produced_by=None,
-        json_files={"model.json": model.model_dump(mode="json")},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json")},
     )
     repository = StudyRepository("DEFINITION")
     repository.append(
@@ -147,13 +151,12 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
             trace_ids=[],
         )
     )
-    views = ModelReader("DEFINITION", at=StudyRepository("DEFINITION").head())
-    assert views.model == model
-    assert views.snapshot().model == model
+    assert read_model(store, info.revision) == dynamical_model_spec
     assert all(
-        "prior_density_points" not in parameter.model_dump() for parameter in model.parameters
+        "prior_density_points" not in parameter.model_dump()
+        for parameter in dynamical_model_spec.parameters
     )
-    changed = model.revised(measurement_clock="2d")
+    changed = dynamical_model_spec.revised(measurement_clock="2d")
     revision = store.write_artifact(
         "model",
         derived_from={"model": artifact_revision("DEFINITION", "model", 1)},
@@ -169,5 +172,5 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
             trace_ids=[],
         )
     )
-    assert ModelReader("DEFINITION", at=StudyRepository("DEFINITION").head()).model == changed
-    assert views.model == model
+    assert read_model(store, revision.revision) == changed
+    assert read_model(store, info.revision) == dynamical_model_spec

@@ -8,6 +8,7 @@ from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
 from nof1_causal_lab.actions.io import FitInput, SimulateInput
 from nof1_causal_lab.actions.temporal.client import pydantic_data_converter
 from nof1_causal_lab.actions.temporal.messages import ActionInput
+from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.study.state import StudyState
@@ -21,7 +22,10 @@ pytestmark = pytest.mark.contract
     "action",
     [
         FitRequest[GitOid](
-            input=FitInput[GitOid](replicate_index=0, model_ref=git_oid(1), data_ref=git_oid(2))
+            input=FitInput[GitOid](
+                dynamical_model_spec_ref=git_oid(1),
+                data_ref=DataRef(revision=git_oid(2), replicate_index=0),
+            )
         ),
         SimulateRequest[GitOid](
             input=SimulateInput[GitOid](
@@ -30,7 +34,7 @@ pytestmark = pytest.mark.contract
                     horizon="1w",
                     interventions=({"target": "construct:x", "after": "2d", "value": 1},),
                 ),
-                model_ref=git_oid(1),
+                dynamical_model_spec_ref=git_oid(1),
             )
         ),
     ],

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import polars as pl
 import pytest
 
@@ -42,20 +44,20 @@ def _single_row_panel(spec, **overrides: float) -> ObservationDataset:
             ]
         ),
         variables,
-        time_origin=None,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
     )
 
 
 def test_declared_discrete_levels_allow_one_observed_level():
-    spec = mixed_family_model()
+    dynamical_model_spec = mixed_family_model()
 
-    dataset = _single_row_panel(spec)
+    dataset = _single_row_panel(dynamical_model_spec)
     assert isinstance(dataset.select(dataset.variables), SelectedObservations)
 
     counts = dict(
         zip(
-            numeric.observation_names(compile_model_fixture(spec)),
-            numeric.observation_level_counts(compile_model_fixture(spec)),
+            numeric.observation_names(compile_model_fixture(dynamical_model_spec)),
+            numeric.observation_level_counts(compile_model_fixture(dynamical_model_spec)),
             strict=True,
         )
     )
@@ -63,10 +65,10 @@ def test_declared_discrete_levels_allow_one_observed_level():
 
 
 def test_declared_discrete_levels_reject_out_of_range_code():
-    spec = mixed_family_model()
+    dynamical_model_spec = mixed_family_model()
 
     with pytest.raises(ValueError, match="outside its codebook"):
-        _single_row_panel(spec, symptom_severity=4.0)
+        _single_row_panel(dynamical_model_spec, symptom_severity=4.0)
 
 
 def test_missing_declared_levels_are_rejected_in_the_scientific_definition():

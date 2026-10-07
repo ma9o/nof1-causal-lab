@@ -24,14 +24,14 @@ from tests.dynamics_fixtures import linear_term, potential_term
 from tests.model_fixtures import load_model_fixture
 
 
-def _directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture() -> ModelSpec:
+def _directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json"
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 @pytest.mark.inference(concern="simulation")
@@ -120,8 +120,8 @@ def test_invalid_potential_coefficients_are_rejected(kwargs):
 
 @pytest.mark.contract
 def test_directed_edges_cannot_be_reinterpreted_as_potentials():
-    model = _directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture()
-    edge = selected_edges(StructuralSelection(model, None))[0]
+    dynamical_model_spec = _directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture()
+    edge = selected_edges(StructuralSelection(dynamical_model_spec, None))[0]
     with pytest.raises(ValueError, match="literal_error"):
         edge.revised(
             mechanisms=tuple(

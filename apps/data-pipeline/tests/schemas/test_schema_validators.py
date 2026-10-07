@@ -4,8 +4,8 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from tests.helpers import graph_constructs, invalid_dict_payload, make_model
 
@@ -80,8 +80,8 @@ def test_dependent_alternatives_reject_impossible_fields_at_the_schema_boundary(
         with pytest.raises(ValidationError):
             adapter.validate_python(payload)
 
-    model = make_model(["x", "y"], [("x", "y")])
-    edge = model.edges[0]
+    dynamical_model_spec = make_model(["x", "y"], [("x", "y")])
+    edge = dynamical_model_spec.edges[0]
     with pytest.raises(ValidationError, match="drift"):
         edge.revised(
             mechanisms=[
@@ -91,17 +91,19 @@ def test_dependent_alternatives_reject_impossible_fields_at_the_schema_boundary(
 
 
 def test_valid_partial_model_can_be_enriched_for_measurement():
-    model = make_model(["stress", "sleep"], [("stress", "sleep")])
-    candidate = ModelSpec.model_validate(model.model_dump(mode="json")).materialized()
+    dynamical_model_spec = make_model(["stress", "sleep"], [("stress", "sleep")])
+    candidate = DynamicalModelSpec.model_validate(
+        dynamical_model_spec.model_dump(mode="json")
+    ).materialized()
     candidate.require_measurements()
-    assert candidate == model
-    partial = model.revised(measurement_clock=None).with_entities(
+    assert candidate == dynamical_model_spec
+    partial = dynamical_model_spec.revised(measurement_clock=None).with_entities(
         edges=replace_constructs(
-            model.edges,
-            tuple(c.revised(indicators=()) for c in model.constructs),
+            dynamical_model_spec.edges,
+            tuple(c.revised(indicators=()) for c in dynamical_model_spec.constructs),
         ),
     )
-    reloaded = ModelSpec.model_validate(partial.model_dump(mode="json")).materialized()
+    reloaded = DynamicalModelSpec.model_validate(partial.model_dump(mode="json")).materialized()
     with pytest.raises(IncompleteModelError, match="clock and indicators"):
         reloaded.require_measurements()
 
@@ -109,7 +111,7 @@ def test_valid_partial_model_can_be_enriched_for_measurement():
 @pytest.mark.parametrize("payload", ["not a dict", {"constructs": "bad"}])
 def test_invalid_authored_structure_returns_errors(payload):
     with pytest.raises(ValidationError):
-        ModelSpec.model_validate(invalid_dict_payload(payload)).materialized()
+        DynamicalModelSpec.model_validate(invalid_dict_payload(payload)).materialized()
 
 
 @pytest.mark.parametrize("bad", ["bad", [42], [{"name": "bad"}]])
@@ -117,7 +119,7 @@ def test_invalid_owned_indicator_returns_errors(bad):
     data = make_model(["stress"]).model_dump(mode="json")
     graph_constructs(data)[0]["indicators"] = bad
     with pytest.raises(ValidationError, match="indicators"):
-        ModelSpec.model_validate(data).materialized()
+        DynamicalModelSpec.model_validate(data).materialized()
 
 
 def test_duplicate_indicator_identity_across_constructs_is_rejected():
@@ -125,20 +127,20 @@ def test_duplicate_indicator_identity_across_constructs_is_rejected():
     first, second = graph_constructs(data)
     second["indicators"] = first["indicators"]
     with pytest.raises(ValidationError, match="Duplicate indicator IDs"):
-        ModelSpec.model_validate(data).materialized()
+        DynamicalModelSpec.model_validate(data).materialized()
 
 
 def test_duplicate_names_with_distinct_identities_are_rejected():
     data = make_model(["stress", "sleep"], [("stress", "sleep")]).model_dump(mode="json")
     graph_constructs(data)[1]["name"] = "stress"
     with pytest.raises(ValidationError, match="Duplicate construct names"):
-        ModelSpec.model_validate(data).materialized()
+        DynamicalModelSpec.model_validate(data).materialized()
     data = make_model(["stress", "sleep"], [("stress", "sleep")]).model_dump(mode="json")
     next(iter(graph_constructs(data)[1]["indicators"].values()))["observation"]["name"] = (
         "stress_obs"
     )
     with pytest.raises(ValidationError, match="Duplicate indicator names"):
-        ModelSpec.model_validate(data).materialized()
+        DynamicalModelSpec.model_validate(data).materialized()
 
 
 def test_validation_collects_errors_from_multiple_entities():
@@ -146,7 +148,7 @@ def test_validation_collects_errors_from_multiple_entities():
         "constructs": {"construct:first": {"name": "bad1"}, "construct:second": {"name": "bad2"}}
     }
     with pytest.raises(ValidationError) as exc:
-        ModelSpec.model_validate(data).materialized()
+        DynamicalModelSpec.model_validate(data).materialized()
     assert {error["loc"][1] for error in exc.value.errors() if len(error["loc"]) > 2} == {0, 1}
 
 
@@ -154,7 +156,7 @@ def test_edge_payload_must_be_a_valid_entity():
     data = make_model(["stress"]).model_dump(mode="json")
     data["edges"] = ["not a dict"]
     with pytest.raises(ValidationError, match="edges"):
-        ModelSpec.model_validate(data).materialized()
+        DynamicalModelSpec.model_validate(data).materialized()
 
 
 @pytest.mark.contract
@@ -194,12 +196,15 @@ def test_response_presence_is_independent_of_request_defaults_and_excluded_field
     from pydantic import Field
 
     from nof1_causal_lab.artifacts.base import Value
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
-    model = ModelSpec().materialized()
-    assert model.model_dump(mode="json")["measurement_clock"] is None
-    assert "measurement_clock" in ModelSpec.model_json_schema(mode="serialization")["required"]
-    assert "measurement_clock" not in ModelSpec.model_json_schema(mode="validation").get(
+    dynamical_model_spec = DynamicalModelSpec().materialized()
+    assert dynamical_model_spec.model_dump(mode="json")["measurement_clock"] is None
+    assert (
+        "measurement_clock"
+        in DynamicalModelSpec.model_json_schema(mode="serialization")["required"]
+    )
+    assert "measurement_clock" not in DynamicalModelSpec.model_json_schema(mode="validation").get(
         "required", []
     )
 

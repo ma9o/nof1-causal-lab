@@ -5,7 +5,7 @@ the helpers with real transformation or graph logic:
 - ``build_digraph``
 - ``get_outcome_name``
 - ``get_all_treatments``
-- ModelSpec state and marginalized-scale accessors
+- DynamicalModelSpec state and marginalized-scale accessors
 """
 
 import pytest

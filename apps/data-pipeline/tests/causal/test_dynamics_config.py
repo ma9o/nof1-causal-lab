@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
@@ -12,7 +12,7 @@ from tests.inference_fixtures import compile_model_fixture
 from tests.model_fixtures import load_model_fixture
 
 
-def _scientific_model_roundtrip_preserves_derived_dynamics_model_fixture() -> ModelSpec:
+def _scientific_model_roundtrip_preserves_derived_dynamics_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
     )
@@ -43,14 +43,16 @@ def test_description_retains_expression_constants_and_potential_semantics():
 
 
 def test_scientific_model_roundtrip_preserves_derived_dynamics():
-    model = _scientific_model_roundtrip_preserves_derived_dynamics_model_fixture()
-    restored = ModelSpec.model_validate_json(model.model_dump_json()).materialized()
+    dynamical_model_spec = _scientific_model_roundtrip_preserves_derived_dynamics_model_fixture()
+    restored = DynamicalModelSpec.model_validate_json(
+        dynamical_model_spec.model_dump_json()
+    ).materialized()
     assert dynamics_spec_to_dict(
-        compile_model_fixture(model).dynamics.spec
+        compile_model_fixture(dynamical_model_spec).dynamics.spec
     ) == dynamics_spec_to_dict(compile_model_fixture(restored).dynamics.spec)
     assert any(term.kind == "potential" for _, term in restored.iter_mechanisms())
     np.testing.assert_array_equal(
-        selected_state_ids(StructuralSelection(model, None)),
+        selected_state_ids(StructuralSelection(dynamical_model_spec, None)),
         selected_state_ids(StructuralSelection(restored, None)),
     )
 

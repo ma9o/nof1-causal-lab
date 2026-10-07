@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
@@ -32,7 +32,7 @@ def sample_sites(
 
 
 def assemble_model_matrices(
-    spec: CompiledModel, samples: dict[str, jnp.ndarray]
+    compiled_dynamical_model: CompiledDynamicalModel, samples: dict[str, jnp.ndarray]
 ) -> tuple[dict[str, jnp.ndarray], jnp.ndarray]:
     """Assemble one parameter draw, including the initial covariance constraint.
 
@@ -42,18 +42,22 @@ def assemble_model_matrices(
     """
     values = {
         site.name: samples[site.name]
-        for block in numeric.parameter_blocks(spec)
+        for block in numeric.parameter_blocks(compiled_dynamical_model)
         for site in block.iter_sites()
     }
-    manifest_chol = spec.observation_noise_block.assemble(values.get("manifest_var_diag_free"))
-    static_sds = spec.static_scale_block.assemble(values.get("static_state_sd_free"))
-    covariance = spec.initial_covariance_block.assemble_cov(
+    manifest_chol = compiled_dynamical_model.observation_noise_block.assemble(
+        values.get("manifest_var_diag_free")
+    )
+    static_sds = compiled_dynamical_model.static_scale_block.assemble(
+        values.get("static_state_sd_free")
+    )
+    covariance = compiled_dynamical_model.initial_covariance_block.assemble_cov(
         values.get("t0_var_diag_free"), values.get("t0_var_lower_free")
     )
     if static_sds.size:
-        loadings = jnp.asarray(spec.static_factor_loadings)
+        loadings = jnp.asarray(compiled_dynamical_model.static_factor_loadings)
         covariance = covariance + loadings @ jnp.diag(static_sds**2) @ loadings.T
-    endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(spec)))
+    endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(compiled_dynamical_model)))
     endogenous_covariance, min_eigenvalue = stabilize_covariance_for_cholesky(
         symmetrize(covariance[jnp.ix_(endogenous, endogenous)]),
         min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -62,13 +66,17 @@ def assemble_model_matrices(
         jnp.zeros_like(covariance).at[jnp.ix_(endogenous, endogenous)].set(endogenous_covariance)
     )
     return {
-        "diffusion": spec.diffusion_block.assemble(
+        "diffusion": compiled_dynamical_model.diffusion_block.assemble(
             values.get("diffusion_diag_free"), values.get("diffusion_lower_free")
         ),
-        "lambda": spec.loading_block.assemble(values.get("lambda_free")),
-        "manifest_means": spec.observation_mean_block.assemble(values.get("manifest_means_free")),
+        "lambda": compiled_dynamical_model.loading_block.assemble(values.get("lambda_free")),
+        "manifest_means": compiled_dynamical_model.observation_mean_block.assemble(
+            values.get("manifest_means_free")
+        ),
         "manifest_cov": manifest_chol @ manifest_chol.T,
-        "t0_means": spec.initial_mean_block.assemble(values.get("t0_means_free")),
+        "t0_means": compiled_dynamical_model.initial_mean_block.assemble(
+            values.get("t0_means_free")
+        ),
         "t0_cov": initial_covariance,
         "static_state_sds": static_sds,
     }, min_eigenvalue

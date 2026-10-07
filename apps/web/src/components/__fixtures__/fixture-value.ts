@@ -5,10 +5,19 @@ export function fixtureValue<T>(value: T | null | undefined): T {
 }
 
 /** JSON fixture files spell binary buffers as byte lists; the API uses Uint8Array. */
-export type BinaryFixture<T> = T extends Uint8Array ? readonly number[] | { readonly buffer: number } : T extends object ? { readonly [K in keyof T]: BinaryFixture<T[K]> } : T;
-type DecodedFixture<T> = T extends { readonly npy: readonly number[] | { readonly buffer: number } } ? { readonly npy: Uint8Array } : T extends object ? { readonly [K in keyof T]: DecodedFixture<T[K]> } : T;
+type EncodedFixture<T> = T extends Uint8Array
+  ? readonly number[] | { readonly buffer: number }
+  : T extends object
+    ? { readonly [K in keyof T]: EncodedFixture<T[K]> }
+    : T;
+declare const fixtureContract: unique symbol;
+interface FixtureContract<T> {
+  readonly [fixtureContract]?: T;
+}
+export type BinaryFixture<T> = EncodedFixture<T> & FixtureContract<T>;
 
-export function decodeFixture<T>(value: T): DecodedFixture<T> {
+export function decodeFixture<T>(value: FixtureContract<T>): T;
+export function decodeFixture(value: unknown): unknown {
   const buffers: Uint8Array[] = [];
   function restore(item: unknown): unknown {
     if (Array.isArray(item)) return item.map(restore);
@@ -19,7 +28,12 @@ export function decodeFixture<T>(value: T): DecodedFixture<T> {
           buffers.push(npy);
           return { npy };
         }
-        if (item.npy !== null && typeof item.npy === "object" && "buffer" in item.npy && typeof item.npy.buffer === "number")
+        if (
+          item.npy !== null &&
+          typeof item.npy === "object" &&
+          "buffer" in item.npy &&
+          typeof item.npy.buffer === "number"
+        )
           return { npy: fixtureValue(buffers[item.npy.buffer]) };
         throw new Error("Invalid fixture buffer");
       }
@@ -27,5 +41,5 @@ export function decodeFixture<T>(value: T): DecodedFixture<T> {
     }
     return item;
   }
-  return restore(value) as DecodedFixture<T>;
+  return restore(value);
 }

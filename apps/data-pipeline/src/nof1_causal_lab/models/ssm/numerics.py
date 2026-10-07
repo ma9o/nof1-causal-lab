@@ -9,7 +9,7 @@ import numpy as np
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
     from nof1_causal_lab.distributions import DistributionFamily
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
@@ -18,83 +18,91 @@ if TYPE_CHECKING:
     )
 
 
-def state_ids(model: CompiledModel) -> tuple[ConstructId, ...]:
+def state_ids(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[ConstructId, ...]:
     """Return construct IDs in the model's compiled state-axis order."""
-    return tuple(state.id for state in model.states)
+    return tuple(state.id for state in compiled_dynamical_model.states)
 
 
-def state_names(model: CompiledModel) -> tuple[str, ...]:
+def state_names(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[str, ...]:
     """Return display labels in the model's compiled state-axis order."""
-    return tuple(state.name for state in model.states)
+    return tuple(state.name for state in compiled_dynamical_model.states)
 
 
-def observation_ids(model: CompiledModel) -> tuple[IndicatorId, ...]:
+def observation_ids(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[IndicatorId, ...]:
     """Return observation IDs in the model's compiled channel order."""
-    return tuple(observation.id for observation in model.observations)
+    return tuple(observation.id for observation in compiled_dynamical_model.observations)
 
 
-def observation_names(model: CompiledModel) -> tuple[str, ...]:
+def observation_names(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[str, ...]:
     """Return observation display labels in the model's compiled channel order."""
-    return tuple(observation.name for observation in model.observations)
+    return tuple(observation.name for observation in compiled_dynamical_model.observations)
 
 
-def observation_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
+def observation_families(
+    compiled_dynamical_model: CompiledDynamicalModel,
+) -> tuple[DistributionFamily, ...]:
     """Return channel-aligned likelihood families from the compiled observation laws."""
-    return tuple(observation.law.family for observation in model.observations)
+    return tuple(observation.law.family for observation in compiled_dynamical_model.observations)
 
 
-def observation_level_counts(model: CompiledModel) -> tuple[int, ...]:
+def observation_level_counts(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[int, ...]:
     """Return channel-aligned category counts, with zero for observations without declared levels."""
-    return tuple(len(observation.levels) for observation in model.observations)
+    return tuple(len(observation.levels) for observation in compiled_dynamical_model.observations)
 
 
-def observation_standardized(model: CompiledModel) -> tuple[bool, ...]:
+def observation_standardized(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[bool, ...]:
     """Return channel-aligned flags identifying observations represented on a standardized scale."""
-    return tuple(observation.standardized for observation in model.observations)
+    return tuple(observation.standardized for observation in compiled_dynamical_model.observations)
 
 
-def categorical_anchors(model: CompiledModel) -> tuple[bool, ...]:
+def categorical_anchors(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[bool, ...]:
     """Return channel-aligned flags identifying categorical measurement anchors."""
-    return tuple(observation.categorical_anchor for observation in model.observations)
+    return tuple(
+        observation.categorical_anchor for observation in compiled_dynamical_model.observations
+    )
 
 
-def time_invariant_mask(model: CompiledModel) -> np.ndarray:
+def time_invariant_mask(compiled_dynamical_model: CompiledDynamicalModel) -> np.ndarray:
     """Mark compiled state coordinates with time-invariant dynamics."""
-    return np.asarray([state.time_invariant for state in model.states], dtype=bool)
+    return np.asarray(
+        [state.time_invariant for state in compiled_dynamical_model.states], dtype=bool
+    )
 
 
-def input_mask(model: CompiledModel) -> np.ndarray:
+def input_mask(compiled_dynamical_model: CompiledDynamicalModel) -> np.ndarray:
     """Mark state coordinates supplied by deterministic input laws."""
-    return np.asarray([state.is_input for state in model.states], dtype=bool)
+    return np.asarray([state.is_input for state in compiled_dynamical_model.states], dtype=bool)
 
 
-def diffusion_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
+def diffusion_families(
+    compiled_dynamical_model: CompiledDynamicalModel,
+) -> tuple[DistributionFamily, ...]:
     """Return compiled innovation families in state-axis order."""
-    return tuple(state.innovation_family for state in model.states)
+    return tuple(state.innovation_family for state in compiled_dynamical_model.states)
 
 
-def static_factor_ids(model: CompiledModel) -> tuple[ConstructId, ...]:
+def static_factor_ids(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[ConstructId, ...]:
     """Return construct IDs in compiled static-factor order."""
-    return tuple(state.id for state in model.static_factors)
+    return tuple(state.id for state in compiled_dynamical_model.static_factors)
 
 
-def static_factor_names(model: CompiledModel) -> tuple[str, ...]:
+def static_factor_names(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[str, ...]:
     """Return display labels in compiled static-factor order."""
-    return tuple(state.name for state in model.static_factors)
+    return tuple(state.name for state in compiled_dynamical_model.static_factors)
 
 
-def n_states(model: CompiledModel) -> int:
+def n_states(compiled_dynamical_model: CompiledDynamicalModel) -> int:
     """Count compiled state coordinates, including fixed input coordinates."""
-    return len(model.states)
+    return len(compiled_dynamical_model.states)
 
 
-def n_observations(model: CompiledModel) -> int:
+def n_observations(compiled_dynamical_model: CompiledDynamicalModel) -> int:
     """Count compiled observation channels rather than measured time points."""
-    return len(model.observations)
+    return len(compiled_dynamical_model.observations)
 
 
 def parameter_blocks(
-    model: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
 ) -> tuple[
     DiffusionBlockSpec,
     SparseBlockSpec[tuple[int, int]],
@@ -106,11 +114,11 @@ def parameter_blocks(
 ]:
     """Return compiled blocks in diffusion, loading, observation, initial-state, and static order."""
     return (
-        model.diffusion_block,
-        model.loading_block,
-        model.observation_mean_block,
-        model.observation_noise_block,
-        model.initial_mean_block,
-        model.initial_covariance_block,
-        model.static_scale_block,
+        compiled_dynamical_model.diffusion_block,
+        compiled_dynamical_model.loading_block,
+        compiled_dynamical_model.observation_mean_block,
+        compiled_dynamical_model.observation_noise_block,
+        compiled_dynamical_model.initial_mean_block,
+        compiled_dynamical_model.initial_covariance_block,
+        compiled_dynamical_model.static_scale_block,
     )

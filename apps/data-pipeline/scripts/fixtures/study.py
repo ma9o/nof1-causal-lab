@@ -16,17 +16,17 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import coefficient
 from nof1_causal_lab.artifacts.expressions import state as expr_state
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.study.artifact_files import artifact_file_spec
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import is_stale
 from nof1_causal_lab.study.store import ArtifactStore, trace_log_path
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils.llm import LLMTrace
+from scripts.fixtures.reader import ModelReader
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId
@@ -75,9 +75,9 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
         files["artifacts/identification_report.json"] = (
             identification.model_dump_json(indent=2) + "\n"
         ).encode()
-    if reader.validation_report is not None:
+    if reader.fit_checks is not None:
         files["artifacts/validation_report.json"] = (
-            reader.validation_report.model_dump_json(indent=2) + "\n"
+            reader.fit_checks.model_dump_json(indent=2) + "\n"
         ).encode()
     report = reader.inference_report
     files["inference.json"] = (
@@ -135,14 +135,16 @@ def project(source: Path, destination: Path | None = None):
 
 
 def workbench_comparisons(snapshot, history):
-    free = ModelSpec.model_validate(snapshot["model"])
+    dynamical_model_spec = DynamicalModelSpec.model_validate(snapshot["dynamical_model_spec"])
     parameter = next(
         item
-        for item in free.parameters
+        for item in dynamical_model_spec.parameters
         if item.name == "beta_perceived_stress_burden_internalizing_symptom_burden"
     )
-    edge = next(item for item in free.edges if item.id == "edge:9df1507c29b9de944a33")
-    pinned = free.with_entities(
+    edge = next(
+        item for item in dynamical_model_spec.edges if item.id == "edge:9df1507c29b9de944a33"
+    )
+    pinned_dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=tuple(
             item.revised(
                 mechanisms=tuple(
@@ -154,36 +156,47 @@ def workbench_comparisons(snapshot, history):
             )
             if item.id == edge.id
             else item
-            for item in free.edges
+            for item in dynamical_model_spec.edges
         ),
-        parameters=tuple(item for item in free.parameters if item.id != parameter.id),
+        parameters=tuple(
+            item for item in dynamical_model_spec.parameters if item.id != parameter.id
+        ),
         distributions={
-            key: law for key, law in free.distributions.items() if key != parameter.distribution
+            key: law
+            for key, law in dynamical_model_spec.distributions.items()
+            if key != parameter.distribution
         },
     )
-    models: dict[str, ModelSpec | None] = {
-        history[str(seq)]["state"]["current"]["model"]["revision"]: ModelSpec.model_validate(
-            history[str(seq)]["model"]
-        )
+    dynamical_model_specs: dict[str, DynamicalModelSpec | None] = {
+        history[str(seq)]["state"]["current"]["model"][
+            "revision"
+        ]: DynamicalModelSpec.model_validate(history[str(seq)]["dynamical_model_spec"])
         for seq in (2, 3, 4, 7)
     }
-    models["no-model"] = None
-    models.update(
-        {format(n, "x").rjust(40, "a"): model for n, model in [(5, free), (6, free), (7, pinned)]}
+    dynamical_model_specs["no-model"] = None
+    dynamical_model_specs.update(
+        {
+            format(n, "x").rjust(40, "a"): candidate
+            for n, candidate in [
+                (5, dynamical_model_spec),
+                (6, dynamical_model_spec),
+                (7, pinned_dynamical_model_spec),
+            ]
+        }
     )
-    empty = ModelSpec.from_entities()
+    empty = DynamicalModelSpec.from_entities()
     comparisons = {
         f"{before_version}:{after_version}": {
             "changes": (empty if right is None else right)
             .changes_from(empty if left is None else left)
             .model_dump(mode="json")
         }
-        for before_version, left in models.items()
-        for after_version, right in models.items()
+        for before_version, left in dynamical_model_specs.items()
+        for after_version, right in dynamical_model_specs.items()
     }
     return {
-        "pinned_model": pinned.model_dump(mode="json"),
-        "pinned_inputs": input_fingerprints(pinned),
+        "pinned_dynamical_model_spec": pinned_dynamical_model_spec.model_dump(mode="json"),
+        "pinned_inputs": input_fingerprints(pinned_dynamical_model_spec),
         "comparisons": comparisons,
     }
 
@@ -210,7 +223,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "24"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "26"],
             check=True,
             capture_output=True,
         )
@@ -240,8 +253,8 @@ def build_outputs():
             outputs[HEALTHDEMO_ROOT / "fixture/model_snapshot.json"],
             outputs[HEALTHDEMO_ROOT / "fixture/model_history.json"],
         )
-        from scripts.fixtures.visuals import workbench_visuals, restore_fixture
         from nof1_causal_lab.study.result_codec import result_payload
+        from scripts.fixtures.visuals import restore_fixture, workbench_visuals
 
         outputs[WORKBENCH_OUTPUT.with_name("workbench-visuals.json")] = workbench_visuals(
             reader, json.loads(WORKBENCH_OUTPUT.with_name("workbench-simulation.json").read_text())
@@ -270,7 +283,7 @@ def rendered_fixtures(outputs):
         / "fixture/predictive_checks.json": "Domain.PosteriorPredictiveChecks | null",
         SIMULATION_REPORTS: "readonly Domain.SimulationReport[]",
         WORKBENCH_OUTPUT: """Readonly<{
-  pinned_model: Domain.ModelSpec;
+  pinned_dynamical_model_spec: Domain.DynamicalModelSpec;
   pinned_inputs: Record<string, string>;
   comparisons: Readonly<Partial<Record<string, Domain.ModelDiffOutput>>>;
 }>""",
@@ -286,7 +299,8 @@ def rendered_fixtures(outputs):
     from scripts.fixtures.visuals import render_fixture
 
     contents = {
-        path: json.dumps(render_fixture(value), indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        path: json.dumps(render_fixture(value), indent=2, ensure_ascii=False, allow_nan=False)
+        + "\n"
         for path, value in outputs.items()
     }
     for path, contract in contracts.items():
@@ -301,7 +315,17 @@ def rendered_fixtures(outputs):
     for path, content in contents.items():
         if path == SIMULATION_REPORTS or path.suffix == ".ts":
             content = subprocess.run(
-                ["bun", "x", "--no-install", "biome", "format", "--stdin-file-path", str(path)],
+                [
+                    "bun",
+                    "x",
+                    "--no-install",
+                    "biome",
+                    "format",
+                    "--files-max-size",
+                    str(len(content.encode())),
+                    "--stdin-file-path",
+                    str(path),
+                ],
                 input=content,
                 text=True,
                 capture_output=True,

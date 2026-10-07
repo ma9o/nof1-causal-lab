@@ -15,18 +15,16 @@ from pydantic import ConfigDict, Field
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_comparison import DataComparisonReport
 from nof1_causal_lab.artifacts.data_preparation import (
+    DataPreparationResult,
     ExtractionSpec,
     PreparedDataMetadata,
 )
-from nof1_causal_lab.artifacts.data_ref import DataSelection
+from nof1_causal_lab.artifacts.data_ref import DataRef, DataSelection
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec, ModelEditResult
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import (
-    IndicatorId,
-)
-from nof1_causal_lab.artifacts.model_checks import (
-    ModelCheckReport,
-)
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.identity import IndicatorId
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+from nof1_causal_lab.artifacts.observation_history import ObservationData
 from nof1_causal_lab.artifacts.posterior import (
     FitCheckReport,
     FitSettingsSpec,
@@ -37,10 +35,7 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,
 )
-from nof1_causal_lab.artifacts.validation_report import (
-    DataProfileArtifact,
-)
-from nof1_causal_lab.study.visual_models import ObservationData
+from nof1_causal_lab.artifacts.validation_report import DataProfileReport
 
 # edit_question
 
@@ -78,31 +73,25 @@ class EditModelInput[RevisionT](Value):
             "question. 'latest' selects the current model, otherwise the current question."
         )
     )
-    model: ModelSpec = Field(
+    dynamical_model_spec: DynamicalModelSpec = Field(
         description=(
             "Scientific definitions merged by identity into a model parent, or into an empty "
             "model for a question parent. Omitted fields are retained; null entity entries "
-            "delete their identities. Constructs outside the outcome ancestry are pruned "
-            "with a warning, then the complete model is validated. Endogenous constructs "
-            "are modeled, with or without parents, "
-            "and include every latent construct. Exogenous constructs require deterministic Delta "
-            "trajectory laws for execution and have no dynamics, diffusion or initial coefficients."
+            "delete their identities. The action retains the merged spec and its findings."
         )
     )
 
 
 class EditModelOutput(Value):
-    """The produced model and its recorded scientific findings.
+    """The produced model and its recorded scientific findings."""
 
-    Optional findings are absent when no corresponding report was retained.
-    """
-
-    model: ModelSpec = Field(description="Saved scientific definition.")
-    checks: ModelCheckReport | None = Field(
+    dynamical_model_spec: DynamicalModelSpec = Field(description="Saved scientific definition.")
+    checks: ModelCheckReport = Field(
         description="Combined findings retained by the action that produced the model."
     )
-    identification: IdentificationReport | None = Field(
-        description="Causal identification findings."
+    identification: IdentificationReport = Field(description="Causal identification findings.")
+    pruning: ModelEditResult = Field(
+        description="Entities removed because they do not serve the question."
     )
 
 
@@ -112,7 +101,7 @@ class EditModelOutput(Value):
 class PrepareDataInput[RevisionT, SourceT](Value):
     """Extract observations using the definitions of the selected model."""
 
-    model_ref: RevisionT = Field(
+    dynamical_model_spec_ref: RevisionT = Field(
         description="Model revision owning the clock and observation definitions."
     )
     source: SourceT = Field(
@@ -134,7 +123,7 @@ class PrepareDataInput[RevisionT, SourceT](Value):
 
 
 class PrepareDataOutput(Value):
-    """Complete prepared observations, their provenance, and data-quality findings."""
+    """Prepared observations, their resolved metadata, and data-quality findings."""
 
     data: ObservationData = Field(
         description=(
@@ -144,12 +133,15 @@ class PrepareDataOutput(Value):
     )
     metadata: PreparedDataMetadata = Field(
         description=(
-            "Source reference, preparation recipe, resolved observation schema, and the "
+            "Preparation recipe, resolved observation schema, and the "
             "calendar origin used to interpret model time."
         )
     )
-    profile: DataProfileArtifact = Field(
+    profile: DataProfileReport = Field(
         description="Empirical statistics and data-quality findings for the prepared panel."
+    )
+    extraction: DataPreparationResult = Field(
+        description="Retained extraction workers, failed chunks and reuse counts."
     )
 
 
@@ -159,29 +151,22 @@ class PrepareDataOutput(Value):
 class FitInput[RevisionT](Value):
     """Condition one model on one selected observation history."""
 
-    model_ref: RevisionT = Field(
+    dynamical_model_spec_ref: RevisionT = Field(
         description="Model revision whose parameter law will be conditioned."
     )
-    data_ref: RevisionT = Field(
-        description="Revision containing the observations used for conditioning."
-    )
-    replicate_index: int = Field(
-        ge=0,
-        description=(
-            "Zero-based selection of a single history within that data source; histories are "
-            "not pooled."
-        ),
+    data_ref: DataRef[RevisionT, int] = Field(
+        description="One saved observation history selected by revision and replicate index."
     )
     settings: FitSettingsSpec = Field(
         default_factory=FitSettingsSpec,
-        description="Sampler, initialization, and diagnostic settings for the run.",
+        description="Optional particle-sampler counts and random seed for the run.",
     )
 
 
 class FitOutput(Value):
     """A conditioned model, its completed checks, and self-contained inference evidence."""
 
-    model: ModelSpec = Field(
+    dynamical_model_spec: DynamicalModelSpec = Field(
         description="The model with its joint parameter law conditioned on the selected data."
     )
     checks: FitCheckReport = Field(
@@ -198,7 +183,7 @@ class FitOutput(Value):
 class SimulateInput[RevisionT](Value):
     """Generate histories from a selected model and an explicit simulation design."""
 
-    model_ref: RevisionT = Field(
+    dynamical_model_spec_ref: RevisionT = Field(
         description="Revision supplying the authored or fitted generative law."
     )
     simulation: SimulationSpec = Field(description="Requested start, horizon, and interventions.")
@@ -241,7 +226,7 @@ class DataDiffOutput(Value):
     report: DataComparisonReport = Field(
         description=(
             "Exact history selections, point changes, per-history statistics, compatibility "
-            "issues and predictive checks. This is a statistical comparison, not a data patch."
+            "findings and predictive checks."
         )
     )
 
@@ -250,24 +235,24 @@ class DataDiffOutput(Value):
 
 
 class ModelDiffInput[RevisionT](Value):
-    """Base and target specs for a directional patch, selected by revisions or checkpoints.
+    """Base and target specs for a directional patch, selected by question or model revisions.
 
     The selections need not be chronologically ordered or share an editing parent.
     Before/after determine patch direction; ModelDiffOutput defines its contract.
     """
 
     before_ref: RevisionT = Field(
-        description="Model revision or checkpoint used as the comparison base."
+        description="Question or model revision used as the base; a question denotes an empty spec."
     )
     after_ref: RevisionT = Field(
-        description="Model revision or checkpoint the returned patch reconstructs from the base."
+        description="Question or model revision reconstructed by applying the patch to the base."
     )
 
 
 class ModelDiffOutput(Value):
     """Directional changes between saved specs, expressed in the model's editing language.
 
-    ModelSpec.changes_from owns the document comparison. Applying its patch with
+    DynamicalModelSpec.changes_from owns the document comparison. Applying its patch with
     merge_fields to the before spec reconstructs the after spec; equal specs yield
     an empty document. Only saved specification fields participate, including their
     exact law-buffer references. No execution findings or statistical comparisons
@@ -276,10 +261,10 @@ class ModelDiffOutput(Value):
 
     model_config = ConfigDict(json_schema_mode_override="validation")
 
-    changes: ModelSpec = Field(
+    changes: DynamicalModelSpec = Field(
         description=(
             "Merge this document into the before spec to obtain the after spec. Omitted fields "
             "are unchanged, supplied fields are added or updated, and null map entries delete "
-            "their identities. A checkpoint without a model denotes the empty spec."
+            "their identities. A question revision denotes the empty spec."
         )
     )

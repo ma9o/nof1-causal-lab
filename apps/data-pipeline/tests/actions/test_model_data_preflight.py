@@ -11,7 +11,8 @@ from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.io import EditModelInput
-from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.actions.messages import edit_messages
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.observation_data import ObservationDataset
@@ -20,7 +21,7 @@ from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.sampler_config import SamplerSpec
-from nof1_causal_lab.study.records import Applied, DataPreparationResult
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import edit_and_check
@@ -48,7 +49,7 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
     )
     compiled = compilation.compile_model(selection)
     report = check_specification(compiled, compilation.compile_fit_inputs(compiled, selection))
-    finding = next(finding for finding in report if finding.subject == "fit_laws")
+    finding = next(finding for finding in report if finding.code == "fit_laws")
     assert finding.kind == "evaluated"
     assert finding.outcome == "failed"
     assert finding.evidence.count("Unsupported joint law.") == 1
@@ -56,17 +57,17 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
 
 
 def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
-    model, panel = (
+    dynamical_model_spec, panel = (
         stress_sleep_causal_model(),
         panel_frame(n_days=4),
     )
     panel = ObservationDataset.from_frame(
         panel, panel_metadata().variables, time_origin=panel_metadata().time_origin
     )
-    inputs = compile_fit_fixture(model)
+    inputs = compile_fit_fixture(dynamical_model_spec)
     report = check_model_data(inputs, panel, time_origin=panel_metadata().time_origin)
     finding = report[0]
-    assert finding.subject == "fit_preflight"
+    assert finding.code == "fit_preflight"
     assert finding.kind == "evaluated"
     assert finding.outcome == "failed"
     assert "interval summaries" in finding.evidence
@@ -76,7 +77,7 @@ def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
     prepared = prepare_fit(inputs, panel, time_origin=panel_metadata().time_origin)
     assert isinstance(prepared, PreparedFit)
     assert prepared.inputs is inputs
-    assert prepared.panel.model is inputs.compiled
+    assert prepared.panel.compiled_dynamical_model is inputs.compiled_dynamical_model
     failure = fit(
         prepared.inputs.prior_runtime_bundle,
         prepared.panel,
@@ -129,7 +130,7 @@ def test_edit_with_missing_panel_variable_has_no_data_findings(tmp_path, monkeyp
         EditModelRequest[GitOid](
             input=EditModelInput[GitOid](
                 parent_ref=state.current["question"].revision,
-                model=stress_sleep_causal_model(),
+                dynamical_model_spec=stress_sleep_causal_model(),
             )
         ),
         state,
@@ -137,16 +138,10 @@ def test_edit_with_missing_panel_variable_has_no_data_findings(tmp_path, monkeyp
     assert "model" in {item.artifact_id for item in edited.effects.produced}
     from nof1_causal_lab.actions.model_checks import read_model_checks
 
-    checks, identification, report = read_model_checks(
+    checks, identification = read_model_checks(
         "TEST", state.with_artifacts(edited.effects.produced), action="edit_model"
     )
-    assert report is None
     assert checks.question is not None
-    assert checks.question.data is None
-    messages = completion_messages(
-        edited.result,
-        datetime.now(UTC),
-        (identification,),
-        checks=checks,
-    )
-    assert "MODEL_DATA_INCOMPATIBLE" not in {message.label for message in messages}
+    assert all(finding.code not in {"window", "range"} for finding in checks.question.findings)
+    messages = edit_messages(checks, identification, edited.result, datetime.now(UTC))
+    assert "MODEL_DATA_INCOMPATIBLE" not in {message.code for message in messages}

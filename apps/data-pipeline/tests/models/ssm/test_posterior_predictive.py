@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import equinox as eqx
@@ -33,14 +34,16 @@ from tests.models.ssm._support import complex_mixed_family_config
 from tests.predictive_fixtures import sample_observation_fixture
 
 
-def _posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture() -> ModelSpec:
+def _posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "posterior_predictive/testforwardsimulation_test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture.json"
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 def _make_lp_and_samples(
@@ -204,26 +207,42 @@ class TestForwardSimulation:
         )
         from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
-        spec = _posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture()
+        dynamical_model_spec = (
+            _posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture()
+        )
         n_draws = 2
         ordered_base = jnp.zeros((n_draws, 2), dtype=jnp.float32)
         ordered_base = ordered_base.at[:, 1].set(-1.0)
         samples = {
             **{
                 site.name: jnp.full((n_draws, *site.shape), 0.5)
-                for site in build_site_registry(compile_model_fixture(spec))
+                for site in build_site_registry(compile_model_fixture(dynamical_model_spec))
             },
             "obs_ordered_base": ordered_base,
             "obs_ordered_gaps": jnp.ones((n_draws, 2, 1), dtype=jnp.float32),
         }
-        samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(spec)))
+        samples.update(
+            assemble_deterministics_from_registry(
+                samples, compile_model_fixture(dynamical_model_spec)
+            )
+        )
         captured = {}
 
         def _fake_latents(_spec, _samples, times, **_kwargs):
             return (
-                jnp.zeros((n_draws, times.shape[0], numeric.n_states(compile_model_fixture(spec)))),
                 jnp.zeros(
-                    (n_draws, times.shape[0], numeric.n_observations(compile_model_fixture(spec)))
+                    (
+                        n_draws,
+                        times.shape[0],
+                        numeric.n_states(compile_model_fixture(dynamical_model_spec)),
+                    )
+                ),
+                jnp.zeros(
+                    (
+                        n_draws,
+                        times.shape[0],
+                        numeric.n_observations(compile_model_fixture(dynamical_model_spec)),
+                    )
                 ),
             )
 
@@ -249,7 +268,7 @@ class TestForwardSimulation:
         )
 
         registry_runtime.simulate_predictive_draws(
-            compile_model_fixture(spec),
+            compile_model_fixture(dynamical_model_spec),
             samples,
             jnp.arange(3, dtype=jnp.float32),
         )
@@ -295,7 +314,7 @@ class TestDiagnosticChecks:
         assert [warning.subject.target.id for warning in unevaluated] == names[3:]
         warnings = [warning for warning in warnings if warning.kind == "evaluated"]
         assert [warning.subject.target.id for warning in warnings] == names[:3]
-        assert [warning.subject.check for warning in warnings] == ["calibration"] * 3
+        assert [warning.code for warning in warnings] == ["calibration"] * 3
         np.testing.assert_allclose(
             [warning.evidence.value for warning in warnings], [0.5, 0.9, 1.0]
         )
@@ -323,7 +342,7 @@ class TestDiagnosticChecks:
         assert [warning.subject.target.id for warning in unevaluated] == names[3:]
         warnings = [warning for warning in warnings if warning.kind == "evaluated"]
         assert [warning.subject.target.id for warning in warnings] == names[:3]
-        assert [warning.subject.check for warning in warnings] == ["autocorrelation"] * 3
+        assert [warning.code for warning in warnings] == ["autocorrelation"] * 3
         np.testing.assert_allclose(
             [warning.evidence.value for warning in warnings], [5 / 7, -1, -1 / 7], atol=1e-6
         )
@@ -350,7 +369,7 @@ class TestDiagnosticChecks:
         assert [warning.subject.target.id for warning in unevaluated] == names[3:]
         warnings = [warning for warning in warnings if warning.kind == "evaluated"]
         assert [warning.subject.target.id for warning in warnings] == names[:3]
-        assert [warning.subject.check for warning in warnings] == ["variance"] * 3
+        assert [warning.code for warning in warnings] == ["variance"] * 3
         np.testing.assert_allclose(
             [warning.evidence.value for warning in warnings], [0.1, 1.0, 10.0], atol=1e-6
         )
@@ -376,7 +395,7 @@ def test_overlays_preserve_quantiles_observations_and_all_trajectories():
         observations,
         ids,
         times=(0.0, 0.25, 9.0),
-        time_origin=None,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         standardized=(True, False),
     )
 
@@ -398,7 +417,7 @@ def test_single_draw_has_exact_median_and_one_trajectory():
         jnp.zeros((2, 2)),
         [IndicatorId("indicator:x"), IndicatorId("indicator:y")],
         times=(0.0, 1.0),
-        time_origin=None,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         standardized=(False, False),
     )
 
@@ -458,7 +477,11 @@ def test_predictive_summaries_require_complete_indicator_axis(compute):
             jnp.ones((3, 2)),
             [IndicatorId("indicator:x")],
             **(
-                {"times": (0, 1, 2), "time_origin": None, "standardized": (False, False)}
+                {
+                    "times": (0, 1, 2),
+                    "time_origin": datetime(2026, 1, 1, tzinfo=UTC),
+                    "standardized": (False, False),
+                }
                 if compute is _compute_overlays
                 else {}
             ),

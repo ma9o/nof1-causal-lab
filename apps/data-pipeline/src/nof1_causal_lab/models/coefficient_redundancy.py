@@ -42,9 +42,9 @@ from nof1_causal_lab.artifacts.expressions import (
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
 
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec, _ModelEntities
     from nof1_causal_lab.artifacts.expressions import Expression
     from nof1_causal_lab.artifacts.identity import ParameterId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec, _ModelEntities
 
 _MAX_TERMS = 64
 _PARAMETER = re.compile(r"parameter:[0-9a-f]{64}")
@@ -126,19 +126,21 @@ def _terms(value: Expr, parameters: Mapping[str, ParameterId]) -> tuple[_Term, .
     return tuple(terms)
 
 
-def _equations(model: ModelSpec | _ModelEntities) -> Iterator[tuple[_Term, ...]]:
+def _equations(
+    dynamical_model_spec: DynamicalModelSpec | _ModelEntities,
+) -> Iterator[tuple[_Term, ...]]:
     """One expanded sum per scalar equation in which coefficients combine."""
     drift: dict[tuple[str, str], list[Expr]] = defaultdict(list)
-    parameters = {str(parameter.id): parameter.id for parameter in model.parameters}
-    for owner, mechanism in model.iter_mechanisms():
+    parameters = {str(parameter.id): parameter.id for parameter in dynamical_model_spec.parameters}
+    for owner, mechanism in dynamical_model_spec.iter_mechanisms():
         target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         drift[target, mechanism.kind].append(_algebra(mechanism.expression))
     for expressions in drift.values():
         yield _terms(Add(*expressions), parameters)
-    for construct in model.constructs:
+    for construct in dynamical_model_spec.constructs:
         for operand in construct.coefficients:
             yield _terms(_algebra(operand), parameters)
-    for _, likelihood in model.iter_likelihoods():
+    for _, likelihood in dynamical_model_spec.iter_likelihoods():
         for _, operand in likelihood.law.operands():
             yield _terms(_algebra(operand), parameters)
 
@@ -184,9 +186,11 @@ def _deficient_groups(
             yield members, forms
 
 
-def coefficient_redundancies(model: ModelSpec | _ModelEntities) -> tuple[str, ...]:
+def coefficient_redundancies(
+    dynamical_model_spec: DynamicalModelSpec | _ModelEntities,
+) -> tuple[str, ...]:
     """Describe each exact redundancy among the model's free coefficients."""
-    equations = list(_equations(model))
+    equations = list(_equations(dynamical_model_spec))
     terms = [term for equation in equations for term in equation]
     nested = frozenset().union(*(_nested(name) for term in terms for name, _ in term.factors))
     nonlinear = {
@@ -195,7 +199,7 @@ def coefficient_redundancies(model: ModelSpec | _ModelEntities) -> tuple[str, ..
         if len(term.parameters) > 1 or any(power != 1 for _, power in term.parameters)
         for name, _ in term.parameters
     }
-    names = {parameter.id: parameter.name for parameter in model.parameters}
+    names = {parameter.id: parameter.name for parameter in dynamical_model_spec.parameters}
     found: list[str] = []
     linear_rows: list[Mapping[ParameterId, Fraction]] = []
     for equation in equations:
@@ -247,9 +251,11 @@ def _product_form(form: Mapping[ParameterId, Fraction], names: Mapping[Parameter
     )
 
 
-def validate_coefficient_redundancy(model: ModelSpec | _ModelEntities) -> None:
+def validate_coefficient_redundancy(
+    dynamical_model_spec: DynamicalModelSpec | _ModelEntities,
+) -> None:
     """A redundancy the observed-data law cannot separate is an authoring error."""
-    if found := coefficient_redundancies(model):
+    if found := coefficient_redundancies(dynamical_model_spec):
         raise ValueError(
             "; ".join(found)
             + ". No data can separate them: merge each combination into one parameter "

@@ -11,6 +11,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import (
     BinaryExpression,
     CallExpression,
@@ -28,7 +29,6 @@ from nof1_causal_lab.artifacts.identity import (
     scientific_id,
 )
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, NormalLawSpec, ObservationLawSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
@@ -47,7 +47,7 @@ from tests.observation_fixtures import observation_kernel
 
 
 def _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _MANIFEST_MEAN_X_OBS_PARAMETER_ID = ParameterId(
         "parameter:45b9d3457845e74a7a9b59f18ad0a57bb8091bb187650d4c597c2c34aefdce05"
@@ -55,15 +55,15 @@ def _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_comp
     _MANIFEST_MEAN_X_OBS_DISTRIBUTION_ID = DistributionId(
         "distribution:691046b2f9e22a1f8ac7a79808b014fc604bbf2dae8819b0e0594fd70444c3f3"
     )
-    model = x_y_model()
-    x = construct_named(model, "X")
-    x_obs = indicator_named(model, "X_obs")
-    x_obs_likelihood = likelihood_named(model, "X_obs")
-    rho_x = parameter_named(model, "rho_X")
-    rho_y = parameter_named(model, "rho_Y")
-    beta_x_y = parameter_named(model, "beta_X_Y")
-    sigma_x = parameter_named(model, "sigma_X")
-    sigma_y = parameter_named(model, "sigma_Y")
+    dynamical_model_spec = x_y_model()
+    x = construct_named(dynamical_model_spec, "X")
+    x_obs = indicator_named(dynamical_model_spec, "X_obs")
+    x_obs_likelihood = likelihood_named(dynamical_model_spec, "X_obs")
+    rho_x = parameter_named(dynamical_model_spec, "rho_X")
+    rho_y = parameter_named(dynamical_model_spec, "rho_Y")
+    beta_x_y = parameter_named(dynamical_model_spec, "beta_X_Y")
+    sigma_x = parameter_named(dynamical_model_spec, "sigma_X")
+    sigma_y = parameter_named(dynamical_model_spec, "sigma_Y")
     x_obs_revised = x_obs.revised(
         likelihood=x_obs_likelihood.revised(
             law=NormalLawSpec[Expression](
@@ -78,8 +78,8 @@ def _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_comp
         )
     )
     x_revised = x.revised(indicators=(x_obs_revised,))
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (x_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (x_revised,)),
         parameters=(
             rho_x,
             rho_y,
@@ -94,7 +94,7 @@ def _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_comp
             sigma_y,
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _MANIFEST_MEAN_X_OBS_DISTRIBUTION_ID: dist.Normal(
                 loc=0.0, scale=0.5, validate_args=False
             ),
@@ -439,8 +439,8 @@ def test_authored_laws_preserve_coefficient_identities(
 
 @pytest.mark.contract
 def test_completion_binding_and_serialization_follow_the_same_cross_loading():
-    model = x_y_model()
-    owner, other = model.constructs
+    dynamical_model_spec = x_y_model()
+    owner, other = dynamical_model_spec.constructs
     indicator = owner.indicators[0]
     revised = LikelihoodSpec.model_validate_json(
         (
@@ -449,24 +449,33 @@ def test_completion_binding_and_serialization_follow_the_same_cross_loading():
             / "likelihood_expressions/completion_binding_equations_and_serialization_follow_the_same_cross_loading_revise_law.json"
         ).read_text()
     )
-    model = model.with_entities(
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (owner.revised(indicators=(indicator.revised(likelihood=revised),)),),
         )
     )
-    compile_model_fixture(model)
+    compile_model_fixture(dynamical_model_spec)
     np.testing.assert_allclose(
-        compile_model_fixture(model).loading_block.template, [[1, 0.25], [0, 1]]
+        compile_model_fixture(dynamical_model_spec).loading_block.template, [[1, 0.25], [0, 1]]
     )
-    uses = [use for use in iter_coefficient_uses(model) if use.quantity == SiteKind.LOADING]
+    uses = [
+        use
+        for use in iter_coefficient_uses(dynamical_model_spec)
+        if use.quantity == SiteKind.LOADING
+    ]
     cross = next(use for use in uses if use.value == 0.25)
     assert {ref.id for ref in cross.owners} == {indicator.observation.id, other.id}
-    assert ModelSpec.model_validate_json(model.model_dump_json()).materialized() == model
-    renamed = model.with_entities(
-        edges=replace_constructs(model.edges, (other.revised(name="Renamed"),))
+    assert (
+        DynamicalModelSpec.model_validate_json(
+            dynamical_model_spec.model_dump_json()
+        ).materialized()
+        == dynamical_model_spec
     )
-    assert {p.id for p in renamed.parameters} == {p.id for p in model.parameters}
+    renamed = dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (other.revised(name="Renamed"),))
+    )
+    assert {p.id for p in renamed.parameters} == {p.id for p in dynamical_model_spec.parameters}
 
 
 @pytest.mark.contract
@@ -495,8 +504,8 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     with pytest.raises(ValidationError, match="non-negative"):
         coefficient(-1, "observation_scale")
 
-    model = make_model(["X", "Y"], [("X", "Y")])
-    owner = model.constructs[0]
+    dynamical_model_spec = make_model(["X", "Y"], [("X", "Y")])
+    owner = dynamical_model_spec.constructs[0]
     indicator = owner.indicators[0]
     partial = LikelihoodSpec(
         law=TypeAdapter(ObservationLawSpec).validate_json(
@@ -510,9 +519,9 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     )
 
     def with_law(law):
-        return model.with_entities(
+        return dynamical_model_spec.with_entities(
             edges=replace_constructs(
-                model.edges,
+                dynamical_model_spec.edges,
                 (owner.revised(indicators=(indicator.revised(likelihood=law),)),),
             )
         )

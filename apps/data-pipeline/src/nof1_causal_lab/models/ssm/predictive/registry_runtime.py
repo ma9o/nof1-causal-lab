@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     import dynestyx as dsx
     from jax.typing import ArrayLike
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics, DynamicsSpec
 
 logger = logging.getLogger(__name__)
@@ -72,10 +72,10 @@ def predictive_keys(seed: int) -> PredictiveKeys:
     return PredictiveKeys(parameter_key, latent_key, observation_key)
 
 
-def _ensure_gaussian_process_diffusion(spec: CompiledModel) -> None:
+def _ensure_gaussian_process_diffusion(compiled_dynamical_model: CompiledDynamicalModel) -> None:
     non_gaussian = [
         dist.value
-        for dist in numeric.diffusion_families(spec)
+        for dist in numeric.diffusion_families(compiled_dynamical_model)
         if dist != DistributionFamily.GAUSSIAN
     ]
     if non_gaussian:
@@ -85,11 +85,17 @@ def _ensure_gaussian_process_diffusion(spec: CompiledModel) -> None:
 
 
 def _predictive_models(
-    spec: CompiledModel, samples, times, *, dynamics: DynamicsSpec | None = None
+    compiled_dynamical_model: CompiledDynamicalModel,
+    samples,
+    times,
+    *,
+    dynamics: DynamicsSpec | None = None,
 ) -> dsx.DynamicalModel:
     """Batch the same model constructor used by the particle target."""
     build_draws: Callable[[Mapping[str, jnp.ndarray]], dsx.DynamicalModel] = eqx.filter_vmap(
-        lambda draw: build_dynamical_model(spec, draw, t0=times[0], dynamics=dynamics)
+        lambda draw: build_dynamical_model(
+            compiled_dynamical_model, draw, t0=times[0], dynamics=dynamics
+        )
     )
     return build_draws(samples)
 
@@ -212,7 +218,7 @@ def _predictive_draw_order(max_rates: jnp.ndarray, span: float) -> tuple[jnp.nda
 
 
 def _simulate_model_predictive_latent_draw(
-    model: dsx.DynamicalModel,
+    dynamical_model: dsx.DynamicalModel,
     times: jnp.ndarray,
     key: jnp.ndarray,
     span: float,
@@ -221,8 +227,8 @@ def _simulate_model_predictive_latent_draw(
     """Draw the native initial law and execute the model's exact state evolution."""
     key_init, key_latent = random.split(key)
     return simulate_model_path(
-        model,
-        jnp.asarray(model.initial_condition.sample(key_init)),
+        dynamical_model,
+        jnp.asarray(dynamical_model.initial_condition.sample(key_init)),
         times,
         config=_predictive_sde_config(max_rate, span),
         key=key_latent,
@@ -230,13 +236,13 @@ def _simulate_model_predictive_latent_draw(
 
 
 def _simulate_model_predictive_draws_microbatched(
-    models: dsx.DynamicalModel,
+    dynamical_models: dsx.DynamicalModel,
     times: jnp.ndarray,
     keys: jnp.ndarray,
     span: float,
     max_rates: jnp.ndarray,
 ) -> jnp.ndarray:
-    arrays, structure = eqx.partition(models, eqx.is_array)
+    arrays, structure = eqx.partition(dynamical_models, eqx.is_array)
 
     def simulate_one(args) -> jnp.ndarray:
         model_arrays, key, max_rate = args
@@ -260,23 +266,25 @@ _simulate_model_predictive_draws = eqx.filter_jit(_simulate_model_predictive_dra
 
 
 def _simulate_vector_field_predictive_latents(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     samples: Mapping[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
     rng_key: jax.Array,
     dynamics: DynamicsSpec | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    _ensure_gaussian_process_diffusion(spec)
-    dynamics = spec.dynamics.spec if dynamics is None else dynamics
+    _ensure_gaussian_process_diffusion(compiled_dynamical_model)
+    dynamics = compiled_dynamical_model.dynamics.spec if dynamics is None else dynamics
     compiled = compile_dynamics(dynamics)
     n_draws = int(next(iter(samples.values())).shape[0])
     draw_keys = random.split(rng_key, n_draws)
-    models = _predictive_models(spec, samples, times, dynamics=dynamics)
+    dynamical_models = _predictive_models(
+        compiled_dynamical_model, samples, times, dynamics=dynamics
+    )
     span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
     cache_key = _prior_predictive_latent_cache_key(
         dynamics,
-        models.state_evolution,
+        dynamical_models.state_evolution,
         samples,
         times,
         rng_key,
@@ -286,7 +294,7 @@ def _simulate_vector_field_predictive_latents(
         max_rates = _predictive_max_rates(compiled, samples)
         order, inverse_order = _predictive_draw_order(max_rates, span)
         sorted_models = jax.tree.map(
-            lambda leaf: leaf[order] if eqx.is_array(leaf) else leaf, models
+            lambda leaf: leaf[order] if eqx.is_array(leaf) else leaf, dynamical_models
         )
         sorted_latents = _simulate_model_predictive_draws(
             sorted_models,
@@ -301,13 +309,15 @@ def _simulate_vector_field_predictive_latents(
     else:
         logger.info("Prior-predictive latent cache hit %s", cache_key[:12])
     predict: Callable[[dsx.DynamicalModel, jnp.ndarray], jnp.ndarray] = eqx.filter_vmap(
-        lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
+        lambda dynamical_model, path: jax.vmap(dynamical_model.observation_model.linear_predictor)(
+            path
+        )
     )
-    return latents, predict(models, latents)
+    return latents, predict(dynamical_models, latents)
 
 
 def sample_prior_parameters_from_runtime(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     runtime: PriorRuntimeBundle,
     *,
     num_samples: int,
@@ -322,14 +332,14 @@ def sample_prior_parameters_from_runtime(
     )
     deterministic_samples = assemble_deterministics_from_registry(
         constrained_samples,
-        spec,
+        compiled_dynamical_model,
         n_draws=num_samples,
     )
     return {**constrained_samples, **deterministic_samples}
 
 
 def sample_predictive_emissions(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     samples: Mapping[str, jnp.ndarray],
     linear_predictors: jnp.ndarray,
     times: jnp.ndarray,
@@ -345,25 +355,27 @@ def sample_predictive_emissions(
     ).astype(int)
     observations, mask, means = sample_model_observations(
         _predictive_models(
-            spec, {name: values[indices] for name, values in samples.items()}, times
+            compiled_dynamical_model,
+            {name: values[indices] for name, values in samples.items()},
+            times,
         ),
         linear_predictors[indices],
         times,
         rng_key=rng_key,
         observation_support=observation_support,
         observation_mask=observation_mask,
-        manifest_names=list(numeric.observation_names(spec)),
+        manifest_names=list(numeric.observation_names(compiled_dynamical_model)),
         held_channels=tuple(
             index
-            for index, indicator in enumerate(spec.observations)
-            if spec.states[indicator.state_index].is_input
+            for index, indicator in enumerate(compiled_dynamical_model.observations)
+            if compiled_dynamical_model.states[indicator.state_index].is_input
         ),
     )
     return observations, mask, means
 
 
 def sample_prior_predictive_from_runtime(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     runtime: PriorRuntimeBundle,
     times: jnp.ndarray,
     *,
@@ -377,13 +389,13 @@ def sample_prior_predictive_from_runtime(
     keys = predictive_keys(seed)
 
     samples = sample_prior_parameters_from_runtime(
-        spec,
+        compiled_dynamical_model,
         runtime,
         num_samples=num_samples,
         rng_key=keys.parameters,
     )
     return simulate_predictive_draws(
-        spec,
+        compiled_dynamical_model,
         samples,
         times,
         observation_support=observation_support,
@@ -394,7 +406,7 @@ def sample_prior_predictive_from_runtime(
 
 
 def simulate_predictive_draws(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     samples: Mapping[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
@@ -406,11 +418,11 @@ def simulate_predictive_draws(
     input_events=(),
 ) -> PredictiveDraws:
     """Generate one shared path/observation batch from aligned parameter draws."""
-    _ensure_gaussian_process_diffusion(spec)
+    _ensure_gaussian_process_diffusion(compiled_dynamical_model)
     n_draws = int(next(iter(samples.values())).shape[0])
     keys = predictive_keys(seed)
     latents, linear_predictors, reference_latents = simulate_latent_histories(
-        spec,
+        compiled_dynamical_model,
         samples,
         times,
         random.fold_in(keys.latents, 0),
@@ -419,7 +431,7 @@ def simulate_predictive_draws(
         input_events,
     )
     observations, observations_mask, expected_observations = sample_predictive_emissions(
-        spec,
+        compiled_dynamical_model,
         samples,
         linear_predictors,
         times,
@@ -437,12 +449,14 @@ def simulate_predictive_draws(
     )
     reference = None
     if reference_latents is not None:
-        models = _predictive_models(spec, samples, times)
+        dynamical_models = _predictive_models(compiled_dynamical_model, samples, times)
         reference_predictors = eqx.filter_vmap(
-            lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
-        )(models, reference_latents)
+            lambda dynamical_model, path: jax.vmap(
+                dynamical_model.observation_model.linear_predictor
+            )(path)
+        )(dynamical_models, reference_latents)
         reference_observations, reference_mask, reference_means = sample_predictive_emissions(
-            spec,
+            compiled_dynamical_model,
             samples,
             reference_predictors,
             times,
@@ -466,15 +480,21 @@ def simulate_predictive_draws(
 
 
 def simulate_latent_histories(
-    spec, samples, times, key, initial_states, interventions, input_events=()
+    compiled_dynamical_model: CompiledDynamicalModel,
+    samples,
+    times,
+    key,
+    initial_states,
+    interventions,
+    input_events=(),
 ):
     """Execute the same nonlinear field with explicit starts, noise and paired do-operations."""
-    if numeric.input_mask(spec).any() and not input_events:
+    if numeric.input_mask(compiled_dynamical_model).any() and not input_events:
         raise ValueError("Exogenous inputs require replayed panel readings")
     if initial_states is None and not interventions and not input_events:
         # The initial-law case retains caching and microbatching of the same exact solver.
         latents, predictors = _simulate_vector_field_predictive_latents(
-            spec, samples, times, rng_key=key
+            compiled_dynamical_model, samples, times, rng_key=key
         )
         return latents, predictors, None
 
@@ -483,15 +503,17 @@ def simulate_latent_histories(
     )
     from nof1_causal_lab.models.ssm.dynamics.draws import dynamics_from_samples
 
-    models = _predictive_models(spec, samples, times)
+    dynamical_models = _predictive_models(compiled_dynamical_model, samples, times)
     draw_keys = random.split(key, next(iter(samples.values())).shape[0])
     if initial_states is None:
         initial_states = eqx.filter_vmap(
-            lambda model, k: model.initial_condition.sample(random.split(k)[0])
-        )(models, draw_keys)
-    dynamics = dynamics_from_samples(spec, samples, n_draws=draw_keys.shape[0])
+            lambda dynamical_model, k: dynamical_model.initial_condition.sample(random.split(k)[0])
+        )(dynamical_models, draw_keys)
+    dynamics = dynamics_from_samples(compiled_dynamical_model, samples, n_draws=draw_keys.shape[0])
     span = float(times[-1] - times[0])
-    max_rates = _predictive_max_rates(compile_dynamics(spec.dynamics.spec), samples)
+    max_rates = _predictive_max_rates(
+        compile_dynamics(compiled_dynamical_model.dynamics.spec), samples
+    )
     # Paired paths use identical step sizes and random streams in each segment.
     reference, latents, _ = vmap_simulate_interventions_from_state(
         dynamics,
@@ -506,6 +528,8 @@ def simulate_latent_histories(
         input_events=tuple(input_events),
     )
     predictors = eqx.filter_vmap(
-        lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
-    )(models, latents)
+        lambda dynamical_model, path: jax.vmap(dynamical_model.observation_model.linear_predictor)(
+            path
+        )
+    )(dynamical_models, latents)
     return latents, predictors, reference if interventions else None

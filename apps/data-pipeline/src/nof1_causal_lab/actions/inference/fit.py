@@ -57,14 +57,14 @@ def resolve_sampler_spec(settings: FitSettingsSpec) -> SamplerSpec:
     configured = get_config().inference.sampler
     return SamplerSpec(
         num_warmup=configured.num_warmup if settings.num_warmup is None else settings.num_warmup,
-        num_samples=configured.num_samples
-        if settings.num_samples is None
-        else settings.num_samples,
+        num_samples_per_chain=configured.num_samples_per_chain
+        if settings.num_samples_per_chain is None
+        else settings.num_samples_per_chain,
         num_chains=configured.num_chains if settings.num_chains is None else settings.num_chains,
         seed=configured.seed if settings.seed is None else settings.seed,
-        n_particles=configured.n_particles
-        if settings.n_particles is None
-        else settings.n_particles,
+        num_particles=configured.num_particles
+        if settings.num_particles is None
+        else settings.num_particles,
         retain_latent_paths=True,
         marginal_particle_gibbs=configured.marginal_particle_gibbs,
     )
@@ -139,7 +139,7 @@ def fit_model(
     selection: StructuralSelection,
     data_for_model: ObservationDataset,
     *,
-    time_origin: datetime | None,
+    time_origin: datetime,
     sampler: SamplerSpec,
 ) -> FittedModelResult | ModelFitFailure:
     """Fit the selected SSM to one observation history with the production particle sampler.
@@ -182,7 +182,7 @@ def fit_model(
         _fit_elapsed_seconds(prep_t0),
         len(panel.times),
         len(panel.times),
-        len(numeric.observation_names(panel.model)),
+        len(numeric.observation_names(panel.compiled_dynamical_model)),
         observed_cells,
         total_cells,
         _time_span_days(panel.times),
@@ -190,7 +190,7 @@ def fit_model(
     )
     logger.info(
         "Manifest order: %s",
-        _format_name_preview(numeric.observation_names(panel.model), limit=6),
+        _format_name_preview(numeric.observation_names(panel.compiled_dynamical_model), limit=6),
     )
 
     # Fit the model — returns a production particle posterior.
@@ -207,7 +207,7 @@ def fit_model(
         "Particle inference complete in %.1fs: wide_rows=%d manifest_vars=%d",
         _fit_elapsed_seconds(fit_t0),
         len(panel.times),
-        len(numeric.observation_names(panel.model)),
+        len(numeric.observation_names(panel.compiled_dynamical_model)),
     )
 
     logger.info(

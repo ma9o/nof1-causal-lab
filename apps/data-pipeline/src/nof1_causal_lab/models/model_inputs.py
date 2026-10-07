@@ -7,18 +7,18 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.artifacts.model_document import entity_document
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.json_types import JsonObject, JsonValue
 
 
-def graph_input(model: ModelSpec) -> JsonObject:
+def graph_input(dynamical_model_spec: DynamicalModelSpec) -> JsonObject:
     """Serialized directed assumptions used to fingerprint identification inputs."""
     result: dict[str, JsonValue] = {
         "constructs": [
             item.model_dump(
                 mode="json", include={"id", "name", "description", "role", "temporal_status"}
             )
-            for item in model.constructs
+            for item in dynamical_model_spec.constructs
         ],
         "edges": [
             {
@@ -26,52 +26,55 @@ def graph_input(model: ModelSpec) -> JsonObject:
                 "cause_id": item.cause.id,
                 "effect_id": item.effect.id,
             }
-            for item in model.edges
+            for item in dynamical_model_spec.edges
         ],
     }
     return entity_document(result)
 
 
-def indicator_rows(model: ModelSpec) -> list[JsonObject]:
+def indicator_rows(dynamical_model_spec: DynamicalModelSpec) -> list[JsonObject]:
     """Measurement inputs with ownership derived from canonical containment."""
     return [
         {**indicator.model_dump(mode="json", exclude={"likelihood"}), "construct_id": construct.id}
-        for construct, indicator in model.iter_indicators()
+        for construct, indicator in dynamical_model_spec.iter_indicators()
     ]
 
 
-def observation_input(model: ModelSpec) -> JsonObject:
+def observation_input(dynamical_model_spec: DynamicalModelSpec) -> JsonObject:
     """Project the model clock and observation definitions used to fingerprint measurement inputs."""
     return entity_document(
         {
-            "model_clock": model.measurement_clock.source
-            if model.measurement_clock is not None
+            "model_clock": dynamical_model_spec.measurement_clock.source
+            if dynamical_model_spec.measurement_clock is not None
             else None,
-            "indicators": indicator_rows(model),
+            "indicators": indicator_rows(dynamical_model_spec),
         }
     )
 
 
-def identification_input(model: ModelSpec) -> JsonObject:
+def identification_input(dynamical_model_spec: DynamicalModelSpec) -> JsonObject:
     """Project graph and observation inputs that determine causal identification findings."""
-    return {"graph": graph_input(model), "observations": observation_input(model)}
+    return {
+        "graph": graph_input(dynamical_model_spec),
+        "observations": observation_input(dynamical_model_spec),
+    }
 
 
-def compilation_input(model: ModelSpec) -> JsonObject:
+def compilation_input(dynamical_model_spec: DynamicalModelSpec) -> JsonObject:
     """Structure and constants needed by execution, independent of the current law."""
     result: dict[str, JsonValue] = {
-        "measurement_clock": model.measurement_clock.source
-        if model.measurement_clock is not None
+        "measurement_clock": dynamical_model_spec.measurement_clock.source
+        if dynamical_model_spec.measurement_clock is not None
         else None,
         "parameters": [
             parameter.model_dump(
                 mode="json", exclude={"distribution", "transform", "reasoning", "sources"}
             )
-            for parameter in model.parameters
+            for parameter in dynamical_model_spec.parameters
         ],
         "constructs": [
             construct.model_dump(mode="json", exclude={"distribution"})
-            for construct in model.constructs
+            for construct in dynamical_model_spec.constructs
         ],
         "edges": [
             {
@@ -79,21 +82,21 @@ def compilation_input(model: ModelSpec) -> JsonObject:
                 "cause_id": edge.cause.id,
                 "effect_id": edge.effect.id,
             }
-            for edge in model.edges
+            for edge in dynamical_model_spec.edges
         ],
     }
     return entity_document(result)
 
 
-def input_fingerprints(model: ModelSpec) -> dict[str, str]:
+def input_fingerprints(dynamical_model_spec: DynamicalModelSpec) -> dict[str, str]:
     """Content identities of the values supplied to each numerical boundary."""
     from nof1_causal_lab.artifacts.identity import scientific_id
 
     values = {
-        "observations": observation_input(model),
-        "identification": identification_input(model),
-        "compilation": compilation_input(model),
-        "belief": model.model_dump(mode="json"),
+        "observations": observation_input(dynamical_model_spec),
+        "identification": identification_input(dynamical_model_spec),
+        "compilation": compilation_input(dynamical_model_spec),
+        "belief": dynamical_model_spec.model_dump(mode="json"),
     }
     return {
         purpose: scientific_id("input", ["additive-model-v1", value])

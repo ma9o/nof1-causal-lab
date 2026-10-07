@@ -51,15 +51,19 @@ from tests.model_fixtures import (
 
 
 def _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = load_model_fixture(
+    dynamical_model_spec = load_model_fixture(
         "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
     )
-    latent_0 = construct_named(model, "latent_0")
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
     (latent_0_potential,) = latent_0.dynamics
-    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
-    latent_0_latent_1_hill_emax = parameter_for(model, SiteKind.HILL_EMAX, "latent_0", "latent_1")
+    latent_0_dynamics_decay = parameter_for(
+        dynamical_model_spec, SiteKind.DYNAMICS_DECAY, "latent_0"
+    )
+    latent_0_latent_1_hill_emax = parameter_for(
+        dynamical_model_spec, SiteKind.HILL_EMAX, "latent_0", "latent_1"
+    )
     latent_0_revised = latent_0.revised(
         dynamics=(
             DriftMechanismSpec(
@@ -70,10 +74,10 @@ def _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distribu
             ),
         )
     )
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 latent_0_latent_1_hill_emax.id: dist.LogNormal(
                     loc=jnp.array(-0.20000000298023224, dtype=jnp.float32),
@@ -86,7 +90,7 @@ def _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distribu
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +470,7 @@ class TestAutoReparamSSM:
 
         with handlers.seed(rng_seed=42):
             trace = handlers.trace(reparam_model).get_trace(
-                bind_panel_fixture(model.compiled, observations, times),
+                bind_panel_fixture(model.compiled_dynamical_model, observations, times),
                 priors=model.prior_runtime_bundle,
             )
 
@@ -504,7 +508,7 @@ class TestAutoReparamSSM:
         times = jnp.linspace(0, 1, 5)
         parameters, _, public_sites = prepare_model_parameters(
             model.prior_runtime_bundle,
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             jax.random.PRNGKey(0),
             AutoReparam(centered=0.0),
         )
@@ -516,19 +520,23 @@ class TestAutoReparamSSM:
         assert all("_decentered" not in name for name in samples)
         assert samples["vf_0_p0"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
-        assert set(samples) == {site.name for site in build_site_registry(model.compiled)}
+        assert set(samples) == {
+            site.name for site in build_site_registry(model.compiled_dynamical_model)
+        }
 
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
 
-        spec = _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = (
+            _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions()
+        )
+        model = compile_fit_fixture(dynamical_model_spec)
         observations = jnp.zeros((3, 2))
         times = jnp.arange(3, dtype=jnp.float32)
 
         bundle = build_particle_problem(
             model.prior_runtime_bundle,
-            bind_panel_fixture(model.compiled, observations, times),
+            bind_panel_fixture(model.compiled_dynamical_model, observations, times),
             scheme=LATENT_TRANSITION_EULER_MARUYAMA,
             trace_key=jax.random.PRNGKey(0),
             reparam=AutoReparam(centered=0.0),
@@ -537,7 +545,7 @@ class TestAutoReparamSSM:
 
         assert "vf_2_p0_base_decentered" in bundle.site_info
 
-        hill = compile_model_fixture(spec).dynamics.spec.components[2]
+        hill = compile_model_fixture(dynamical_model_spec).dynamics.spec.components[2]
         evolution = context[0].state_evolution
         assert isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
         assert isinstance(evolution.drift, StructuralDrift)

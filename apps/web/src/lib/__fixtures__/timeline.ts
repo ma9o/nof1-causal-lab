@@ -20,7 +20,7 @@ export const simulation = revision(5, {
   request: {
     action: "simulate",
     input: {
-      model_ref: "3".repeat(40),
+      dynamical_model_spec_ref: "3".repeat(40),
       simulation: { start: "2026-01-01", horizon: "1d", interventions: [] },
     },
     reasoning: null,
@@ -37,8 +37,8 @@ export const comparison = revision(6, {
   request: {
     action: "data_diff",
     input: {
-      left_ref: { revision: "2".repeat(40), replicate_index: null },
-      right_ref: { revision: "5".repeat(40), replicate_index: 0 },
+      left_ref: [{ revision: "2".repeat(40), replicate_index: null }],
+      right_ref: [{ revision: "5".repeat(40), replicate_index: 0 }],
     },
     reasoning: null,
   },

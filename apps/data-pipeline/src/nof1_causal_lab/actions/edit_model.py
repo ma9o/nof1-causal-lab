@@ -6,8 +6,12 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.dynamical_model_spec import (
+    DynamicalModelSpec,
+    ModelEditResult,
+    apply_model_edit,
+)
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelEditResult, ModelSpec, apply_model_edit
 from nof1_causal_lab.models.model_checks import question_edit_reason
 from nof1_causal_lab.study.inputs import model_edit_state
 from nof1_causal_lab.study.records import Applied, Rejected
@@ -23,21 +27,21 @@ def edit_model(
     state = model_edit_state(store, request.input.parent_ref)
     question = read_question(store, state.current["question"].revision)
     parent = state.get("model")
-    base = read_model(store, parent.revision) if parent is not None else ModelSpec()
+    base = read_model(store, parent.revision) if parent is not None else DynamicalModelSpec()
     try:
         edited = apply_model_edit(
             base,
-            request.input.model,
+            request.input.dynamical_model_spec,
             question.outcome,
             context={"distribution_array_loader": cache(store.read_array)},
         )
     except ValidationError as exc:
-        return Rejected(reason="scientific_inputs", detail=str(exc))
-    if (reason := question_edit_reason(edited.model, question)) is not None:
-        return Rejected(reason="scientific_inputs", detail=reason)
+        return Rejected(code="MODEL_SPEC_INVALID", subject="model", detail=str(exc))
+    if (reason := question_edit_reason(edited.dynamical_model_spec, question)) is not None:
+        return Rejected(code="MODEL_SPEC_INVALID", subject="model", detail=reason)
     info = write_model_revision(
         store,
-        edited.model,
+        edited.dynamical_model_spec,
         derived_from={kind: record.revision for kind, record in state.current.items()},
         produced_by="edit_model",
     )

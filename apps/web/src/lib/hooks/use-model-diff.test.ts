@@ -55,7 +55,12 @@ it("never submits missing, reversed, failed or unknown comparison calls", () => 
       ...comparison.record,
       attempt: {
         ...comparison.record.attempt,
-        outcome: { status: "rejected", reason: "input_unavailable", detail: "Missing model" },
+        outcome: {
+          status: "rejected",
+          code: "INPUT_UNAVAILABLE",
+          subject: "inputs",
+          detail: "Missing model",
+        },
       },
     },
   };

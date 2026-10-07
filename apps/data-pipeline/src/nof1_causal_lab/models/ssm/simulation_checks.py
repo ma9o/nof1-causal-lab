@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     import jax.numpy as jnp
 
     from nof1_causal_lab.artifacts.expressions import CoefficientExpression
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, CompiledState
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel, CompiledState
     from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
@@ -72,11 +72,11 @@ class MeasurementTiming:
     checks: tuple[str, ...] = ()
 
 
-def _edge_components(spec: CompiledModel, source: int, target: int):
+def _edge_components(compiled_dynamical_model: CompiledDynamicalModel, source: int, target: int):
     """Every additive native term belonging to one causal edge."""
     return [
         (i, component)
-        for i, component in enumerate(spec.dynamics.spec.components)
+        for i, component in enumerate(compiled_dynamical_model.dynamics.spec.components)
         if component.edge_owned and source in component.sources and component.target == target
     ]
 
@@ -164,7 +164,7 @@ def _coefficient_draws(
 
 
 def measure_construct_simulation(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
@@ -179,19 +179,26 @@ def measure_construct_simulation(
     timings: list[MeasurementTiming] = []
     if dynamics:
         checked, measured = measure_construct_dynamics(
-            spec, pred, design, target, edge_contrasts=edge_contrasts, clock=clock
+            compiled_dynamical_model,
+            pred,
+            design,
+            target,
+            edge_contrasts=edge_contrasts,
+            clock=clock,
         )
         results.extend(checked)
         timings.extend(measured)
     if measurement:
-        checked, measured = measure_construct_measurement(spec, pred, design, target, clock=clock)
+        checked, measured = measure_construct_measurement(
+            compiled_dynamical_model, pred, design, target, clock=clock
+        )
         results.extend(checked)
         timings.extend(measured)
     return results, timings
 
 
 def measure_construct_dynamics(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
@@ -200,12 +207,14 @@ def measure_construct_dynamics(
     clock: Callable[[], float],
 ) -> tuple[list[CheckResult], list[MeasurementTiming]]:
     """Measure confinement, scale, resolvability, edge contrasts and saturation."""
-    latent_names = numeric.state_names(spec)
+    latent_names = numeric.state_names(compiled_dynamical_model)
     d = latent_names.index(target.name)
     x = np.asarray(pred.trajectory.latents[:, :, d])
     times = np.asarray(design.t_grid, dtype=float)
     indicator_names = tuple(
-        observation.id for observation in spec.observations if observation.state_index == d
+        observation.id
+        for observation in compiled_dynamical_model.observations
+        if observation.state_index == d
     )
     target_obs = design.observation_indices_for(indicator_names)
     structural_indices = target_obs if target_obs.size else np.arange(times.size)
@@ -293,7 +302,7 @@ def measure_construct_dynamics(
     # C3 resolvability uses the declared stiffness, whether fixed or estimated.
     potentials = [
         (i, comp, operand)
-        for i, comp in enumerate(spec.dynamics.spec.components)
+        for i, comp in enumerate(compiled_dynamical_model.dynamics.spec.components)
         if comp.target == d and not comp.edge_owned
         for operand in restoring_coefficients(comp.expression, comp.state_ids[d], kind=comp.kind)
         if operand.role == "decay"
@@ -338,10 +347,10 @@ def measure_construct_dynamics(
     for parent in target.edge_parents if edge_contrasts else ():
         started = clock()
         edge_target = _incoming_edge_off_target(
-            spec, replace(target, edge_parents=(parent,)), latent_names, d
+            compiled_dynamical_model, replace(target, edge_parents=(parent,)), latent_names, d
         )
         x_off = _resimulate_edge_off(
-            spec,
+            compiled_dynamical_model,
             pred,
             design.t_grid,
             edge_target,
@@ -370,7 +379,7 @@ def measure_construct_dynamics(
         p_idx = latent_names.index(parent)
         applications = [
             (i, comp, source, ec50, exponent)
-            for i, comp in _edge_components(spec, p_idx, d)
+            for i, comp in _edge_components(compiled_dynamical_model, p_idx, d)
             for source, ec50, exponent in hill_applications(comp.expression)
             if comp.state_ids[p_idx] in expression_states(source)
         ]
@@ -414,7 +423,7 @@ def measure_construct_dynamics(
 
 
 def measure_construct_measurement(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
@@ -422,16 +431,16 @@ def measure_construct_measurement(
     clock: Callable[[], float],
 ) -> tuple[list[CheckResult], list[MeasurementTiming]]:
     """Measure observation coverage and exact-law temporal transmission."""
-    d = numeric.state_names(spec).index(target.name)
+    d = numeric.state_names(compiled_dynamical_model).index(target.name)
     results: list[CheckResult] = []
     timings: list[MeasurementTiming] = []
-    time_invariant_mask = spec.diffusion_block.time_invariant_mask
+    time_invariant_mask = compiled_dynamical_model.diffusion_block.time_invariant_mask
     target_is_time_invariant = bool(
         time_invariant_mask is not None and np.asarray(time_invariant_mask, dtype=bool)[d]
     )
 
     # C5a/C5b coverage for every indicator; C5c transmission only for dynamic constructs.
-    for indicator in spec.observations:
+    for indicator in compiled_dynamical_model.observations:
         if indicator.state_index != d:
             continue
         lik = indicator.law
@@ -481,7 +490,7 @@ def measure_construct_measurement(
                 for check in ("C5a location reach", "C5b width", "C5c transmission")
             )
             continue
-        level_count = numeric.observation_level_counts(spec)[m]
+        level_count = numeric.observation_level_counts(compiled_dynamical_model)[m]
         phase_results = (
             [
                 replace(result, target=var)
@@ -506,7 +515,11 @@ def measure_construct_measurement(
         )
         if not target_is_time_invariant:
             signal, conditional_variance = observation_signal_and_variance(
-                spec, pred, m, oi, observation_support=design.observation_support
+                compiled_dynamical_model,
+                pred,
+                m,
+                oi,
+                observation_support=design.observation_support,
             )
             phase_results.append(
                 replace(
@@ -536,7 +549,7 @@ def measure_construct_measurement(
 
 
 def _incoming_edge_off_target(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     contribution: ConstructSimulationTarget,
     latent_names: Sequence[str],
     target: int,
@@ -546,7 +559,9 @@ def _incoming_edge_off_target(
     for parent in contribution.edge_parents:
         if parent in latent_names:
             p_idx = latent_names.index(parent)
-            components.update(index for index, _ in _edge_components(spec, p_idx, target))
+            components.update(
+                index for index, _ in _edge_components(compiled_dynamical_model, p_idx, target)
+            )
     if contribution.edge_parents and not components:
         raise ValueError(
             "Could not resolve an edge-off coordinate for incoming parents "
@@ -556,7 +571,7 @@ def _incoming_edge_off_target(
 
 
 def _resimulate_edge_off(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     pred: PredictiveDraws,
     t_grid: jnp.ndarray,
     edge_target: _EdgeOffTarget,
@@ -573,9 +588,9 @@ def _resimulate_edge_off(
     )
 
     samples = pred.parameters
-    natural = spec.dynamics.spec.components
+    natural = compiled_dynamical_model.dynamics.spec.components
     intervention_dynamics = DynamicsSpec(
-        n_latent=numeric.n_states(spec),
+        n_latent=numeric.n_states(compiled_dynamical_model),
         components=tuple(
             replace(component, expression=LiteralExpression(value=0))
             if index in edge_target.components
@@ -584,7 +599,7 @@ def _resimulate_edge_off(
         ),
     )
     latents, _linear_predictors = _simulate_vector_field_predictive_latents(
-        spec,
+        compiled_dynamical_model,
         samples,
         t_grid,
         rng_key=predictive_keys(seed).latents,

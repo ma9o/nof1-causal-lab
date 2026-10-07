@@ -32,11 +32,13 @@ from tests.model_fixtures import (
 )
 
 
-def _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture() -> ModelSpec:
-    model = one_state_gaussian_model()
-    latent_0 = construct_named(model, "latent_0")
+def _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture() -> DynamicalModelSpec:
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
     (latent_0_drift,) = latent_0.dynamics
-    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_dynamics_decay = parameter_for(
+        dynamical_model_spec, SiteKind.DYNAMICS_DECAY, "latent_0"
+    )
     latent_0_revised = latent_0.revised(
         dynamics=(
             PotentialMechanismSpec(
@@ -45,16 +47,16 @@ def _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture() -> ModelSp
             ),
         )
     )
-    parameters, distributions = without_parameters(model, latent_0_dynamics_decay)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    parameters, distributions = without_parameters(dynamical_model_spec, latent_0_dynamics_decay)
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
@@ -104,8 +106,8 @@ def test_model_input_paths_hold_and_interventions_override_later_points(monkeypa
     from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
     from nof1_causal_lab.models.ssm.runtime import input_trajectory_events, input_trajectory_values
 
-    model = _exact_model_model()
-    dose = model.constructs[0]
+    dynamical_model_spec = _exact_model_model()
+    dose = dynamical_model_spec.constructs[0]
     indicator = dose.indicators[0].revised(
         observation=dose.indicators[0].observation.revised(aggregation="sum"),
         likelihood=LikelihoodSpec(
@@ -123,16 +125,16 @@ def test_model_input_paths_hold_and_interventions_override_later_points(monkeypa
     )
     parameters = tuple(
         parameter
-        for parameter in model.parameters
+        for parameter in dynamical_model_spec.parameters
         if parameter.name not in {"rho_setting", "sigma_setting"}
     )
-    model = model.revised(measurement_clock="1d").with_entities(
-        edges=replace_constructs(model.edges, (dose,)),
+    dynamical_model_spec = dynamical_model_spec.revised(measurement_clock="1d").with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (dose,)),
         parameters=parameters,
         distributions={
             **{
                 identity: law
-                for identity, law in model.distributions.items()
+                for identity, law in dynamical_model_spec.distributions.items()
                 if identity in {parameter.distribution for parameter in parameters}
             },
             layout.distribution_id: dist.Delta(jnp.array([10.0, 8.0, 12.0]), event_dim=1),
@@ -141,21 +143,24 @@ def test_model_input_paths_hold_and_interventions_override_later_points(monkeypa
     )
     from tests.inference_fixtures import compile_model_fixture
 
-    model = compile_model_fixture(model)
+    compiled_dynamical_model = compile_model_fixture(dynamical_model_spec)
     origin = datetime(2026, 1, 1, tzinfo=UTC)
     grid = jnp.arange(8.0)
     events = input_trajectory_events(
-        model, time_origin=origin.astimezone(timezone(timedelta(hours=2))), start=0, end=7
+        compiled_dynamical_model,
+        time_origin=origin.astimezone(timezone(timedelta(hours=2))),
+        start=0,
+        end=7,
     )
     assert not isinstance(events, ObservationPreflightFailure)
-    values = input_trajectory_values(model, grid, events)
+    values = input_trajectory_values(compiled_dynamical_model, grid, events)
     np.testing.assert_array_equal(values[:, 0], [10, 10, 8, 8, 12, 12, 12, 12])
     constraints = compile_exact_state_constraints(
-        model, jnp.full((8, 2), jnp.nan), input_values=values
+        compiled_dynamical_model, jnp.full((8, 2), jnp.nan), input_values=values
     )
     assert constraints is not None
     assert not constraints.free_mask[:, 0].any()
-    failure = input_trajectory_events(model, time_origin=origin, start=-3, end=7)
+    failure = input_trajectory_events(compiled_dynamical_model, time_origin=origin, start=-3, end=7)
     assert isinstance(failure, ObservationPreflightFailure)
     assert "no value at the start" in failure.message
     # Isolate dated assignment control flow; no scientific solver runs in this contract.
@@ -225,8 +230,8 @@ def test_explicit_start_evolves_from_given_state():
 def test_fully_fixed_dynamics_keep_the_explicit_draw_axis():
     from nof1_causal_lab.models.ssm.dynamics import dynamics_from_samples
 
-    spec = _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture()
-    draws = dynamics_from_samples(compile_model_fixture(spec), {}, n_draws=3)
+    dynamical_model_spec = _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture()
+    draws = dynamics_from_samples(compile_model_fixture(dynamical_model_spec), {}, n_draws=3)
     times = jnp.array([0.0, 0.2, 0.4])
     initial = jnp.array([[-1.0], [0.0], [1.0]])
     baseline, action, effect = vmap_simulate_interventions_from_state(

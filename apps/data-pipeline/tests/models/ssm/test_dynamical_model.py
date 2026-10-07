@@ -27,12 +27,12 @@ from tests.model_fixtures import (
 )
 
 
-def _runtime_model_fixture() -> ModelSpec:
+def _runtime_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture("dynamical_model/runtime_model_fixture.json")
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 @pytest.fixture
@@ -42,12 +42,12 @@ def runtime(monkeypatch):
     times = jnp.array([2.0, 2.1, 2.35])
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 
-    spec = _runtime_model_fixture()
-    inputs = compile_fit_fixture(spec)
+    dynamical_model_spec = _runtime_model_fixture()
+    inputs = compile_fit_fixture(dynamical_model_spec)
 
     def constrain(z):
         samples = {"vf_0_p0": z[0]}
-        matrices, _ = assemble_model_matrices(compile_model_fixture(spec), samples)
+        matrices, _ = assemble_model_matrices(compile_model_fixture(dynamical_model_spec), samples)
         return {**samples, **matrices}
 
     parameters = ParameterTransform(
@@ -62,7 +62,9 @@ def runtime(monkeypatch):
     return problem_module.build_particle_problem(
         inputs.prior_runtime_bundle,
         bind_panel_fixture(
-            inputs.compiled, jnp.array([[0.2, 1.0], [jnp.nan, 2.0], [jnp.nan, jnp.nan]]), times
+            inputs.compiled_dynamical_model,
+            jnp.array([[0.2, 1.0], [jnp.nan, 2.0], [jnp.nan, jnp.nan]]),
+            times,
         ),
         scheme="euler_maruyama",
         trace_key=jax.random.key(0),
@@ -112,7 +114,7 @@ def test_warmup_gaussian_view_traces_with_scalar_state(runtime, supplied_path):
 @pytest.mark.inference(concern="simulation")
 def test_model_keeps_nonlinear_drift(runtime):
     context = runtime.context(runtime.initial_position, runtime.times)
-    declared = runtime.model(context)
+    declared = runtime.dynamical_model(context)
     state = jnp.array([0.8])
     # Inspect a single distribution, without invoking a solver or sampler.
     with jax.disable_jit():
@@ -168,7 +170,9 @@ def test_parameter_gradient_remains_dynamic_after_model_partition(runtime):
 @pytest.mark.inference(concern="sampling")
 def test_observation_model_keeps_partial_and_complete_missingness(runtime):
     context = runtime.context(runtime.initial_position, runtime.times)
-    observation = runtime.model(context).observation_model(jnp.array([0.0]), None, runtime.times[0])
+    observation = runtime.dynamical_model(context).observation_model(
+        jnp.array([0.0]), None, runtime.times[0]
+    )
     with jax.disable_jit():
         partial = observation.log_prob(jnp.array([jnp.nan, 2.0]))
         absent = observation.log_prob(jnp.array([jnp.nan, jnp.nan]))

@@ -11,13 +11,13 @@ import { recordedEntityFailures } from "./entity-findings";
 
 /** These selectors only arrange recorded findings for their owning entities. */
 export function constructPresentation(context: ScopeContext, id: ConstructId) {
-  const { model, entities } = context;
+  const { modelSnapshot, entities } = context;
   const construct = entities.constructById.get(id);
   if (!construct) return null;
   const indicators = construct.indicators;
 
   return {
-    model,
+    modelSnapshot,
     entities,
     construct,
     indicators,
@@ -27,36 +27,38 @@ export function constructPresentation(context: ScopeContext, id: ConstructId) {
 export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
   const indicator = context.entities.indicatorById.get(id);
   if (!indicator) return null;
-  const profile = context.model.profile?.indicators[id];
-  const compatibility = context.model.validation_report?.data.indicators[id];
+  const profile = context.modelSnapshot.profile?.indicators[id];
+  const compatibility = context.modelSnapshot.fit_checks?.data.indicators[id];
   const audit =
     profile || compatibility
       ? {
           profile: profile?.profile ?? null,
-          checks: { ...profile?.checks, ...compatibility?.checks },
-          issues: [...(profile?.issues ?? []), ...(compatibility?.issues ?? [])],
+          findings: [...(profile?.findings ?? []), ...(compatibility?.findings ?? [])],
         }
       : null;
   const likelihood = indicator.likelihood;
-  const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
+  const findings =
+    audit?.findings.filter(
+      (finding) => finding.kind === "not_evaluated" || finding.outcome === "failed",
+    ) ?? [];
   return {
     indicator,
     audit,
     likelihood,
-    issues,
+    findings,
   };
 }
 
 /** Aggregate recorded failures at their visible owner; never judge diagnostic numbers here. */
 export function entityFailures(
-  model: ModelSnapshot,
+  modelSnapshot: ModelSnapshot,
   entity: ConstructSpec | CausalEdgeSpec | IndicatorSpec,
 ): string[] {
   const identity = "observation" in entity ? entity.observation.id : entity.id;
   return [
-    ...(recordedEntityFailures(model)[identity] ?? []),
+    ...(recordedEntityFailures(modelSnapshot)[identity] ?? []),
     ...("dynamics" in entity &&
-    model.identification?.treatments[entity.id]?.status === "not_identified"
+    modelSnapshot.identification?.treatments[entity.id]?.status === "not_identified"
       ? [`Identification against ★: ${entity.name}`]
       : []),
   ];

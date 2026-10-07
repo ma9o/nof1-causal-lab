@@ -40,7 +40,7 @@ that folder, including subfolders, is captured and hashed before call identity.
 Polling saved calls does not require the original source folder.
 `edit_model` selects a question or model parent through `input.parent_ref`;
 a question parent starts a new model; a model parent supplies its definition and pinned
-question. The same ModelSpec accepts partial definitions: omission retains fields and null
+question. The same DynamicalModelSpec accepts partial definitions: omission retains fields and null
 entity entries delete their IDs. The editing boundary prunes outcome-unrelated components
 with warnings and validates the assembled model. Every study starts with `edit_question`.
 
@@ -69,7 +69,7 @@ returns 403; GET for an unknown call returns 404.
 
 ### POST `/api/studies/{workspace_id}/data_diff`
 
-Compare input.left_ref and input.right_ref, each a gitref with an optional replicate_index or a list of those references. Omit the index to compare all recorded histories. Data latest selects prepared user data; simulations require explicit gitrefs. Retain the complete comparison in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
+Compare input.left_ref and input.right_ref, each a nonempty list of {revision, replicate_index} references. Omit the index to compare all recorded histories. Data latest selects prepared user data; simulations require explicit gitrefs. Retain the complete comparison in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
 
 **Parameters**
 
@@ -79,12 +79,12 @@ Compare input.left_ref and input.right_ref, each a gitref with an optional repli
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data_diff" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"action": "data_diff", "input": {"left_ref": {"revision": "string"}, "right_ref": {"revision": "string"}}}'
+  -d '{"action": "data_diff", "input": {"left_ref": [{"revision": "string"}], "right_ref": [{"revision": "string"}]}}'
 ```
 
 ### POST `/api/studies/{workspace_id}/edit_model`
 
-Merge input.model into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
+Merge input.dynamical_model_spec into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
 
 **Parameters**
 
@@ -94,7 +94,7 @@ Merge input.model into input.parent_ref: start empty for a question revision, or
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit_model" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"action": "edit_model", "input": {"parent_ref": "string", "model": {}}}'
+  -d '{"action": "edit_model", "input": {"parent_ref": "string", "dynamical_model_spec": {}}}'
 ```
 
 ### POST `/api/studies/{workspace_id}/edit_question`
@@ -114,7 +114,7 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit
 
 ### POST `/api/studies/{workspace_id}/fit`
 
-Condition input.model_ref on the history selected by input.data_ref and required input.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains the complete inference result and arrays.
+Condition input.dynamical_model_spec_ref on the history selected by input.data_ref.revision and input.data_ref.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains model, checks and inference. Model laws own their numerical arguments; inference owns native telemetry.
 
 **Parameters**
 
@@ -124,12 +124,12 @@ Condition input.model_ref on the history selected by input.data_ref and required
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/fit" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"action": "fit", "input": {"model_ref": "string", "data_ref": "string", "replicate_index": 0}}'
+  -d '{"action": "fit", "input": {"dynamical_model_spec_ref": "string", "data_ref": {"revision": "string", "replicate_index": 0}}}'
 ```
 
 ### POST `/api/studies/{workspace_id}/model_diff`
 
-Compare input.before_ref and input.after_ref as saved ModelSpec documents. Return changes using the same partial ModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
+Compare input.before_ref and input.after_ref as saved DynamicalModelSpec documents. Return changes using the same partial DynamicalModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
 
 **Parameters**
 
@@ -172,12 +172,12 @@ Returns:
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/prepare_data" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"action": "prepare_data", "input": {"model_ref": "string", "source": "string", "extraction": {}}}'
+  -d '{"action": "prepare_data", "input": {"dynamical_model_spec_ref": "string", "source": "string", "extraction": {}}}'
 ```
 
 ### POST `/api/studies/{workspace_id}/simulate`
 
-Simulate input.model_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data, report and arrays; report retains single or paired evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id.
+Simulate input.dynamical_model_spec_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data and report; report owns single or paired numerical evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id.
 
 **Parameters**
 
@@ -187,7 +187,7 @@ Simulate input.model_ref using input.simulation. The model owns deterministic in
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/simulate" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"action": "simulate", "input": {"model_ref": "string", "simulation": {"start": "string", "horizon": "string"}}}'
+  -d '{"action": "simulate", "input": {"dynamical_model_spec_ref": "string", "simulation": {"start": "string", "horizon": "string"}}}'
 ```
 
 ### GET `/api/studies/{workspace_id}/timeline`

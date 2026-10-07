@@ -7,14 +7,15 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
-from nof1_causal_lab.artifacts.construct import Role, TemporalStatus
-from nof1_causal_lab.artifacts.identity import ConstructRef
-from nof1_causal_lab.artifacts.model_checks import (
+from nof1_causal_lab.artifacts.checks import (
+    Evaluated,
+    NotEvaluated,
     OutcomeSubject,
     QueryTargetSubject,
     QueryWindowSubject,
 )
+from nof1_causal_lab.artifacts.construct import Role, TemporalStatus
+from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.models.model_structure import selected_state_ids
 from nof1_causal_lab.models.ssm.runtime import reading_level
 from nof1_causal_lab.utils.causal_design import get_all_treatments
@@ -25,10 +26,11 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.artifacts.model_checks import QuestionAssessment
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.artifacts.simulation import SimulationSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
@@ -38,12 +40,25 @@ def question_findings(
     question: QuestionSpec,
     selection: StructuralSelection,
     *,
-    panel: pl.DataFrame | None,
-    time_origin: datetime | None,
+    history: ObservationDataset | None,
 ) -> tuple[QuestionAssessment, ...]:
     """Each check names what the model or the record still lacks for one query."""
-    model, identification = selection.model, selection.identification
-    constructs = {construct.id: construct for construct in model.constructs}
+    dynamical_model_spec = selection.dynamical_model_spec
+    constructs = {construct.id: construct for construct in dynamical_model_spec.constructs}
+    if history is not None:
+        panel = history.recorded.frame
+        return tuple(
+            finding
+            for name, query in question.queries.items()
+            for finding in (
+                _window_finding(name, query, panel, history.time_origin),
+                *(
+                    _range_finding(name, target, query, constructs.get(target), panel)
+                    for target in sorted({event.target for event in query.interventions})
+                ),
+            )
+        )
+    identification = selection.identification
     states = frozenset(selected_state_ids(selection))
     outcome = _outcome_finding(question, constructs)
     findings: list[QuestionAssessment] = [outcome]
@@ -54,16 +69,10 @@ def question_findings(
         )
         findings.extend(
             _identification_finding(
-                name, target, outcome, constructs, model, identification, states
+                name, target, outcome, constructs, dynamical_model_spec, identification, states
             )
             for target in targets
         )
-        if panel is not None:
-            findings.append(_window_finding(name, query, panel, time_origin))
-            findings.extend(
-                _range_finding(name, target, query, constructs.get(target), panel)
-                for target in targets
-            )
     return tuple(findings)
 
 
@@ -74,6 +83,7 @@ def _outcome_finding(
     construct = constructs.get(question.outcome)
     if construct is None:
         return NotEvaluated(
+            code="outcome",
             subject=subject,
             reason="CONSTRUCT_UNDEFINED",
             detail="The model does not define the question's outcome yet.",
@@ -94,6 +104,7 @@ def _outcome_finding(
         if failed
     ]
     return Evaluated(
+        code="outcome",
         subject=subject,
         outcome="failed" if problems else "passed",
         evidence=f"{construct.name}: " + "; ".join(problems)
@@ -105,20 +116,23 @@ def _outcome_finding(
 def _target_finding(
     query: str, target: ConstructId, construct: ConstructSpec | None, states: frozenset[ConstructId]
 ) -> QuestionAssessment:
-    subject = QueryTargetSubject(check="target", query=query, target=ConstructRef(id=target))
+    subject = QueryTargetSubject(query=query, target=ConstructRef(id=target))
     if construct is None:
         return NotEvaluated(
+            code="target",
             subject=subject,
             reason="CONSTRUCT_UNDEFINED",
             detail="The model does not define this intervention target yet.",
         )
     if target not in states:
         return Evaluated(
+            code="target",
             subject=subject,
             outcome="failed",
             evidence=f"{construct.name} has no indicators, so it is not a state a simulation can set.",
         )
     return Evaluated(
+        code="target",
         subject=subject,
         outcome="passed",
         evidence=f"{construct.name} is a state a simulation can set.",
@@ -130,16 +144,15 @@ def _identification_finding(
     target: ConstructId,
     outcome: QuestionAssessment,
     constructs: dict[ConstructId, ConstructSpec],
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
     identification: IdentificationReport,
     states: frozenset[ConstructId],
 ) -> QuestionAssessment:
-    subject = QueryTargetSubject(
-        check="identification", query=query, target=ConstructRef(id=target)
-    )
+    subject = QueryTargetSubject(query=query, target=ConstructRef(id=target))
     construct = constructs.get(target)
     if construct is None or not isinstance(outcome, Evaluated):
         return NotEvaluated(
+            code="identification",
             subject=subject,
             reason="CONSTRUCT_UNDEFINED",
             detail="Identification waits until the model defines the outcome and this target.",
@@ -148,8 +161,11 @@ def _identification_finding(
     effect = f"The effect of {construct.name} on {constructs[identification.outcome].name}"
     status = identification.treatments.get(target)
     if status is None:
-        ancestors = get_all_treatments(model.constructs, model.edges, identification.outcome)
+        ancestors = get_all_treatments(
+            dynamical_model_spec.constructs, dynamical_model_spec.edges, identification.outcome
+        )
         return Evaluated(
+            code="identification",
             subject=subject,
             outcome="failed",
             evidence=f"{effect} is not checked: "
@@ -163,10 +179,14 @@ def _identification_finding(
         )
     if status.status == "identified":
         return Evaluated(
-            subject=subject, outcome="passed", evidence=f"{effect} is identified: {status.estimand}"
+            code="identification",
+            subject=subject,
+            outcome="passed",
+            evidence=f"{effect} is identified: {status.estimand}",
         )
     confounders = ", ".join(constructs[identity].name for identity in status.confounders)
     return Evaluated(
+        code="identification",
         subject=subject,
         outcome="failed",
         evidence=f"{effect} is not identified"
@@ -176,17 +196,12 @@ def _identification_finding(
 
 
 def _window_finding(
-    query: str, design: SimulationSpec, panel: pl.DataFrame, time_origin: datetime | None
+    query: str, design: SimulationSpec, panel: pl.DataFrame, time_origin: datetime
 ) -> QuestionAssessment:
     subject = QueryWindowSubject(query=query)
-    if time_origin is None:
-        return Evaluated(
-            subject=subject,
-            outcome="failed",
-            evidence="The record has no calendar origin, so a dated query can't be placed in it.",
-        )
     if design.start_instant < time_origin:
         return Evaluated(
+            code="window",
             subject=subject,
             outcome="failed",
             evidence=f"It starts on {design.start}, before the record begins on "
@@ -195,6 +210,7 @@ def _window_finding(
     record_end = ObservationInstant(panel.select(pl.col("support_end").max()).item()).value
     window_end = design.start_instant + timedelta(seconds=design.horizon.seconds)
     return Evaluated(
+        code="window",
         subject=subject,
         outcome="passed",
         evidence="It lies inside the record, so its reference is the recorded course."
@@ -214,15 +230,17 @@ def _range_finding(
     construct: ConstructSpec | None,
     panel: pl.DataFrame,
 ) -> QuestionAssessment:
-    subject = QueryTargetSubject(check="range", query=query, target=ConstructRef(id=target))
+    subject = QueryTargetSubject(query=query, target=ConstructRef(id=target))
     if construct is None:
         return NotEvaluated(
+            code="range",
             subject=subject,
             reason="CONSTRUCT_UNDEFINED",
             detail="The model does not define this intervention target yet.",
         )
     if construct.role != Role.EXOGENOUS:
         return NotEvaluated(
+            code="range",
             subject=subject,
             reason="STATE_NOT_RECORDED",
             detail="The record measures this state only through its indicators.",
@@ -230,6 +248,7 @@ def _range_finding(
     levels = tuple(_recorded_levels(construct, panel))
     if not levels:
         return Evaluated(
+            code="range",
             subject=subject,
             outcome="failed",
             evidence=f"{construct.name} has no readings in the record.",
@@ -251,13 +270,17 @@ def _range_finding(
         *rest, last = (f"{value:g}" for value in outside)
         values = f"{', '.join(rest)} and {last}" if rest else last
         return Evaluated(
+            code="range",
             subject=subject,
             outcome="failed",
             evidence=f"It sets {construct.name} to {values}, but {recorded}; "
             "the answer there rests on the model's assumptions.",
         )
     return Evaluated(
-        subject=subject, outcome="passed", evidence=f"Every value is inside the record: {recorded}."
+        code="range",
+        subject=subject,
+        outcome="passed",
+        evidence=f"Every value is inside the record: {recorded}.",
     )
 
 

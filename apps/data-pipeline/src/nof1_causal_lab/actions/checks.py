@@ -23,8 +23,8 @@ def check_specification(
     from typing import assert_never
 
     from nof1_causal_lab.models.ssm.compile.inputs import (
+        CompiledDynamicalModel,
         CompiledFitInputs,
-        CompiledModel,
         IncompleteModel,
         UnsupportedFit,
     )
@@ -33,22 +33,29 @@ def check_specification(
         case IncompleteModel():
             return (
                 NotEvaluated(
-                    subject="model_execution",
+                    code="model_execution",
+                    subject="model",
                     reason="MODEL_INCOMPLETE",
                     detail=compiled.message,
                 ),
             )
         case UnsupportedFit():
             return (
-                Evaluated(subject="model_execution", outcome="failed", evidence=compiled.message),
+                Evaluated(
+                    code="model_execution",
+                    subject="model",
+                    outcome="failed",
+                    evidence=compiled.message,
+                ),
             )
-        case CompiledModel():
+        case CompiledDynamicalModel():
             pass
         case _:
             assert_never(compiled)
     findings: list[SpecificationAssessment] = [
         Evaluated(
-            subject="model_execution",
+            code="model_execution",
+            subject="model",
             outcome="passed",
             evidence="Model definitions, references, and measurements support execution.",
         )
@@ -56,20 +63,24 @@ def check_specification(
     match inputs:
         case IncompleteModel() | UnsupportedFit():
             findings.append(
-                Evaluated(subject="fit_laws", outcome="failed", evidence=inputs.message)
+                Evaluated(
+                    code="fit_laws", subject="model", outcome="failed", evidence=inputs.message
+                )
             )
         case CompiledFitInputs():
             findings.append(
                 Evaluated(
-                    subject="fit_laws",
+                    code="fit_laws",
+                    subject="model",
                     outcome="passed",
                     evidence="Parameter laws support the current fitting engine.",
                 )
             )
             findings.extend(
                 Evaluated(
-                    subject=diagnostic.code,
-                    outcome="passed",
+                    code=diagnostic.code,
+                    subject=diagnostic.parameter,
+                    outcome="failed",
                     evidence=diagnostic.issue or diagnostic.parameter,
                 )
                 for diagnostic in inputs.diagnostics
@@ -80,7 +91,7 @@ def check_specification(
 
 
 def check_model_data(
-    inputs: FitCompilationResult, panel: ObservationDataset, *, time_origin: datetime | None
+    inputs: FitCompilationResult, panel: ObservationDataset, *, time_origin: datetime
 ) -> tuple[SpecificationAssessment, ...]:
     """Evaluate fitting input compatibility without running a sampler or simulator."""
     from nof1_causal_lab.models.ssm.compile.inputs import IncompleteModel
@@ -91,17 +102,23 @@ def check_model_data(
     if not isinstance(prepared, PreparedFit):
         return (
             NotEvaluated(
-                subject="fit_preflight", reason="MODEL_INCOMPLETE", detail=prepared.message
+                code="fit_preflight",
+                subject="model",
+                reason="MODEL_INCOMPLETE",
+                detail=prepared.message,
             )
             if isinstance(prepared, IncompleteModel)
-            else Evaluated(subject="fit_preflight", outcome="failed", evidence=prepared.message),
+            else Evaluated(
+                code="fit_preflight", subject="model", outcome="failed", evidence=prepared.message
+            ),
         )
     failure = validate_observations_for_fit(prepared.inputs.prior_runtime_bundle, prepared.panel)
     finding: SpecificationAssessment = (
-        Evaluated(subject="fit_preflight", outcome="failed", evidence=failure.message)
+        Evaluated(code="fit_preflight", subject="model", outcome="failed", evidence=failure.message)
         if failure is not None
         else Evaluated(
-            subject="fit_preflight",
+            code="fit_preflight",
+            subject="model",
             outcome="passed",
             evidence="Measurement support, discrete levels, standardization and eligible location laws match the prepared observations.",
         )

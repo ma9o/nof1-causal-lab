@@ -34,10 +34,10 @@ def resolve_preparation(
         StudyLookupError: The model has no measurement clock, no observations, or
             extraction keys that do not exactly match its observation IDs.
     """
-    model = read_model(store, request.model_ref)
-    if model.measurement_clock is None:
+    dynamical_model_spec = read_model(store, request.dynamical_model_spec_ref)
+    if dynamical_model_spec.measurement_clock is None:
         raise StudyLookupError("prepare_data requires a model with a measurement clock")
-    identities = {indicator.observation.id for indicator in model.indicators}
+    identities = {indicator.observation.id for indicator in dynamical_model_spec.indicators}
     if not identities or set(request.extraction) != identities:
         raise StudyLookupError(
             "Extraction instructions must name each model observation ID exactly once"
@@ -45,13 +45,13 @@ def resolve_preparation(
     return FilePreparationSpec(
         source=request.source,
         definition=DataPreparationSpec(
-            default_window=model.measurement_clock,
+            default_window=dynamical_model_spec.measurement_clock,
             variables=tuple(
                 DataVariableSpec(
                     observation=indicator.observation,
                     extraction=request.extraction[indicator.observation.id],
                 )
-                for indicator in model.indicators
+                for indicator in dynamical_model_spec.indicators
             ),
             context=request.context,
         ),

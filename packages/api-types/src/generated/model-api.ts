@@ -52,7 +52,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Edit Model
-         * @description Merge input.model into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
+         * @description Merge input.dynamical_model_spec into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
          */
         readonly post: operations["edit_model"];
         readonly delete?: never;
@@ -110,7 +110,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Fit
-         * @description Condition input.model_ref on the history selected by input.data_ref and required input.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains the complete inference result and arrays.
+         * @description Condition input.dynamical_model_spec_ref on the history selected by input.data_ref.revision and input.data_ref.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains model, checks and inference. Model laws own their numerical arguments; inference owns native telemetry.
          */
         readonly post: operations["fit"];
         readonly delete?: never;
@@ -130,7 +130,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Simulate
-         * @description Simulate input.model_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data, report and arrays; report retains single or paired evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id.
+         * @description Simulate input.dynamical_model_spec_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data and report; report owns single or paired numerical evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id.
          */
         readonly post: operations["simulate"];
         readonly delete?: never;
@@ -150,7 +150,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Data Diff
-         * @description Compare input.left_ref and input.right_ref, each a gitref with an optional replicate_index or a list of those references. Omit the index to compare all recorded histories. Data latest selects prepared user data; simulations require explicit gitrefs. Retain the complete comparison in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
+         * @description Compare input.left_ref and input.right_ref, each a nonempty list of {revision, replicate_index} references. Omit the index to compare all recorded histories. Data latest selects prepared user data; simulations require explicit gitrefs. Retain the complete comparison in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
          */
         readonly post: operations["data_diff"];
         readonly delete?: never;
@@ -170,7 +170,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Model Diff
-         * @description Compare input.before_ref and input.after_ref as saved ModelSpec documents. Return changes using the same partial ModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
+         * @description Compare input.before_ref and input.after_ref as saved DynamicalModelSpec documents. Return changes using the same partial DynamicalModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
          */
         readonly post: operations["model_diff"];
         readonly delete?: never;
@@ -276,16 +276,15 @@ export interface components {
              */
             readonly timestamp: string;
             /**
-             * Level
+             * Severity
              * @enum {string}
              */
-            readonly level: "debug" | "info" | "warn" | "error";
-            /** Label */
-            readonly label: string;
-            /** Details */
-            readonly details: {
-                readonly [key: string]: Domain.JsonValue;
-            };
+            readonly severity: "debug" | "info" | "warning" | "error";
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["FindingSubject"];
+            /** Detail */
+            readonly detail: string;
         };
         /** @description A call returns its identity, publication status, scientific body, and accumulated execution messages. */
         readonly ActionPoll: components["schemas"]["RunningPoll"] | components["schemas"]["FailedPoll"] | components["schemas"]["ActionSuccess"];
@@ -554,24 +553,6 @@ export interface components {
              */
             readonly interpretation: "prior_predictive";
         };
-        /** Available[CausalEffectResult] */
-        readonly Available_CausalEffectResult_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "available";
-            readonly value: components["schemas"]["CausalEffectResult"];
-        };
-        /** Available[PosteriorPredictiveChecks] */
-        readonly Available_PosteriorPredictiveChecks_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "available";
-            readonly value: components["schemas"]["PosteriorPredictiveChecks"];
-        };
         /** BernoulliLogitsLawSpec[Expression] */
         readonly "BernoulliLogitsLawSpec_Expression_-Output": {
             /**
@@ -726,8 +707,8 @@ export interface components {
         readonly ChainDiagnostics: {
             /** Num Chains */
             readonly num_chains: number;
-            /** Num Samples */
-            readonly num_samples: number;
+            /** Num Samples Per Chain */
+            readonly num_samples_per_chain: number;
             /** Per Parameter */
             readonly per_parameter: readonly components["schemas"]["ParameterDiagnostics"][];
             /**
@@ -798,6 +779,23 @@ export interface components {
          * @enum {string}
          */
         readonly CoefficientRole: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+        /**
+         * CompletedExtractionWorker
+         * @description Counts of extracted observations and windows retained from a completed worker.
+         */
+        readonly CompletedExtractionWorker: {
+            /** Worker Id */
+            readonly worker_id: number;
+            /** N Extractions */
+            readonly n_extractions: number;
+            /** N Windows */
+            readonly n_windows: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly status: "completed";
+        };
         /**
          * ComputedExtractionSpec
          * @description Compute a deterministic support-window measurement from source columns.
@@ -929,7 +927,7 @@ export interface components {
              */
             readonly innovation_family: "gaussian" | "student_t";
             /**
-             * @description Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.
+             * @description Trajectory law in DynamicalModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.
              * @default null
              */
             readonly distribution: components["schemas"]["DistributionId-Output"] | null;
@@ -940,18 +938,11 @@ export interface components {
         };
         readonly ConvergenceAssessmentSubject: components["schemas"]["ConvergenceSubject"] | "recorded_parameter_chains";
         /**
-         * ConvergenceCriterion
-         * @description Convergence statistics assessed for each retained parameter coordinate.
-         * @enum {string}
-         */
-        readonly ConvergenceCriterion: "r_hat" | "ess_bulk" | "ess_tail";
-        /**
          * ConvergenceSubject
          * @description A convergence criterion on one stable scientific scalar.
          */
         readonly ConvergenceSubject: {
             readonly parameter: components["schemas"]["ParameterRef"];
-            readonly criterion: components["schemas"]["ConvergenceCriterion"];
             /** Label */
             readonly label: string;
         };
@@ -969,7 +960,7 @@ export interface components {
          *     One-versus-one comparisons expose point changes. One-versus-many comparisons
          *     evaluate predictive checks against the singleton reference. Many-versus-many
          *     comparisons retain per-history statistics without pairing draws or evaluating
-         *     reference-based checks. DataVariableComparison owns the exact change semantics.
+         *     reference-based checks. IndicatorComparison owns the exact change semantics.
          *     Source definitions and complete observations belong to prepare_data/simulate
          *     results; this report owns only selection identity and newly computed evidence.
          */
@@ -979,7 +970,7 @@ export interface components {
             /** Right */
             readonly right: readonly Domain.DataRef<Domain.GitOid, number>[];
             /** Variables */
-            readonly variables: readonly components["schemas"]["DataVariableComparison"][];
+            readonly variables: readonly components["schemas"]["IndicatorComparison"][];
         };
         /** DataDiffInput[GitOid] */
         readonly DataDiffInput_GitOid_: {
@@ -1000,7 +991,7 @@ export interface components {
          * @description The computed comparison report; original histories remain in their producing results.
          */
         readonly DataDiffOutput: {
-            /** @description Exact history selections, point changes, per-history statistics, compatibility issues and predictive checks. This is a statistical comparison, not a data patch. */
+            /** @description Exact history selections, point changes, per-history statistics, compatibility findings and predictive checks. */
             readonly report: components["schemas"]["DataComparisonReport"];
         };
         /** DataDiffRequest[GitOid] */
@@ -1037,12 +1028,12 @@ export interface components {
              */
             readonly reasoning?: string | null;
         };
+        readonly DataFinding: Domain.Evaluated<Domain.IndicatorRef | "dataset", string> | Domain.NotEvaluated<Domain.IndicatorRef | "dataset">;
         /**
          * DataPoint
          * @description One recorded anchor, support and value; a null value is a present but missing observation.
          *
-         *     Dates are serialization coordinates for calendar-free histories. Row absence,
-         *     represented by Added or Removed, is distinct from a present point's null value.
+         *     Row absence, represented by Added or Removed, is distinct from a present point's null value.
          */
         readonly DataPoint: {
             /**
@@ -1056,6 +1047,22 @@ export interface components {
             readonly support_end: string | null;
             /** Value */
             readonly value: number | null;
+        };
+        /**
+         * DataPreparationResult
+         * @description Preparation artifacts and the measurements actually retained by extraction.
+         */
+        readonly DataPreparationResult: {
+            /**
+             * Workers
+             * @default []
+             */
+            readonly workers: readonly components["schemas"]["ExtractionWorkerResult"][];
+            /**
+             * Extraction Reused
+             * @default null
+             */
+            readonly extraction_reused: number | null;
         };
         /**
          * DataPreparationSpec
@@ -1077,19 +1084,14 @@ export interface components {
             readonly context: string;
         };
         /**
-         * DataProfileArtifact
+         * DataProfileReport
          * @description Model-independent empirical measurements and data-quality findings.
          */
-        readonly DataProfileArtifact: {
+        readonly DataProfileReport: {
             /** Indicators */
             readonly indicators: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["IndicatorAudit"]>>>;
-            /** Dataset Issues */
-            readonly dataset_issues: readonly components["schemas"]["ValidationIssue"][];
-            /**
-             * Is Valid
-             * @description Whether the data findings contain no errors, independent of any model.
-             */
-            readonly is_valid: boolean;
+            /** Findings */
+            readonly findings: readonly components["schemas"]["DataFinding"][];
         };
         /** DataRef[GitOid, Annotated[Union[int, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
         readonly DataRef_GitOid_Annotated_Union_int__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___: {
@@ -1115,61 +1117,17 @@ export interface components {
              */
             readonly replicate_index?: number | null;
         };
-        /** @description A data selection identifies one or more saved observation histories. */
-        readonly DataSelection_GitOid_: Domain.DataRef<Domain.GitOid, number | null> | readonly Domain.DataRef<Domain.GitOid, number | null>[];
-        /** @description A data selection identifies one or more saved observation histories. */
-        readonly DataSelection_RevisionSelector_: components["schemas"]["DataRef_RevisionSelector_Annotated_Union_int__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"] | readonly components["schemas"]["DataRef_RevisionSelector_Annotated_Union_int__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"][];
-        /** @enum {string} */
-        readonly DataStatistic: "observed_count" | "missing_count" | "mean" | "sd" | "min" | "max" | "proportion";
-        /**
-         * DataStatisticComparison
-         * @description One statistic per whole selected history, in the report's source order.
-         *
-         *     Histories are never pooled or paired across sides. Null denotes an undefined
-         *     statistic. Discrete codebooks use level proportions instead of numeric moments.
-         *     These descriptive values include each history's own observed positions; the
-         *     predictive checks separately use the reference history's observed-value mask.
-         */
-        readonly DataStatisticComparison: {
-            readonly statistic: components["schemas"]["DataStatistic"];
-            /**
-             * Level
-             * @default null
-             */
-            readonly level: string | null;
-            /** Left */
-            readonly left: readonly (number | null)[];
-            /** Right */
-            readonly right: readonly (number | null)[];
+        /** DataRef[RevisionSelector, int] */
+        readonly DataRef_RevisionSelector_int_: {
+            readonly revision: components["schemas"]["RevisionSelector"];
+            /** Replicate Index */
+            readonly replicate_index: number;
         };
-        /**
-         * DataVariableComparison
-         * @description Computed evidence for one persistent indicator identity, without copying its histories.
-         *
-         *     Point changes are directional, from left to right, and only computed for one
-         *     history on each side with compatible calendar binding. Match by anchor instant:
-         *     a new anchor is Added, a lost anchor Removed, and an exact value or support change
-         *     at a retained anchor Revised. Omit unchanged points and order changes by anchor.
-         *     Renames and measurement-definition changes are not point revisions; definition
-         *     mismatches are comparison issues. No tolerance, interpolation, or imputation is
-         *     used. Reversing sides exchanges additions/removals and before/after payloads.
-         *
-         *     An empty changes tuple can mean identical points or an inapplicable point diff
-         *     (replicated selections or mixed calendar binding); it never asserts that whole
-         *     datasets are equal. Missing variables and differing schedules remain explicit
-         *     issues. Predictive evaluation owns its own applicability, so extra replicate
-         *     anchors can produce a schedule issue without preventing checks at observed anchors.
-         */
-        readonly DataVariableComparison: {
-            readonly indicator_id: components["schemas"]["IndicatorId-Output"];
-            /** Changes */
-            readonly changes: readonly Domain.Change<Domain.DataPoint>[];
-            /** Statistics */
-            readonly statistics: readonly components["schemas"]["DataStatisticComparison"][];
-            /** Comparison Issues */
-            readonly comparison_issues: readonly string[];
-            readonly predictive: components["schemas"]["PredictiveComparisonResult"];
-        };
+        /** @description One or more saved observation-history references. */
+        readonly DataSelection_GitOid_: readonly Domain.DataRef<Domain.GitOid, number | null>[];
+        /** @description One or more saved observation-history references. */
+        readonly DataSelection_RevisionSelector_: readonly components["schemas"]["DataRef_RevisionSelector_Annotated_Union_int__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"][];
+        readonly DataStatisticComparison: components["schemas"]["ScalarStatisticComparison"] | components["schemas"]["ProportionComparison"];
         /**
          * DataVariableSpec
          * @description Compose an observed variable with its data-owned extraction instructions.
@@ -1203,6 +1161,33 @@ export interface components {
              */
             readonly density: readonly number[];
         };
+        /**
+         * DescriptiveIndicatorComparison
+         * @description Computed evidence for one persistent indicator identity, without copying its histories.
+         *
+         *     Point changes are directional, from left to right, and only computed for one
+         *     history on each side. Match by calendar instant:
+         *     a new anchor is Added, a lost anchor Removed, and an exact value or support change
+         *     at a retained anchor Revised. Omit unchanged points and order changes by anchor.
+         *     Renames and measurement-definition changes are not point revisions; definition
+         *     mismatches are findings. No tolerance, interpolation, or imputation is
+         *     used. Reversing sides exchanges additions/removals and before/after payloads.
+         *
+         *     An empty changes tuple can mean identical points or an inapplicable point diff
+         *     (replicated selections); it never asserts that whole
+         *     datasets are equal. Missing variables and differing schedules remain explicit
+         *     findings. Predictive evaluation owns its own applicability, so extra replicate
+         *     anchors can produce a schedule finding without preventing checks at observed anchors.
+         */
+        readonly DescriptiveIndicatorComparison: {
+            readonly indicator_id: components["schemas"]["IndicatorId-Output"];
+            /** Changes */
+            readonly changes: readonly Domain.Change<Domain.DataPoint>[];
+            /** Statistics */
+            readonly statistics: readonly components["schemas"]["DataStatisticComparison"][];
+            /** Findings */
+            readonly findings: readonly components["schemas"]["DataFinding"][];
+        };
         readonly "DistributionId-Input": `distribution:${string}`;
         readonly "DistributionId-Output": `distribution:${string}`;
         /**
@@ -1218,1464 +1203,15 @@ export interface components {
              */
             readonly kind: "drift";
         };
-        /** @description A dynamics mechanism declares one contribution to continuous-time drift. */
-        readonly "DynamicsMechanismSpec-Output": components["schemas"]["DriftMechanismSpec-Output"] | components["schemas"]["PotentialMechanismSpec-Output"];
-        /** @description A persistent edge identity identifies one authored causal relationship. */
-        readonly "EdgeId-Input": `edge:${string}`;
-        /** @description A persistent edge identity identifies one authored causal relationship. */
-        readonly "EdgeId-Output": `edge:${string}`;
         /**
-         * EdgeRef
-         * @description A causal-edge identity independent of edits to its scientific definition.
-         */
-        readonly EdgeRef: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "edge";
-            readonly id: components["schemas"]["EdgeId-Output"];
-        };
-        /** EditModelInput[GitOid] */
-        readonly EditModelInput_GitOid_: {
-            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
-            readonly parent_ref: components["schemas"]["GitOid-Input"];
-            /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. Constructs outside the outcome ancestry are pruned with a warning, then the complete model is validated. Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs require deterministic Delta trajectory laws for execution and have no dynamics, diffusion or initial coefficients. */
-            readonly model: components["schemas"]["ModelSpec-Input"];
-        };
-        /** EditModelInput[RevisionSelector] */
-        readonly EditModelInput_RevisionSelector_: {
-            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
-            readonly parent_ref: components["schemas"]["RevisionSelector"];
-            /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. Constructs outside the outcome ancestry are pruned with a warning, then the complete model is validated. Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs require deterministic Delta trajectory laws for execution and have no dynamics, diffusion or initial coefficients. */
-            readonly model: components["schemas"]["ModelSpec-Input"];
-        };
-        /**
-         * EditModelOutput
-         * @description The produced model and its recorded scientific findings.
-         *
-         *     Optional findings are absent when no corresponding report was retained.
-         */
-        readonly EditModelOutput: {
-            /** @description Saved scientific definition. */
-            readonly model: components["schemas"]["ModelSpec-Output"];
-            /** @description Combined findings retained by the action that produced the model. */
-            readonly checks: components["schemas"]["ModelCheckReport"] | null;
-            /** @description Causal identification findings. */
-            readonly identification: components["schemas"]["IdentificationReport"] | null;
-        };
-        /** EditModelRequest[GitOid] */
-        readonly EditModelRequest_GitOid_: {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "edit_model";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: Domain.EditModelInput<Domain.GitOid>;
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning: string | null;
-        };
-        /** EditModelRequest[RevisionSelector] */
-        readonly EditModelRequest_RevisionSelector_: {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "edit_model";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: components["schemas"]["EditModelInput_RevisionSelector_"];
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning?: string | null;
-        };
-        /**
-         * EditQuestionInput
-         * @description The study question, its required outcome, and any named intervention queries.
-         */
-        readonly "EditQuestionInput-Input": {
-            /** @description The replacement study question, including the required outcome and any intervention queries to assess against candidate models. */
-            readonly question: components["schemas"]["QuestionSpec-Input"];
-        };
-        /**
-         * EditQuestionInput
-         * @description The study question, its required outcome, and any named intervention queries.
-         */
-        readonly "EditQuestionInput-Output": {
-            /** @description The replacement study question, including the required outcome and any intervention queries to assess against candidate models. */
-            readonly question: components["schemas"]["QuestionSpec-Output"];
-        };
-        /**
-         * EditQuestionOutput
-         * @description The question saved by this action.
-         */
-        readonly EditQuestionOutput: {
-            /** @description The saved question, including its outcome and intervention queries. */
-            readonly question: components["schemas"]["QuestionSpec-Output"];
-        };
-        /**
-         * EditQuestionRequest
-         * @description Save the supplied question; the successful body is ``EditQuestionOutput``.
-         */
-        readonly "EditQuestionRequest-Input": {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "edit_question";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: components["schemas"]["EditQuestionInput-Input"];
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning?: string | null;
-        };
-        /**
-         * EditQuestionRequest
-         * @description Save the supplied question; the successful body is ``EditQuestionOutput``.
-         */
-        readonly "EditQuestionRequest-Output": {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "edit_question";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: components["schemas"]["EditQuestionInput-Output"];
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning: string | null;
-        };
-        /**
-         * EffectSummary
-         * @description An effect summary reports posterior location, uncertainty, and sign probability.
-         */
-        readonly EffectSummary: {
-            /** Mean */
-            readonly mean: number;
-            /** Median */
-            readonly median: number;
-            /** Lower 95 */
-            readonly lower_95: number;
-            /** Upper 95 */
-            readonly upper_95: number;
-            /** Prob Positive */
-            readonly prob_positive: number;
-        };
-        /**
-         * EmpiricalPoint
-         * @description A step of an empirical cumulative distribution.
-         */
-        readonly EmpiricalPoint: {
-            /**
-             * Value
-             * @description Distinct finite observed or sampled value.
-             */
-            readonly value: number;
-            /**
-             * Probability
-             * @description Fraction of finite values less than or equal to `value`.
-             */
-            readonly probability: number;
-        };
-        /**
-         * EnergyDiagnostics
-         * @description Energy distributions and the producer's chain-specific BFMI values.
-         */
-        readonly EnergyDiagnostics: {
-            readonly energy_hist: components["schemas"]["DensityCurve"];
-            readonly energy_transition_hist: components["schemas"]["DensityCurve"];
-            /** Bfmi */
-            readonly bfmi: readonly number[];
-        };
-        /** @description An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity. */
-        readonly EntityRef: components["schemas"]["ConstructRef-Output"] | components["schemas"]["EdgeRef"] | components["schemas"]["IndicatorRef"] | components["schemas"]["MechanismRef"];
-        /** Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence] */
-        readonly Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            readonly subject: components["schemas"]["ConvergenceAssessmentSubject"];
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            readonly evidence: components["schemas"]["NumericCriterionEvidence"];
-        };
-        /** Evaluated[IndicatorCheckSubject, NumericCriterionEvidence] */
-        readonly Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            readonly subject: components["schemas"]["IndicatorCheckSubject"];
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            readonly evidence: components["schemas"]["NumericCriterionEvidence"];
-        };
-        /** Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]] */
-        readonly Evaluated_PredictiveSubject_tuple_NumericCriterionEvidence__________: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            readonly subject: components["schemas"]["PredictiveSubject"];
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            /** Evidence */
-            readonly evidence: readonly components["schemas"]["NumericCriterionEvidence"][];
-        };
-        /** Evaluated[QuestionSubject, str] */
-        readonly Evaluated_QuestionSubject_str_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            readonly subject: components["schemas"]["QuestionSubject"];
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            /** Evidence */
-            readonly evidence: string;
-        };
-        /** Evaluated[str, str] */
-        readonly Evaluated_str_str_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            /** Subject */
-            readonly subject: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            /** Evidence */
-            readonly evidence: string;
-        };
-        readonly Evaluation_CausalEffectResult_: Domain.Available<Domain.CausalEffectResult> | components["schemas"]["Unavailable"] | components["schemas"]["NotApplicable"];
-        readonly Evaluation_PosteriorPredictiveChecks_: Domain.Available<Domain.PosteriorPredictiveChecks> | components["schemas"]["Unavailable"] | components["schemas"]["NotApplicable"];
-        /** @description An execution message retains a lifecycle entry, structured progress, an LLM trace, or failure details. */
-        readonly ExecutionMessage: components["schemas"]["ActionMessage"] | components["schemas"]["ProgressMessage"] | components["schemas"]["TraceLogMessage"] | components["schemas"]["FailureMessage"];
-        /** @description A scalar expression composes supported arithmetic with scientific state and coefficient references. */
-        readonly "Expression-Output": components["schemas"]["LiteralExpression-Output"] | components["schemas"]["StateExpression-Output"] | components["schemas"]["CoefficientExpression-Output"] | components["schemas"]["BinaryExpression-Output"] | components["schemas"]["CallExpression-Output"];
-        /**
-         * @description An expression function transforms scalar operands or constructs structured observation arguments.
-         * @enum {string}
-         */
-        readonly ExpressionFunction: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-        /**
-         * ExtractionPlanEvent
-         * @description The extraction fan-out plan.
-         */
-        readonly ExtractionPlanEvent: {
-            /**
-             * Attempt Id
-             * Format: uuid
-             */
-            readonly attempt_id: string;
-            /**
-             * Cursor
-             * @default
-             */
-            readonly cursor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly event: "nof1-causal-lab.extraction.plan";
-            /** Total Workers */
-            readonly total_workers: number;
-            /**
-             * Max Concurrent Workers
-             * @default null
-             */
-            readonly max_concurrent_workers: number | null;
-        };
-        /**
-         * ExtractionSnapshotEvent
-         * @description Aggregate extraction worker counts.
-         */
-        readonly ExtractionSnapshotEvent: {
-            /**
-             * Attempt Id
-             * Format: uuid
-             */
-            readonly attempt_id: string;
-            /**
-             * Cursor
-             * @default
-             */
-            readonly cursor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly event: "nof1-causal-lab.extraction.snapshot";
-            /** Total Workers */
-            readonly total_workers: number;
-            /** Pending Workers */
-            readonly pending_workers: number;
-            /** Running Workers */
-            readonly running_workers: number;
-            /** Completed Workers */
-            readonly completed_workers: number;
-            /** Failed Workers */
-            readonly failed_workers: number;
-        };
-        readonly "ExtractionSpec-Input": components["schemas"]["ComputedExtractionSpec-Input"] | components["schemas"]["SemanticExtractionSpec-Input"];
-        readonly "ExtractionSpec-Output": components["schemas"]["ComputedExtractionSpec-Output"] | components["schemas"]["SemanticExtractionSpec-Output"];
-        /**
-         * ExtractionWorkerEvent
-         * @description One extraction worker's state; a worker reports its LLM calls when it finishes.
-         */
-        readonly ExtractionWorkerEvent: {
-            /**
-             * Attempt Id
-             * Format: uuid
-             */
-            readonly attempt_id: string;
-            /**
-             * Cursor
-             * @default
-             */
-            readonly cursor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly event: "nof1-causal-lab.extraction.worker";
-            /** Worker Id */
-            readonly worker_id: number;
-            /**
-             * State
-             * @enum {string}
-             */
-            readonly state: "pending" | "running" | "completed" | "failed";
-            /** N Windows */
-            readonly n_windows: number;
-            /**
-             * N Extractions
-             * @default null
-             */
-            readonly n_extractions: number | null;
-            /**
-             * N Llm Calls
-             * @default null
-             */
-            readonly n_llm_calls: number | null;
-            /**
-             * Error
-             * @default null
-             */
-            readonly error: string | null;
-        };
-        /**
-         * FailedPoll
-         * @description A terminal failure with its full details in the accumulated messages.
-         */
-        readonly FailedPoll: {
-            readonly call_id: components["schemas"]["CallId-Output"];
-            readonly action: components["schemas"]["ActionId"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "failed";
-            readonly commit_id: components["schemas"]["GitOid-Output"] | null;
-            /** Messages */
-            readonly messages: readonly components["schemas"]["ExecutionMessage"][];
-            /**
-             * Body
-             * @description The shared envelope has no scientific result after failure.
-             */
-            readonly body: null;
-        };
-        /**
-         * FailureMessage
-         * @description The complete terminal failure carried by the public execution log.
-         */
-        readonly FailureMessage: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "failure";
-            /**
-             * Timestamp
-             * Format: date-time
-             */
-            readonly timestamp: string;
-            /** Failure */
-            readonly failure: components["schemas"]["Rejected"] | components["schemas"]["Raised"];
-        };
-        /**
-         * FileSourceRef
-         * @description Captured source files with workspace-relative paths and their content hashes.
-         */
-        readonly FileSourceRef: {
-            /** Files */
-            readonly files: readonly [
-                string,
-                ...string[]
-            ];
-            /**
-             * Hashes
-             * @description Call-time SHA-256 of every captured source file, retained with the resolved call.
-             */
-            readonly hashes: {
-                readonly [key: string]: string;
-            };
-            /**
-             * Start
-             * @description Inclusive UTC source-coverage date.
-             * @default null
-             */
-            readonly start: string | null;
-            /**
-             * End
-             * @description Exclusive UTC source-coverage date.
-             * @default null
-             */
-            readonly end: string | null;
-        };
-        /**
-         * FitCheckReport
-         * @description Compatibility and question findings owned by one completed fit.
-         */
-        readonly FitCheckReport: {
-            readonly validation: components["schemas"]["ValidationReportArtifact"];
-            readonly question: components["schemas"]["QuestionCheckReport"];
-        };
-        /** FitInput[GitOid] */
-        readonly FitInput_GitOid_: {
-            /** @description Model revision whose parameter law will be conditioned. */
-            readonly model_ref: components["schemas"]["GitOid-Output"];
-            /** @description Revision containing the observations used for conditioning. */
-            readonly data_ref: components["schemas"]["GitOid-Output"];
-            /**
-             * Replicate Index
-             * @description Zero-based selection of a single history within that data source; histories are not pooled.
-             */
-            readonly replicate_index: number;
-            /** @description Sampler, initialization, and diagnostic settings for the run. */
-            readonly settings: components["schemas"]["FitSettingsSpec-Output"];
-        };
-        /** FitInput[RevisionSelector] */
-        readonly FitInput_RevisionSelector_: {
-            /** @description Model revision whose parameter law will be conditioned. */
-            readonly model_ref: components["schemas"]["RevisionSelector"];
-            /** @description Revision containing the observations used for conditioning. */
-            readonly data_ref: components["schemas"]["RevisionSelector"];
-            /**
-             * Replicate Index
-             * @description Zero-based selection of a single history within that data source; histories are not pooled.
-             */
-            readonly replicate_index: number;
-            /** @description Sampler, initialization, and diagnostic settings for the run. */
-            readonly settings?: components["schemas"]["FitSettingsSpec-Input"];
-        };
-        /**
-         * FitOutput
-         * @description A conditioned model, its completed checks, and self-contained inference evidence.
-         */
-        readonly FitOutput: {
-            /** @description The model with its joint parameter law conditioned on the selected data. */
-            readonly model: components["schemas"]["ModelSpec-Output"];
-            /** @description Completed compatibility and question findings for the selected history. */
-            readonly checks: components["schemas"]["FitCheckReport"];
-            /** @description Run provenance, native sampler evidence, diagnostics and parameter summaries. */
-            readonly inference: components["schemas"]["InferenceReport"];
-        };
-        /** @enum {string} */
-        readonly FitReliability: "not_fitted" | "converged" | "unconverged" | "unknown";
-        /** FitRequest[GitOid] */
-        readonly FitRequest_GitOid_: {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "fit";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: Domain.FitInput<Domain.GitOid>;
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning: string | null;
-        };
-        /** FitRequest[RevisionSelector] */
-        readonly FitRequest_RevisionSelector_: {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "fit";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: components["schemas"]["FitInput_RevisionSelector_"];
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning?: string | null;
-        };
-        /**
-         * FitSettingsSpec
-         * @description Optional numerical controls applied to the configured particle sampler.
-         */
-        readonly "FitSettingsSpec-Input": {
-            /**
-             * Num Samples
-             * @default null
-             */
-            readonly num_samples?: number | null;
-            /**
-             * Num Warmup
-             * @default null
-             */
-            readonly num_warmup?: number | null;
-            /**
-             * Num Chains
-             * @default null
-             */
-            readonly num_chains?: number | null;
-            /**
-             * N Particles
-             * @default null
-             */
-            readonly n_particles?: number | null;
-            /**
-             * Seed
-             * @default null
-             */
-            readonly seed?: number | null;
-        };
-        /**
-         * FitSettingsSpec
-         * @description Optional numerical controls applied to the configured particle sampler.
-         */
-        readonly "FitSettingsSpec-Output": {
-            /**
-             * Num Samples
-             * @default null
-             */
-            readonly num_samples: number | null;
-            /**
-             * Num Warmup
-             * @default null
-             */
-            readonly num_warmup: number | null;
-            /**
-             * Num Chains
-             * @default null
-             */
-            readonly num_chains: number | null;
-            /**
-             * N Particles
-             * @default null
-             */
-            readonly n_particles: number | null;
-            /**
-             * Seed
-             * @default null
-             */
-            readonly seed: number | null;
-        };
-        /**
-         * FittedLawProvenance
-         * @description All current laws retain one committed fit's model and observation panel.
-         */
-        readonly FittedLawProvenance: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "fitted";
-            readonly fitted_data: Domain.DataRef<Domain.GitOid, number>;
-            readonly fitted_model_revision: components["schemas"]["GitOid-Output"];
-            /**
-             * Interpretation
-             * @enum {string}
-             */
-            readonly interpretation: "in_sample_posterior_predictive" | "posterior_predictive";
-        };
-        /** GammaLawSpec[Expression] */
-        readonly "GammaLawSpec_Expression_-Output": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Gamma";
-            readonly concentration: components["schemas"]["Expression-Output"];
-            readonly rate: components["schemas"]["Expression-Output"];
-        };
-        /** @description A native Git object identity for an immutable tree or commit. */
-        readonly "GitOid-Input": string;
-        /** @description A native Git object identity for an immutable tree or commit. */
-        readonly "GitOid-Output": string;
-        /**
-         * GitRef
-         * @description An exact file in a study's Git object database: repository, object, and path.
-         */
-        readonly GitRef: {
-            /** Workspace Id */
-            readonly workspace_id: string;
-            readonly revision: components["schemas"]["GitOid-Output"];
-            /** Path */
-            readonly path: string;
-        };
-        /** HTTPValidationError */
-        readonly HTTPValidationError: {
-            /** Detail */
-            readonly detail?: readonly components["schemas"]["ValidationError"][];
-        };
-        /**
-         * HistogramBin
-         * @description A histogram bin gives its interval, center, and number of posterior draws.
-         */
-        readonly HistogramBin: {
-            /** Bin Center */
-            readonly bin_center: number;
-            /** Bin Start */
-            readonly bin_start: number;
-            /** Bin End */
-            readonly bin_end: number;
-            /** Count */
-            readonly count: number;
-        };
-        /**
-         * IdentificationReport
-         * @description Positive and negative causal identification findings for the study question's outcome.
-         */
-        readonly IdentificationReport: {
-            readonly outcome: components["schemas"]["ConstructId-Output"] | null;
-            /**
-             * Treatments
-             * @description One tagged identification result per treatment, including its supporting evidence
-             */
-            readonly treatments: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], components["schemas"]["IdentifiedTreatmentStatus"] | components["schemas"]["NonIdentifiableTreatmentStatus"]>>>;
-        };
-        /**
-         * IdentifiedTreatmentStatus
-         * @description Details on how a treatment effect is identified.
-         */
-        readonly IdentifiedTreatmentStatus: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "identified";
-            /**
-             * Estimand
-             * @description Nonparametric estimand returned by do-calculus
-             */
-            readonly estimand: string;
-            /**
-             * Marginalized Confounders
-             * @description Unobserved confounders the estimand integrates out
-             */
-            readonly marginalized_confounders: readonly components["schemas"]["ConstructId-Output"][];
-            /**
-             * Instruments
-             * @description Instrument constructs appearing in the nonparametric identification argument
-             */
-            readonly instruments: readonly components["schemas"]["ConstructId-Output"][];
-        };
-        /**
-         * IdentityTransformSpec
-         * @description Keep the authored probability law on the scientific quantity's native scale.
-         */
-        readonly "IdentityTransformSpec-Output": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "identity";
-        };
-        /**
-         * IndicatorAudit
-         * @description Empirical measurements and validation findings for one observation indicator.
-         */
-        readonly IndicatorAudit: {
-            /** @default null */
-            readonly profile: components["schemas"]["IndicatorEmpiricalProfile"] | null;
-            /** Issues */
-            readonly issues: readonly components["schemas"]["ValidationIssue"][];
-            /** Checks */
-            readonly checks: {
-                readonly [key: string]: "ok" | "warning" | "error" | "not_evaluated";
-            };
-        };
-        /** @enum {string} */
-        readonly IndicatorCheck: "calibration" | "autocorrelation" | "variance";
-        /**
-         * IndicatorCheckSubject
-         * @description The indicator and criterion remain present when evaluation is unavailable.
-         */
-        readonly IndicatorCheckSubject: {
-            readonly target: components["schemas"]["IndicatorRef"];
-            readonly check: components["schemas"]["IndicatorCheck"];
-        };
-        /**
-         * IndicatorEmpiricalProfile
-         * @description Count, recorded range, quartiles and mean of one indicator's usable observations.
-         */
-        readonly IndicatorEmpiricalProfile: {
-            /** N Obs */
-            readonly n_obs: number;
-            /** Min */
-            readonly min: number | null;
-            /** Q25 */
-            readonly q25: number | null;
-            /** Q50 */
-            readonly q50: number | null;
-            /** Q75 */
-            readonly q75: number | null;
-            /** Max */
-            readonly max: number | null;
-            /** Mean */
-            readonly mean: number | null;
-        };
-        /** @description A persistent indicator identity survives changes to its measurement label. */
-        readonly "IndicatorId-Input": `indicator:${string}`;
-        /** @description A persistent indicator identity survives changes to its measurement label. */
-        readonly "IndicatorId-Output": `indicator:${string}`;
-        /**
-         * IndicatorPolarity
-         * @description Whether the measurement increases or decreases with its owning construct.
-         * @enum {string}
-         */
-        readonly IndicatorPolarity: "positive" | "negative";
-        /**
-         * IndicatorRef
-         * @description An observation identity independent of its current display name or model revision.
-         */
-        readonly IndicatorRef: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "indicator";
-            readonly id: components["schemas"]["IndicatorId-Output"];
-        };
-        /**
-         * IndicatorSpec
-         * @description Bind an observed-variable ID to a construct and an emission likelihood.
-         *
-         *     Extraction instructions belong to DataPreparationSpec. The shared observation
-         *     schema also permits generative models before any observations have been collected.
-         */
-        readonly "IndicatorSpec-Output": {
-            readonly observation: Domain.ObservationSpec<string | null>;
-            /** @default null */
-            readonly likelihood: components["schemas"]["LikelihoodSpec-Output"] | null;
-            /** @description Whether higher values move with (positive) or against (negative) the construct. */
-            readonly construct_polarity: components["schemas"]["IndicatorPolarity"];
-        };
-        /**
-         * InferenceEvidence
-         * @description Native telemetry buffers; posterior atoms and coordinates belong to the model.
-         */
-        readonly InferenceEvidence: {
-            /** Chain Extra Fields */
-            readonly chain_extra_fields: {
-                readonly [key: string]: components["schemas"]["NumericalArray"];
-            };
-            /** @default null */
-            readonly observation_log_probs: components["schemas"]["NumericalArray"] | null;
-            /** @default null */
-            readonly observed_rows: components["schemas"]["NumericalArray"] | null;
-            /** @default null */
-            readonly exact_observation_rows: components["schemas"]["NumericalArray"] | null;
-            /** Phase Extra Fields */
-            readonly phase_extra_fields: {
-                readonly [key: string]: {
-                    readonly [key: string]: components["schemas"]["NumericalArray"];
-                };
-            };
-            /** @default null */
-            readonly warmup_complete_log_posterior_history: components["schemas"]["NumericalArray"] | null;
-            /** @default null */
-            readonly all_complete_log_posterior_history: components["schemas"]["NumericalArray"] | null;
-            /** @default null */
-            readonly initial_latent_delta: components["schemas"]["NumericalArray"] | null;
-            /** @default null */
-            readonly final_latent_delta: components["schemas"]["NumericalArray"] | null;
-        };
-        /**
-         * InferenceMetadata
-         * @description The production run's law, chain layout and sampler measurements.
-         */
-        readonly InferenceMetadata: {
-            readonly distribution: components["schemas"]["DistributionId-Output"];
-            /** N Samples */
-            readonly n_samples: number;
-            /** Num Chains */
-            readonly num_chains: number;
-            /** Duration Seconds */
-            readonly duration_seconds: number;
-            readonly engine: components["schemas"]["ParticleMCMCEvidence"];
-            readonly sampler_diagnostics: components["schemas"]["ParticleSamplerDiagnostics"] | null;
-        };
-        /**
-         * InferenceReport
-         * @description One fit's provenance, run metadata, native evidence and computed findings.
-         */
-        readonly InferenceReport: {
-            readonly run: components["schemas"]["ModelFitResult"];
-            readonly core: components["schemas"]["InferenceReportCore"];
-            readonly detail: components["schemas"]["InferenceReportDetail"];
-        };
-        /**
-         * InferenceReportCore
-         * @description Compact scientific report shared by snapshots and the full report.
-         */
-        readonly InferenceReportCore: {
-            readonly inference_metadata: components["schemas"]["InferenceMetadata"];
-            readonly inference_diagnostics: components["schemas"]["ChainDiagnostics"] | null;
-            readonly convergence: components["schemas"]["ParameterConvergenceReport"];
-            /** @default null */
-            readonly loo_diagnostics: components["schemas"]["LOODiagnostics"] | null;
-            /** Posterior Marginals */
-            readonly posterior_marginals: readonly components["schemas"]["PosteriorMarginal"][];
-            /**
-             * Prior Densities
-             * @description Input laws evaluated on the quantity scale of the posterior summaries.
-             */
-            readonly prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
-        };
-        /**
-         * InferenceReportDetail
-         * @description Retained plot series served in full by the action result.
-         */
-        readonly InferenceReportDetail: {
-            /**
-             * Trace Data
-             * @default []
-             */
-            readonly trace_data: readonly components["schemas"]["TraceSeries"][];
-            /**
-             * Rank Histograms
-             * @default []
-             */
-            readonly rank_histograms: readonly components["schemas"]["RankHistogram"][];
-            /**
-             * Pareto K
-             * @default []
-             */
-            readonly pareto_k: readonly components["schemas"]["ParetoKPoint"][];
-            /**
-             * Loo Pit
-             * @default []
-             */
-            readonly loo_pit: readonly components["schemas"]["LOOPITPoint"][];
-        };
-        /**
-         * InitialCorrelationTransformSpec
-         * @description Constrain an initial-state correlation to its scientific support [-1, 1].
-         */
-        readonly "InitialCorrelationTransformSpec-Output": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "initial_state_correlation";
-        };
-        /**
-         * IntervalEffectTransformSpec
-         * @description Divide an interval effect by its explicit duration in days.
-         */
-        readonly "IntervalEffectTransformSpec-Output": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "dt_effect_to_ct_rate";
-            /** Interval Days */
-            readonly interval_days: number | "model_clock";
-        };
-        /**
-         * InterventionSpec
-         * @description Set a state some time after the design's start, then let its dynamics resume.
-         */
-        readonly "InterventionSpec-Input": {
-            readonly target: components["schemas"]["ConstructId-Input"];
-            /**
-             * After
-             * @description Offset from the design's start; omitted means at the start.
-             * @default null
-             */
-            readonly after?: string | null;
-            /** Value */
-            readonly value: number;
-        };
-        /**
-         * InterventionSpec
-         * @description Set a state some time after the design's start, then let its dynamics resume.
-         */
-        readonly "InterventionSpec-Output": {
-            readonly target: components["schemas"]["ConstructId-Output"];
-            /**
-             * After
-             * @description Offset from the design's start; omitted means at the start.
-             * @default null
-             */
-            readonly after: string | null;
-            /** Value */
-            readonly value: number;
-        };
-        /**
-         * JointLawLayout
-         * @description An explicit law membership ordered independently of native tensor positions.
-         *
-         *     Parameters sort by identity, then by scientific element identity. Trajectories
-         *     follow in construct-identity order, retaining the supplied time-point order.
-         *     Element identities include their categorical or covariance basis.
-         */
-        readonly "JointLawLayout-Output": {
-            /** Parameters */
-            readonly parameters: readonly (readonly [
-                components["schemas"]["ParameterId-Output"],
-                readonly components["schemas"]["ParameterElementId-Output"][]
-            ])[];
-            /** Constructs */
-            readonly constructs: readonly components["schemas"]["ConstructId-Output"][];
-            /** Time Points */
-            readonly time_points: readonly number[];
-            /**
-             * Time Origin
-             * @description Calendar instant of model day zero, or relative coordinates bound at execution. Fitting retains its calendar origin with the law.
-             * @default relative
-             */
-            readonly time_origin: string | "relative";
-            /** Labels */
-            readonly labels: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Output"], string>>>;
-        };
-        /** @description A JSON array transports an ordered collection of recursively typed values. */
-        readonly "JsonArray-Output": readonly Domain.JsonValue[];
-        /** @description A JSON object transports string-keyed recursively typed values. */
-        readonly "JsonObject-Output": {
-            readonly [key: string]: Domain.JsonValue;
-        };
-        /** @description A JSON scalar transports a string, number, boolean, or null. */
-        readonly JsonScalar: boolean | number | string | null;
-        /** @description A JSON value transports a scalar or a recursive array or object. */
-        readonly "JsonValue-Output": Domain.JsonScalar | Domain.JsonArray | Domain.JsonObject;
-        /**
-         * LLMTrace
-         * @description An LLM trace records a conversation, its model, elapsed time, and token usage.
-         */
-        readonly LLMTrace: {
-            /** Messages */
-            readonly messages: readonly components["schemas"]["TraceMessage"][];
-            /**
-             * Model
-             * @default
-             */
-            readonly model: string;
-            /**
-             * Total Time Seconds
-             * @default 0
-             */
-            readonly total_time_seconds: number;
-            readonly usage: components["schemas"]["TraceUsage"];
-        };
-        /**
-         * LOODiagnostics
-         * @description Exact-emission leave-one-measurement-row-out interpolation diagnostics.
-         */
-        readonly LOODiagnostics: {
-            /** Elpd Loo */
-            readonly elpd_loo: number;
-            /** P Loo */
-            readonly p_loo: number;
-            /** Se */
-            readonly se: number;
-            /** N Data Points */
-            readonly n_data_points: number;
-            /**
-             * N Bad K
-             * @default null
-             */
-            readonly n_bad_k: number | null;
-            /**
-             * N Warn K
-             * @default null
-             */
-            readonly n_warn_k: number | null;
-            /**
-             * Pareto Warning Limit
-             * @default 0.5
-             */
-            readonly pareto_warning_limit: number;
-            /**
-             * Pareto Failure Limit
-             * @default 0.7
-             */
-            readonly pareto_failure_limit: number;
-        };
-        /**
-         * LOOPITPoint
-         * @description A retained PIT value and its empirical cumulative probability.
-         */
-        readonly LOOPITPoint: {
-            /** Pit */
-            readonly pit: number;
-            /** Ecdf */
-            readonly ecdf: number;
-        };
-        /**
-         * LikelihoodSpec
-         * @description An indicator's conditional probability law and its scientific justification.
-         */
-        readonly "LikelihoodSpec-Output": {
-            readonly law: components["schemas"]["ObservationLawSpec-Output"];
-            /**
-             * Standardized
-             * @description Whether observations are mean-centered and scaled before fitting.
-             * @default false
-             */
-            readonly standardized: boolean;
-            /**
-             * Reasoning
-             * @description Why this conditional law was chosen for the indicator
-             */
-            readonly reasoning: string;
-            /**
-             * Sources
-             * @default []
-             */
-            readonly sources: readonly components["schemas"]["LiteratureSource-Output"][];
-        };
-        /**
-         * LiteralExpression
-         * @description A finite scalar constant in a model equation.
-         */
-        readonly "LiteralExpression-Output": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "literal";
-            /** Value */
-            readonly value: number;
-        };
-        /**
-         * LiteratureSource
-         * @description A literature source records cited evidence supporting a scientific modeling decision.
-         */
-        readonly "LiteratureSource-Output": {
-            /**
-             * Title
-             * @description Title of the source (paper, meta-analysis, textbook, etc.)
-             */
-            readonly title: string;
-            /**
-             * Url
-             * @description URL of the source if available
-             * @default null
-             */
-            readonly url: string | null;
-            /**
-             * Snippet
-             * @description Relevant excerpt or paraphrase from the source
-             */
-            readonly snippet: string;
-        };
-        /**
-         * MarginalParticleGibbsSpec
-         * @description Marginalized Particle Gibbs inference settings.
-         */
-        readonly MarginalParticleGibbsSpec: {
-            /**
-             * N Parameter Particles
-             * @default 2
-             */
-            readonly n_parameter_particles: number;
-            /**
-             * Latent Delta
-             * @default 0.2
-             */
-            readonly latent_delta: number;
-            /**
-             * Parameter Proposal
-             * @default pseudo_langevin
-             * @enum {string}
-             */
-            readonly parameter_proposal: "random_walk" | "pseudo_langevin";
-            /**
-             * Amala Delta Init
-             * @default 0.01
-             */
-            readonly amala_delta_init: number;
-            /**
-             * Amala Delta Min
-             * @default 0.00001
-             */
-            readonly amala_delta_min: number;
-            /**
-             * Amala Delta Max
-             * @default 10
-             */
-            readonly amala_delta_max: number;
-            /**
-             * Amala Target Accept
-             * @default 0.75
-             */
-            readonly amala_target_accept: number;
-            /**
-             * Amala Adaptation Window
-             * @default 100
-             */
-            readonly amala_adaptation_window: number;
-            /**
-             * Amala Adaptation Tolerance
-             * @default 0.05
-             */
-            readonly amala_adaptation_tolerance: number;
-            /**
-             * Amala Adaptation Rho
-             * @default 0.5
-             */
-            readonly amala_adaptation_rho: number;
-            /**
-             * Amala Adaptation Rho Min
-             * @default 0.001
-             */
-            readonly amala_adaptation_rho_min: number;
-            /**
-             * Amala Adaptation Gamma
-             * @default -0.5
-             */
-            readonly amala_adaptation_gamma: number;
-            /**
-             * Amala Kappa
-             * @default 0.75
-             */
-            readonly amala_kappa: number;
-            /** Amala Grad Clip */
-            readonly amala_grad_clip: number | "infinity";
-            /** @default amala_exact */
-            readonly dsmc_leaf_proposal: components["schemas"]["DSMCLeafProposal"];
-            /**
-             * Latent Block Coords
-             * @default null
-             */
-            readonly latent_block_coords: number | null;
-            /**
-             * Paid Mix Z Weight
-             * @default 0.85
-             */
-            readonly paid_mix_z_weight: number;
-            /**
-             * Paid Mix Pilot Weight
-             * @default 0.1
-             */
-            readonly paid_mix_pilot_weight: number;
-            /**
-             * Paid Mix Pilot Var Scale
-             * @default 0.25
-             */
-            readonly paid_mix_pilot_var_scale: number;
-            /**
-             * Paid Mix Wide Mult
-             * @default 4
-             */
-            readonly paid_mix_wide_mult: number;
-            /**
-             * Diagnostic Metrics All
-             * @default false
-             */
-            readonly diagnostic_metrics_all: boolean;
-            /**
-             * Diagnostic Metrics
-             * @default []
-             */
-            readonly diagnostic_metrics: readonly string[];
-            /**
-             * Param Step Size
-             * @default 0.02
-             */
-            readonly param_step_size: number;
-            /**
-             * Param Step Size Min
-             * @default 0.000001
-             */
-            readonly param_step_size_min: number;
-            /**
-             * Param Step Size Max
-             * @default 1000
-             */
-            readonly param_step_size_max: number;
-            /**
-             * Param Target Accept
-             * @default 0.35
-             */
-            readonly param_target_accept: number;
-            /**
-             * Adaptation Rate
-             * @default 0.05
-             */
-            readonly adaptation_rate: number;
-            /**
-             * Adaptation Scheme
-             * @default simple
-             * @enum {string}
-             */
-            readonly adaptation_scheme: "simple" | "dual_averaging";
-            /**
-             * Init Method
-             * @default pathfinder
-             * @enum {string}
-             */
-            readonly init_method: "random" | "pathfinder";
-            /**
-             * Pathfinder Num Elbo Samples
-             * @default 20
-             */
-            readonly pathfinder_num_elbo_samples: number;
-            /**
-             * Pathfinder Maxiter
-             * @default 20
-             */
-            readonly pathfinder_maxiter: number;
-            /**
-             * N Pathfinder Starts
-             * @default 8
-             */
-            readonly n_pathfinder_starts: number;
-            /**
-             * Pathfinder Parallel Workers
-             * @default null
-             */
-            readonly pathfinder_parallel_workers: number | null;
-            /**
-             * Pathfinder Init Scale
-             * @default 0.1
-             */
-            readonly pathfinder_init_scale: number | null;
-            /**
-             * Auto Preconditioner Method
-             * @default pathfinder
-             * @enum {string}
-             */
-            readonly auto_preconditioner_method: "map" | "none" | "pathfinder";
-            /**
-             * Auto Preconditioner Maxiter
-             * @default 200
-             */
-            readonly auto_preconditioner_maxiter: number;
-            /**
-             * Init Scale
-             * @default 0.05
-             */
-            readonly init_scale: number;
-            /**
-             * Compute Latent Posterior Summary
-             * @default true
-             */
-            readonly compute_latent_posterior_summary: boolean;
-            /**
-             * N Ieks Iters
-             * @default 6
-             */
-            readonly n_ieks_iters: number;
-        };
-        /**
-         * @description A measurement dtype defines the observed value domain of an indicator.
-         * @enum {string}
-         */
-        readonly MeasurementDtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
-        /** @description A persistent mechanism identity distinguishes additive terms through reordering and revision. */
-        readonly "MechanismId-Input": `mechanism:${string}`;
-        /** @description A persistent mechanism identity distinguishes additive terms through reordering and revision. */
-        readonly "MechanismId-Output": `mechanism:${string}`;
-        /**
-         * MechanismRef
-         * @description A particular additive term, independently of its position or coefficient values.
-         */
-        readonly MechanismRef: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "mechanism";
-            readonly id: components["schemas"]["MechanismId-Output"];
-        };
-        /**
-         * MixedLawProvenance
-         * @description Some laws retain a committed fit and others have different ancestry.
-         */
-        readonly MixedLawProvenance: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "mixed";
-            readonly fitted_data: Domain.DataRef<Domain.GitOid, number>;
-            readonly fitted_model_revision: components["schemas"]["GitOid-Output"];
-            /**
-             * Interpretation
-             * @description Mixed interpretation of draws whose parameter laws combine different provenance.
-             * @constant
-             */
-            readonly interpretation: "mixed";
-        };
-        /**
-         * ModelCheckReport
-         * @description Findings evaluated by the action against its pinned scientific inputs.
-         */
-        readonly ModelCheckReport: {
-            /** Specification */
-            readonly specification: readonly components["schemas"]["SpecificationAssessment"][];
-            /** @default null */
-            readonly question: components["schemas"]["QuestionCheckReport"] | null;
-        };
-        /** ModelDiffInput[GitOid] */
-        readonly ModelDiffInput_GitOid_: {
-            /** @description Model revision or checkpoint used as the comparison base. */
-            readonly before_ref: components["schemas"]["GitOid-Output"];
-            /** @description Model revision or checkpoint the returned patch reconstructs from the base. */
-            readonly after_ref: components["schemas"]["GitOid-Output"];
-        };
-        /** ModelDiffInput[RevisionSelector] */
-        readonly ModelDiffInput_RevisionSelector_: {
-            /** @description Model revision or checkpoint used as the comparison base. */
-            readonly before_ref: components["schemas"]["RevisionSelector"];
-            /** @description Model revision or checkpoint the returned patch reconstructs from the base. */
-            readonly after_ref: components["schemas"]["RevisionSelector"];
-        };
-        /**
-         * ModelDiffOutput
-         * @description Directional changes between saved specs, expressed in the model's editing language.
-         *
-         *     ModelSpec.changes_from owns the document comparison. Applying its patch with
-         *     merge_fields to the before spec reconstructs the after spec; equal specs yield
-         *     an empty document. Only saved specification fields participate, including their
-         *     exact law-buffer references. No execution findings or statistical comparisons
-         *     are computed here; those remain owned by their producing actions.
-         */
-        readonly ModelDiffOutput: {
-            /** @description Merge this document into the before spec to obtain the after spec. Omitted fields are unchanged, supplied fields are added or updated, and null map entries delete their identities. A checkpoint without a model denotes the empty spec. */
-            readonly changes: components["schemas"]["ModelSpec-Input"];
-        };
-        /** ModelDiffRequest[GitOid] */
-        readonly ModelDiffRequest_GitOid_: {
-            /**
-             * Action
-             * @description Scientific action that owns this request or result.
-             * @default model_diff
-             * @constant
-             */
-            readonly action: "model_diff";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: Domain.ModelDiffInput<Domain.GitOid>;
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning: string | null;
-        };
-        /** ModelDiffRequest[RevisionSelector] */
-        readonly ModelDiffRequest_RevisionSelector_: {
-            /**
-             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly action: "model_diff";
-            /** @description Typed arguments of the scientific action. */
-            readonly input: components["schemas"]["ModelDiffInput_RevisionSelector_"];
-            /**
-             * Reasoning
-             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
-             * @default null
-             */
-            readonly reasoning?: string | null;
-        };
-        /**
-         * ModelFitResult
-         * @description Exact model and data references paired with the fit's retained numerical evidence.
-         */
-        readonly ModelFitResult: {
-            readonly model: components["schemas"]["GitRef"];
-            readonly data: Domain.DataRef<Domain.GitOid, number>;
-            readonly evidence: components["schemas"]["InferenceEvidence"];
-        };
-        /**
-         * ModelSnapshot
-         * @description Scientific values selected from recorded action dependencies.
-         */
-        readonly ModelSnapshot: {
-            /** @default null */
-            readonly question: components["schemas"]["QuestionSpec-Output"] | null;
-            /** @default null */
-            readonly model: components["schemas"]["ModelSpec-Output"] | null;
-            /** Workspace Id */
-            readonly workspace_id: string;
-            readonly commit_id: components["schemas"]["GitOid-Output"];
-            /** Selected Seq */
-            readonly selected_seq: number;
-            readonly state: components["schemas"]["StudyState"];
-            /** @default null */
-            readonly metadata: components["schemas"]["PreparedDataMetadata"] | null;
-            /** @default null */
-            readonly profile: components["schemas"]["DataProfileArtifact"] | null;
-            /** @default null */
-            readonly identification: components["schemas"]["IdentificationReport"] | null;
-            /** @default null */
-            readonly validation_report: components["schemas"]["ValidationReportArtifact"] | null;
-            /** @default null */
-            readonly fit: components["schemas"]["InferenceReportCore"] | null;
-            /**
-             * Specification
-             * @default null
-             */
-            readonly specification: readonly components["schemas"]["SpecificationAssessment"][] | null;
-            /** @default null */
-            readonly question_checks: components["schemas"]["QuestionCheckReport"] | null;
-            /** @default null */
-            readonly simulation: components["schemas"]["SimulationReport"] | null;
-        };
-        /**
-         * ModelSpec
+         * DynamicalModelSpec
          * @description One identity-addressed scientific document, usable for creation and partial edits.
          *
          *     Omission carries no update. Null entity entries are deletion instructions. The
          *     editing boundary materializes and checks the complete document before publication.
          *     Scientific consumers resolve its owned entities at that boundary.
          */
-        readonly "ModelSpec-Input": {
+        readonly "DynamicalModelSpec-Input": {
             readonly constructs?: Readonly<Partial<Record<components["schemas"]["ConstructId-Input"], {
                 /** @description Construct name (e.g., 'stress', 'sleep_quality') */
                 readonly name?: string;
@@ -2725,14 +1261,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -2759,14 +1295,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly scale?: {
                                 /** @constant */
@@ -2790,14 +1326,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -2824,14 +1360,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly loc?: {
                                 /** @constant */
@@ -2855,14 +1391,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly scale?: {
                                 /** @constant */
@@ -2886,14 +1422,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -2920,14 +1456,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -2954,14 +1490,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly rate?: {
                                 /** @constant */
@@ -2985,14 +1521,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -3019,14 +1555,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -3053,14 +1589,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -3087,14 +1623,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly concentration?: {
                                 /** @constant */
@@ -3118,14 +1654,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -3152,14 +1688,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly concentration0?: {
                                 /** @constant */
@@ -3183,14 +1719,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -3217,14 +1753,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                             readonly cutpoints?: {
                                 /** @constant */
@@ -3248,14 +1784,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         } | {
                             /** @constant */
@@ -3282,14 +1818,14 @@ export interface components {
                                 readonly kind?: "binary";
                                 /** @enum {string} */
                                 readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                             } | {
                                 /** @constant */
                                 readonly kind?: "call";
                                 /** @enum {string} */
                                 readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                                readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                             };
                         };
                         /** @description Whether observations are mean-centered and scaled before fitting. */
@@ -3334,14 +1870,14 @@ export interface components {
                         readonly kind?: "binary";
                         /** @enum {string} */
                         readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                        readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                        readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                     } | {
                         /** @constant */
                         readonly kind?: "call";
                         /** @enum {string} */
                         readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                        readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                        readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                     };
                     /** @constant */
                     readonly kind?: "drift";
@@ -3368,14 +1904,14 @@ export interface components {
                         readonly kind?: "binary";
                         /** @enum {string} */
                         readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                        readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                        readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                     } | {
                         /** @constant */
                         readonly kind?: "call";
                         /** @enum {string} */
                         readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                        readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                        readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                     };
                     /** @constant */
                     readonly kind?: "potential";
@@ -3392,7 +1928,7 @@ export interface components {
                 }[];
                 /** @enum {string} */
                 readonly innovation_family?: "gaussian" | "student_t";
-                /** @description Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point. */
+                /** @description Trajectory law in DynamicalModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point. */
                 readonly distribution?: `distribution:${string}` | null;
                 /**
                  * @description Whether a construct is modeled as endogenous or supplied as an exogenous input.
@@ -3429,14 +1965,14 @@ export interface components {
                         readonly kind?: "binary";
                         /** @enum {string} */
                         readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-                        readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-                        readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
                     } | {
                         /** @constant */
                         readonly kind?: "call";
                         /** @enum {string} */
                         readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-                        readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                        readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
                     };
                     /** @constant */
                     readonly kind?: "drift";
@@ -3477,7 +2013,7 @@ export interface components {
                     /** @constant */
                     readonly kind?: "initial_state_correlation";
                 };
-                /** @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet. */
+                /** @description Membership in a native law in DynamicalModelSpec.distributions; may be joint. None means the law has not been assigned yet. */
                 readonly distribution?: `distribution:${string}` | null;
                 /** @description Why the authored prior law fits this quantity, and where its values come from. */
                 readonly reasoning?: string | null;
@@ -3495,7 +2031,7 @@ export interface components {
             readonly distributions?: Readonly<Partial<Record<components["schemas"]["DistributionId-Input"], {
                 readonly distribution?: string;
                 readonly params?: {
-                    readonly [key: string]: components["schemas"]["NumPyroValue-Input"];
+                    readonly [key: string]: Domain.NumPyroValue;
                 };
             } | null>>>;
             /** @description Scientific coordinates and production labels of each joint law, beside its native atoms. */
@@ -3513,14 +2049,14 @@ export interface components {
             readonly measurement_clock?: string | null;
         };
         /**
-         * ModelSpec
+         * DynamicalModelSpec
          * @description One identity-addressed scientific document, usable for creation and partial edits.
          *
          *     Omission carries no update. Null entity entries are deletion instructions. The
          *     editing boundary materializes and checks the complete document before publication.
          *     Scientific consumers resolve its owned entities at that boundary.
          */
-        readonly "ModelSpec-Output": {
+        readonly "DynamicalModelSpec-Output": {
             readonly constructs: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], {
                 /** @description Construct name (e.g., 'stress', 'sleep_quality') */
                 readonly name: string;
@@ -4727,7 +3263,7 @@ export interface components {
                  */
                 readonly innovation_family: "gaussian" | "student_t";
                 /**
-                 * @description Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.
+                 * @description Trajectory law in DynamicalModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.
                  * @default null
                  */
                 readonly distribution: `distribution:${string}` | null;
@@ -4854,7 +3390,7 @@ export interface components {
                     readonly kind: "initial_state_correlation";
                 };
                 /**
-                 * @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet.
+                 * @description Membership in a native law in DynamicalModelSpec.distributions; may be joint. None means the law has not been assigned yet.
                  * @default null
                  */
                 readonly distribution: `distribution:${string}` | null;
@@ -4880,22 +3416,22 @@ export interface components {
                 }[];
             }>>>;
             /** @description All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements. */
-            readonly distributions: Readonly<Partial<Record<components["schemas"]["DistributionId-Output"], components["schemas"]["NumPyroDistribution-Output"]>>>;
+            readonly distributions: Readonly<Partial<Record<components["schemas"]["DistributionId-Output"], Domain.NumPyroDistribution>>>;
             /** @description Scientific coordinates and production labels of each joint law, beside its native atoms. */
             readonly law_layouts: Readonly<Partial<Record<components["schemas"]["DistributionId-Output"], components["schemas"]["JointLawLayout-Output"]>>>;
             /** @default null */
             readonly measurement_clock: string | null;
         };
         /** @description A supported scalar operation composing two expressions. */
-        readonly "ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__BinaryExpression-Input__1_": {
+        readonly "DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__BinaryExpression-Input__1_": {
             /** @constant */
             readonly kind?: "binary";
             /** @enum {string} */
             readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-            readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
-            readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+            readonly left?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+            readonly right?: components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
         };
-        readonly "ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_": {
+        readonly "DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_": {
             /** @constant */
             readonly kind?: "literal";
             readonly value?: number;
@@ -4912,12 +3448,1502 @@ export interface components {
             readonly value?: number | `parameter:${string}` | null;
             /** @description Additional constructs participating in this coefficient use. */
             readonly construct_ids?: readonly `construct:${string}`[];
-        } | components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__BinaryExpression-Input__1_"] | {
+        } | components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__BinaryExpression-Input__1_"] | {
             /** @constant */
             readonly kind?: "call";
             /** @enum {string} */
             readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
-            readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+            readonly arguments?: readonly components["schemas"]["DynamicalModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+        };
+        /** @description A dynamics mechanism declares one contribution to continuous-time drift. */
+        readonly "DynamicsMechanismSpec-Output": components["schemas"]["DriftMechanismSpec-Output"] | components["schemas"]["PotentialMechanismSpec-Output"];
+        /** @description A persistent edge identity identifies one authored causal relationship. */
+        readonly "EdgeId-Input": `edge:${string}`;
+        /** @description A persistent edge identity identifies one authored causal relationship. */
+        readonly "EdgeId-Output": `edge:${string}`;
+        /**
+         * EdgeRef
+         * @description A causal-edge identity independent of edits to its scientific definition.
+         */
+        readonly EdgeRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "edge";
+            readonly id: components["schemas"]["EdgeId-Output"];
+        };
+        /** EditModelInput[GitOid] */
+        readonly EditModelInput_GitOid_: {
+            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
+            readonly parent_ref: components["schemas"]["GitOid-Input"];
+            /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. The action retains the merged spec and its findings. */
+            readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Input"];
+        };
+        /** EditModelInput[RevisionSelector] */
+        readonly EditModelInput_RevisionSelector_: {
+            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
+            readonly parent_ref: components["schemas"]["RevisionSelector"];
+            /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. The action retains the merged spec and its findings. */
+            readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Input"];
+        };
+        /**
+         * EditModelOutput
+         * @description The produced model and its recorded scientific findings.
+         */
+        readonly EditModelOutput: {
+            /** @description Saved scientific definition. */
+            readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Output"];
+            /** @description Combined findings retained by the action that produced the model. */
+            readonly checks: components["schemas"]["ModelCheckReport"];
+            /** @description Causal identification findings. */
+            readonly identification: components["schemas"]["IdentificationReport"];
+            /** @description Entities removed because they do not serve the question. */
+            readonly pruning: components["schemas"]["ModelEditResult"];
+        };
+        /** EditModelRequest[GitOid] */
+        readonly EditModelRequest_GitOid_: {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "edit_model";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: Domain.EditModelInput<Domain.GitOid>;
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
+        };
+        /** EditModelRequest[RevisionSelector] */
+        readonly EditModelRequest_RevisionSelector_: {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "edit_model";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: components["schemas"]["EditModelInput_RevisionSelector_"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
+        };
+        /**
+         * EditQuestionInput
+         * @description The study question, its required outcome, and any named intervention queries.
+         */
+        readonly "EditQuestionInput-Input": {
+            /** @description The replacement study question, including the required outcome and any intervention queries to assess against candidate models. */
+            readonly question: components["schemas"]["QuestionSpec-Input"];
+        };
+        /**
+         * EditQuestionInput
+         * @description The study question, its required outcome, and any named intervention queries.
+         */
+        readonly "EditQuestionInput-Output": {
+            /** @description The replacement study question, including the required outcome and any intervention queries to assess against candidate models. */
+            readonly question: components["schemas"]["QuestionSpec-Output"];
+        };
+        /**
+         * EditQuestionOutput
+         * @description The question saved by this action.
+         */
+        readonly EditQuestionOutput: {
+            /** @description The saved question, including its outcome and intervention queries. */
+            readonly question: components["schemas"]["QuestionSpec-Output"];
+        };
+        /**
+         * EditQuestionRequest
+         * @description Save the supplied question; the successful body is ``EditQuestionOutput``.
+         */
+        readonly "EditQuestionRequest-Input": {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "edit_question";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: components["schemas"]["EditQuestionInput-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
+        };
+        /**
+         * EditQuestionRequest
+         * @description Save the supplied question; the successful body is ``EditQuestionOutput``.
+         */
+        readonly "EditQuestionRequest-Output": {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "edit_question";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: components["schemas"]["EditQuestionInput-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
+        };
+        /**
+         * EffectSummary
+         * @description An effect summary reports posterior location, uncertainty, and sign probability.
+         */
+        readonly EffectSummary: {
+            /** Mean */
+            readonly mean: number;
+            /** Median */
+            readonly median: number;
+            /** Lower 95 */
+            readonly lower_95: number;
+            /** Upper 95 */
+            readonly upper_95: number;
+            /** Prob Positive */
+            readonly prob_positive: number;
+        };
+        /**
+         * EmpiricalPoint
+         * @description A step of an empirical cumulative distribution.
+         */
+        readonly EmpiricalPoint: {
+            /**
+             * Value
+             * @description Distinct finite observed or sampled value.
+             */
+            readonly value: number;
+            /**
+             * Probability
+             * @description Fraction of finite values less than or equal to `value`.
+             */
+            readonly probability: number;
+        };
+        /**
+         * EnergyDiagnostics
+         * @description Energy distributions and the producer's chain-specific BFMI values.
+         */
+        readonly EnergyDiagnostics: {
+            readonly energy_hist: components["schemas"]["DensityCurve"];
+            readonly energy_transition_hist: components["schemas"]["DensityCurve"];
+            /** Bfmi */
+            readonly bfmi: readonly number[];
+        };
+        /** @description An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity. */
+        readonly EntityRef: components["schemas"]["ConstructRef-Output"] | components["schemas"]["EdgeRef"] | components["schemas"]["IndicatorRef"] | components["schemas"]["MechanismRef"];
+        /** Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence] */
+        readonly Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "evaluated";
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["ConvergenceAssessmentSubject"];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            readonly outcome: "passed" | "failed";
+            readonly evidence: components["schemas"]["NumericCriterionEvidence"];
+        };
+        /** Evaluated[IndicatorCheckSubject, NumericCriterionEvidence] */
+        readonly Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "evaluated";
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["IndicatorCheckSubject"];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            readonly outcome: "passed" | "failed";
+            readonly evidence: components["schemas"]["NumericCriterionEvidence"];
+        };
+        /** Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]] */
+        readonly Evaluated_PredictiveSubject_tuple_NumericCriterionEvidence__________: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "evaluated";
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["PredictiveSubject"];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            readonly outcome: "passed" | "failed";
+            /** Evidence */
+            readonly evidence: readonly components["schemas"]["NumericCriterionEvidence"][];
+        };
+        /** Evaluated[QuestionSubject, str] */
+        readonly Evaluated_QuestionSubject_str_: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "evaluated";
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["QuestionSubject"];
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            readonly outcome: "passed" | "failed";
+            /** Evidence */
+            readonly evidence: string;
+        };
+        /** Evaluated[Union[IndicatorRef, Literal['dataset']], str] */
+        readonly Evaluated_Union_IndicatorRef__Literal__dataset____str_: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "evaluated";
+            /** Code */
+            readonly code: string;
+            /** Subject */
+            readonly subject: components["schemas"]["IndicatorRef"] | "dataset";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            readonly outcome: "passed" | "failed";
+            /** Evidence */
+            readonly evidence: string;
+        };
+        /** Evaluated[str, str] */
+        readonly Evaluated_str_str_: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "evaluated";
+            /** Code */
+            readonly code: string;
+            /** Subject */
+            readonly subject: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            readonly outcome: "passed" | "failed";
+            /** Evidence */
+            readonly evidence: string;
+        };
+        /** @description An execution message retains a lifecycle entry, structured progress, an LLM trace, or failure details. */
+        readonly ExecutionMessage: components["schemas"]["ActionMessage"] | components["schemas"]["ProgressMessage"] | components["schemas"]["TraceLogMessage"] | components["schemas"]["FailureMessage"];
+        /** @description A scalar expression composes supported arithmetic with scientific state and coefficient references. */
+        readonly "Expression-Output": components["schemas"]["LiteralExpression-Output"] | components["schemas"]["StateExpression-Output"] | components["schemas"]["CoefficientExpression-Output"] | components["schemas"]["BinaryExpression-Output"] | components["schemas"]["CallExpression-Output"];
+        /**
+         * @description An expression function transforms scalar operands or constructs structured observation arguments.
+         * @enum {string}
+         */
+        readonly ExpressionFunction: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+        /**
+         * ExtractionPlanEvent
+         * @description The extraction fan-out plan.
+         */
+        readonly ExtractionPlanEvent: {
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            readonly attempt_id: string;
+            /**
+             * Cursor
+             * @default
+             */
+            readonly cursor: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly event: "nof1-causal-lab.extraction.plan";
+            /** Total Workers */
+            readonly total_workers: number;
+            /**
+             * Max Concurrent Workers
+             * @default null
+             */
+            readonly max_concurrent_workers: number | null;
+        };
+        /**
+         * ExtractionSnapshotEvent
+         * @description Aggregate extraction worker counts.
+         */
+        readonly ExtractionSnapshotEvent: {
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            readonly attempt_id: string;
+            /**
+             * Cursor
+             * @default
+             */
+            readonly cursor: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly event: "nof1-causal-lab.extraction.snapshot";
+            /** Total Workers */
+            readonly total_workers: number;
+            /** Pending Workers */
+            readonly pending_workers: number;
+            /** Running Workers */
+            readonly running_workers: number;
+            /** Completed Workers */
+            readonly completed_workers: number;
+            /** Failed Workers */
+            readonly failed_workers: number;
+        };
+        readonly "ExtractionSpec-Input": components["schemas"]["ComputedExtractionSpec-Input"] | components["schemas"]["SemanticExtractionSpec-Input"];
+        readonly "ExtractionSpec-Output": components["schemas"]["ComputedExtractionSpec-Output"] | components["schemas"]["SemanticExtractionSpec-Output"];
+        /**
+         * ExtractionWorkerEvent
+         * @description One extraction worker's state; a worker reports its LLM calls when it finishes.
+         */
+        readonly ExtractionWorkerEvent: {
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            readonly attempt_id: string;
+            /**
+             * Cursor
+             * @default
+             */
+            readonly cursor: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly event: "nof1-causal-lab.extraction.worker";
+            /** Worker Id */
+            readonly worker_id: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            readonly state: "pending" | "running" | "completed" | "failed";
+            /** N Windows */
+            readonly n_windows: number;
+            /**
+             * N Extractions
+             * @default null
+             */
+            readonly n_extractions: number | null;
+            /**
+             * N Llm Calls
+             * @default null
+             */
+            readonly n_llm_calls: number | null;
+            /**
+             * Error
+             * @default null
+             */
+            readonly error: string | null;
+        };
+        readonly ExtractionWorkerResult: components["schemas"]["CompletedExtractionWorker"] | components["schemas"]["FailedExtractionChunk"];
+        /**
+         * FailedExtractionChunk
+         * @description A failed extraction chunk with its error, retained counts, and execution details.
+         */
+        readonly FailedExtractionChunk: {
+            /** Worker Id */
+            readonly worker_id: number;
+            /** N Extractions */
+            readonly n_extractions: number;
+            /** N Windows */
+            readonly n_windows: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly status: "failed";
+            /** Error */
+            readonly error: string;
+            /**
+             * N Llm Calls
+             * @default 0
+             */
+            readonly n_llm_calls: number | null;
+            /**
+             * Reused
+             * @default false
+             */
+            readonly reused: boolean | null;
+        };
+        /**
+         * FailedPoll
+         * @description A terminal failure with its full details in the accumulated messages.
+         */
+        readonly FailedPoll: {
+            readonly call_id: components["schemas"]["CallId-Output"];
+            readonly action: components["schemas"]["ActionId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly status: "failed";
+            readonly commit_id: components["schemas"]["GitOid-Output"] | null;
+            /** Messages */
+            readonly messages: readonly components["schemas"]["ExecutionMessage"][];
+            /**
+             * Body
+             * @description The shared envelope has no scientific result after failure.
+             */
+            readonly body: null;
+        };
+        /**
+         * FailureMessage
+         * @description The complete terminal failure carried by the public execution log.
+         */
+        readonly FailureMessage: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "failure";
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            readonly timestamp: string;
+            /** Failure */
+            readonly failure: components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+        };
+        /**
+         * FileSourceRef
+         * @description Captured source files with workspace-relative paths and their content hashes.
+         */
+        readonly FileSourceRef: {
+            /** Files */
+            readonly files: readonly [
+                string,
+                ...string[]
+            ];
+            /**
+             * Hashes
+             * @description Call-time SHA-256 of every captured source file, retained with the resolved call.
+             */
+            readonly hashes: {
+                readonly [key: string]: string;
+            };
+            /**
+             * Start
+             * @description Inclusive UTC source-coverage date.
+             * @default null
+             */
+            readonly start: string | null;
+            /**
+             * End
+             * @description Exclusive UTC source-coverage date.
+             * @default null
+             */
+            readonly end: string | null;
+        };
+        readonly FindingSubject: string | components["schemas"]["EntityRef"] | components["schemas"]["PredictiveSubject"] | components["schemas"]["IndicatorCheckSubject"] | components["schemas"]["ConvergenceSubject"] | components["schemas"]["QuestionSubject"];
+        /**
+         * FitCheckReport
+         * @description Compatibility and question findings owned by one completed fit.
+         */
+        readonly FitCheckReport: {
+            readonly data: components["schemas"]["DataProfileReport"];
+            /** Preflight */
+            readonly preflight: readonly components["schemas"]["SpecificationAssessment"][];
+            readonly question: components["schemas"]["QuestionCheckReport"];
+        };
+        /** FitInput[GitOid] */
+        readonly FitInput_GitOid_: {
+            /** @description Model revision whose parameter law will be conditioned. */
+            readonly dynamical_model_spec_ref: components["schemas"]["GitOid-Output"];
+            /** @description One saved observation history selected by revision and replicate index. */
+            readonly data_ref: Domain.DataRef<Domain.GitOid, number>;
+            /** @description Optional particle-sampler counts and random seed for the run. */
+            readonly settings: components["schemas"]["FitSettingsSpec-Output"];
+        };
+        /** FitInput[RevisionSelector] */
+        readonly FitInput_RevisionSelector_: {
+            /** @description Model revision whose parameter law will be conditioned. */
+            readonly dynamical_model_spec_ref: components["schemas"]["RevisionSelector"];
+            /** @description One saved observation history selected by revision and replicate index. */
+            readonly data_ref: components["schemas"]["DataRef_RevisionSelector_int_"];
+            /** @description Optional particle-sampler counts and random seed for the run. */
+            readonly settings?: components["schemas"]["FitSettingsSpec-Input"];
+        };
+        /**
+         * FitOutput
+         * @description A conditioned model, its completed checks, and self-contained inference evidence.
+         */
+        readonly FitOutput: {
+            /** @description The model with its joint parameter law conditioned on the selected data. */
+            readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Output"];
+            /** @description Completed compatibility and question findings for the selected history. */
+            readonly checks: components["schemas"]["FitCheckReport"];
+            /** @description Run provenance, native sampler evidence, diagnostics and parameter summaries. */
+            readonly inference: components["schemas"]["InferenceReport"];
+        };
+        /** @enum {string} */
+        readonly FitReliability: "not_fitted" | "converged" | "unconverged" | "unknown";
+        /** FitRequest[GitOid] */
+        readonly FitRequest_GitOid_: {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "fit";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: Domain.FitInput<Domain.GitOid>;
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
+        };
+        /** FitRequest[RevisionSelector] */
+        readonly FitRequest_RevisionSelector_: {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "fit";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: components["schemas"]["FitInput_RevisionSelector_"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
+        };
+        /**
+         * FitSettingsSpec
+         * @description Optional numerical controls applied to the configured particle sampler.
+         */
+        readonly "FitSettingsSpec-Input": {
+            /**
+             * Num Samples Per Chain
+             * @default null
+             */
+            readonly num_samples_per_chain?: number | null;
+            /**
+             * Num Warmup
+             * @default null
+             */
+            readonly num_warmup?: number | null;
+            /**
+             * Num Chains
+             * @default null
+             */
+            readonly num_chains?: number | null;
+            /**
+             * Num Particles
+             * @default null
+             */
+            readonly num_particles?: number | null;
+            /**
+             * Seed
+             * @default null
+             */
+            readonly seed?: number | null;
+        };
+        /**
+         * FitSettingsSpec
+         * @description Optional numerical controls applied to the configured particle sampler.
+         */
+        readonly "FitSettingsSpec-Output": {
+            /**
+             * Num Samples Per Chain
+             * @default null
+             */
+            readonly num_samples_per_chain: number | null;
+            /**
+             * Num Warmup
+             * @default null
+             */
+            readonly num_warmup: number | null;
+            /**
+             * Num Chains
+             * @default null
+             */
+            readonly num_chains: number | null;
+            /**
+             * Num Particles
+             * @default null
+             */
+            readonly num_particles: number | null;
+            /**
+             * Seed
+             * @default null
+             */
+            readonly seed: number | null;
+        };
+        /**
+         * FittedLawProvenance
+         * @description All current laws retain one committed fit's model and observation panel.
+         */
+        readonly FittedLawProvenance: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "fitted";
+            readonly fitted_data: Domain.DataRef<Domain.GitOid, number>;
+            readonly fitted_model_revision: components["schemas"]["GitOid-Output"];
+            /**
+             * Interpretation
+             * @enum {string}
+             */
+            readonly interpretation: "in_sample_posterior_predictive" | "posterior_predictive";
+        };
+        /** GammaLawSpec[Expression] */
+        readonly "GammaLawSpec_Expression_-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly distribution: "Gamma";
+            readonly concentration: components["schemas"]["Expression-Output"];
+            readonly rate: components["schemas"]["Expression-Output"];
+        };
+        /** @description A native Git object identity for an immutable tree or commit. */
+        readonly "GitOid-Input": string;
+        /** @description A native Git object identity for an immutable tree or commit. */
+        readonly "GitOid-Output": string;
+        /** HTTPValidationError */
+        readonly HTTPValidationError: {
+            /** Detail */
+            readonly detail?: readonly components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HistogramBin
+         * @description A histogram bin gives its interval, center, and number of posterior draws.
+         */
+        readonly HistogramBin: {
+            /** Bin Center */
+            readonly bin_center: number;
+            /** Bin Start */
+            readonly bin_start: number;
+            /** Bin End */
+            readonly bin_end: number;
+            /** Count */
+            readonly count: number;
+        };
+        /**
+         * IdentificationReport
+         * @description Positive and negative causal identification findings for the study question's outcome.
+         */
+        readonly IdentificationReport: {
+            readonly outcome: components["schemas"]["ConstructId-Output"] | null;
+            /**
+             * Treatments
+             * @description One tagged identification result per treatment, including its supporting evidence
+             */
+            readonly treatments: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], components["schemas"]["IdentifiedTreatmentStatus"] | components["schemas"]["NonIdentifiableTreatmentStatus"]>>>;
+        };
+        /**
+         * IdentifiedTreatmentStatus
+         * @description Details on how a treatment effect is identified.
+         */
+        readonly IdentifiedTreatmentStatus: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly status: "identified";
+            /**
+             * Estimand
+             * @description Nonparametric estimand returned by do-calculus
+             */
+            readonly estimand: string;
+            /**
+             * Marginalized Confounders
+             * @description Unobserved confounders the estimand integrates out
+             */
+            readonly marginalized_confounders: readonly components["schemas"]["ConstructId-Output"][];
+            /**
+             * Instruments
+             * @description Instrument constructs appearing in the nonparametric identification argument
+             */
+            readonly instruments: readonly components["schemas"]["ConstructId-Output"][];
+        };
+        /**
+         * IdentityTransformSpec
+         * @description Keep the authored probability law on the scientific quantity's native scale.
+         */
+        readonly "IdentityTransformSpec-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "identity";
+        };
+        /**
+         * IndicatorAudit
+         * @description Empirical measurements and validation findings for one observation indicator.
+         */
+        readonly IndicatorAudit: {
+            /** @default null */
+            readonly profile: components["schemas"]["IndicatorEmpiricalProfile"] | null;
+            /** Findings */
+            readonly findings: readonly components["schemas"]["DataFinding"][];
+        };
+        /**
+         * IndicatorCheckSubject
+         * @description The indicator and criterion remain present when evaluation is unavailable.
+         */
+        readonly IndicatorCheckSubject: {
+            readonly target: components["schemas"]["IndicatorRef"];
+        };
+        readonly IndicatorComparison: components["schemas"]["DescriptiveIndicatorComparison"] | components["schemas"]["PredictiveIndicatorComparison"];
+        /**
+         * IndicatorEmpiricalProfile
+         * @description Count, recorded range, quartiles and mean of one indicator's usable observations.
+         */
+        readonly IndicatorEmpiricalProfile: {
+            /** N Obs */
+            readonly n_obs: number;
+            /** Min */
+            readonly min: number | null;
+            /** Q25 */
+            readonly q25: number | null;
+            /** Q50 */
+            readonly q50: number | null;
+            /** Q75 */
+            readonly q75: number | null;
+            /** Max */
+            readonly max: number | null;
+            /** Mean */
+            readonly mean: number | null;
+        };
+        /** @description A persistent indicator identity survives changes to its measurement label. */
+        readonly "IndicatorId-Input": `indicator:${string}`;
+        /** @description A persistent indicator identity survives changes to its measurement label. */
+        readonly "IndicatorId-Output": `indicator:${string}`;
+        /**
+         * IndicatorPolarity
+         * @description Whether the measurement increases or decreases with its owning construct.
+         * @enum {string}
+         */
+        readonly IndicatorPolarity: "positive" | "negative";
+        /**
+         * IndicatorRef
+         * @description An observation identity independent of its current display name or model revision.
+         */
+        readonly IndicatorRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "indicator";
+            readonly id: components["schemas"]["IndicatorId-Output"];
+        };
+        /**
+         * IndicatorSpec
+         * @description Bind an observed-variable ID to a construct and an emission likelihood.
+         *
+         *     Extraction instructions belong to DataPreparationSpec. The shared observation
+         *     schema also permits generative models before any observations have been collected.
+         */
+        readonly "IndicatorSpec-Output": {
+            readonly observation: Domain.ObservationSpec<string | null>;
+            /** @default null */
+            readonly likelihood: components["schemas"]["LikelihoodSpec-Output"] | null;
+            /** @description Whether higher values move with (positive) or against (negative) the construct. */
+            readonly construct_polarity: components["schemas"]["IndicatorPolarity"];
+        };
+        /**
+         * InferenceEvidence
+         * @description Native telemetry buffers; posterior atoms and coordinates belong to the model.
+         */
+        readonly InferenceEvidence: {
+            /** Chain Extra Fields */
+            readonly chain_extra_fields: {
+                readonly [key: string]: components["schemas"]["NumericalArray"];
+            };
+            /** @default null */
+            readonly observation_log_probs: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly observed_rows: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly exact_observation_rows: components["schemas"]["NumericalArray"] | null;
+            /** Phase Extra Fields */
+            readonly phase_extra_fields: {
+                readonly [key: string]: {
+                    readonly [key: string]: components["schemas"]["NumericalArray"];
+                };
+            };
+            /** @default null */
+            readonly warmup_complete_log_posterior_history: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly all_complete_log_posterior_history: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly initial_latent_delta: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly final_latent_delta: components["schemas"]["NumericalArray"] | null;
+        };
+        /**
+         * InferenceMetadata
+         * @description The production run's law, chain layout and sampler measurements.
+         */
+        readonly InferenceMetadata: {
+            readonly distribution: components["schemas"]["DistributionId-Output"];
+            /** Num Samples Total */
+            readonly num_samples_total: number;
+            /** Num Chains */
+            readonly num_chains: number;
+            /** Duration Seconds */
+            readonly duration_seconds: number;
+            readonly engine: components["schemas"]["ParticleMCMCEvidence"];
+            readonly sampler_diagnostics: components["schemas"]["ParticleSamplerDiagnostics"] | null;
+        };
+        /**
+         * InferenceReport
+         * @description One fit's provenance, run metadata, native evidence and computed findings.
+         */
+        readonly InferenceReport: {
+            readonly evidence: components["schemas"]["InferenceEvidence"];
+            readonly core: components["schemas"]["InferenceReportCore"];
+            readonly detail: components["schemas"]["InferenceReportDetail"];
+        };
+        /**
+         * InferenceReportCore
+         * @description Compact scientific report shared by snapshots and the full report.
+         */
+        readonly InferenceReportCore: {
+            readonly inference_metadata: components["schemas"]["InferenceMetadata"];
+            readonly inference_diagnostics: components["schemas"]["ChainDiagnostics"] | null;
+            readonly convergence: components["schemas"]["ParameterConvergenceReport"];
+            /** @default null */
+            readonly loo_diagnostics: components["schemas"]["LOODiagnostics"] | null;
+            /** Posterior Marginals */
+            readonly posterior_marginals: readonly components["schemas"]["PosteriorMarginal"][];
+            /**
+             * Prior Densities
+             * @description Input laws evaluated on the quantity scale of the posterior summaries.
+             */
+            readonly prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
+        };
+        /**
+         * InferenceReportDetail
+         * @description Retained plot series served in full by the action result.
+         */
+        readonly InferenceReportDetail: {
+            /**
+             * Trace Data
+             * @default []
+             */
+            readonly trace_data: readonly components["schemas"]["TraceSeries"][];
+            /**
+             * Rank Histograms
+             * @default []
+             */
+            readonly rank_histograms: readonly components["schemas"]["RankHistogram"][];
+            /**
+             * Pareto K
+             * @default []
+             */
+            readonly pareto_k: readonly components["schemas"]["ParetoKPoint"][];
+            /**
+             * Loo Pit
+             * @default []
+             */
+            readonly loo_pit: readonly components["schemas"]["LOOPITPoint"][];
+        };
+        /**
+         * InitialCorrelationTransformSpec
+         * @description Constrain an initial-state correlation to its scientific support [-1, 1].
+         */
+        readonly "InitialCorrelationTransformSpec-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "initial_state_correlation";
+        };
+        /**
+         * IntervalEffectTransformSpec
+         * @description Divide an interval effect by its explicit duration in days.
+         */
+        readonly "IntervalEffectTransformSpec-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "dt_effect_to_ct_rate";
+            /** Interval Days */
+            readonly interval_days: number | "model_clock";
+        };
+        /**
+         * InterventionSpec
+         * @description Set a state some time after the design's start, then let its dynamics resume.
+         */
+        readonly "InterventionSpec-Input": {
+            readonly target: components["schemas"]["ConstructId-Input"];
+            /**
+             * After
+             * @description Offset from the design's start; omitted means at the start.
+             * @default null
+             */
+            readonly after?: string | null;
+            /** Value */
+            readonly value: number;
+        };
+        /**
+         * InterventionSpec
+         * @description Set a state some time after the design's start, then let its dynamics resume.
+         */
+        readonly "InterventionSpec-Output": {
+            readonly target: components["schemas"]["ConstructId-Output"];
+            /**
+             * After
+             * @description Offset from the design's start; omitted means at the start.
+             * @default null
+             */
+            readonly after: string | null;
+            /** Value */
+            readonly value: number;
+        };
+        /**
+         * JointLawLayout
+         * @description An explicit law membership ordered independently of native tensor positions.
+         *
+         *     Parameters sort by identity, then by scientific element identity. Trajectories
+         *     follow in construct-identity order, retaining the supplied time-point order.
+         *     Element identities include their categorical or covariance basis.
+         */
+        readonly "JointLawLayout-Output": {
+            /** Parameters */
+            readonly parameters: readonly (readonly [
+                components["schemas"]["ParameterId-Output"],
+                readonly components["schemas"]["ParameterElementId-Output"][]
+            ])[];
+            /** Constructs */
+            readonly constructs: readonly components["schemas"]["ConstructId-Output"][];
+            /** Time Points */
+            readonly time_points: readonly number[];
+            /**
+             * Time Origin
+             * @description Calendar instant of model day zero, or relative coordinates bound at execution. Fitting retains its calendar origin with the law.
+             * @default relative
+             */
+            readonly time_origin: string | "relative";
+            /** Labels */
+            readonly labels: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Output"], string>>>;
+        };
+        /** @description A JSON scalar transports a string, number, boolean, or null. */
+        readonly JsonScalar: boolean | number | string | null;
+        /**
+         * LLMTrace
+         * @description An LLM trace records a conversation, its model, elapsed time, and token usage.
+         */
+        readonly LLMTrace: {
+            /** Messages */
+            readonly messages: readonly components["schemas"]["TraceMessage"][];
+            /**
+             * Model
+             * @default
+             */
+            readonly model: string;
+            /**
+             * Total Time Seconds
+             * @default 0
+             */
+            readonly total_time_seconds: number;
+            readonly usage: components["schemas"]["TraceUsage"];
+        };
+        /**
+         * LOODiagnostics
+         * @description Exact-emission leave-one-measurement-row-out interpolation diagnostics.
+         */
+        readonly LOODiagnostics: {
+            /** Elpd Loo */
+            readonly elpd_loo: number;
+            /** P Loo */
+            readonly p_loo: number;
+            /** Se */
+            readonly se: number;
+            /** N Data Points */
+            readonly n_data_points: number;
+            /**
+             * N Bad K
+             * @default null
+             */
+            readonly n_bad_k: number | null;
+            /**
+             * N Warn K
+             * @default null
+             */
+            readonly n_warn_k: number | null;
+            /**
+             * Pareto Warning Limit
+             * @default 0.5
+             */
+            readonly pareto_warning_limit: number;
+            /**
+             * Pareto Failure Limit
+             * @default 0.7
+             */
+            readonly pareto_failure_limit: number;
+        };
+        /**
+         * LOOPITPoint
+         * @description A retained PIT value and its empirical cumulative probability.
+         */
+        readonly LOOPITPoint: {
+            /** Pit */
+            readonly pit: number;
+            /** Ecdf */
+            readonly ecdf: number;
+        };
+        /**
+         * LikelihoodSpec
+         * @description An indicator's conditional probability law and its scientific justification.
+         */
+        readonly "LikelihoodSpec-Output": {
+            readonly law: components["schemas"]["ObservationLawSpec-Output"];
+            /**
+             * Standardized
+             * @description Whether observations are mean-centered and scaled before fitting.
+             * @default false
+             */
+            readonly standardized: boolean;
+            /**
+             * Reasoning
+             * @description Why this conditional law was chosen for the indicator
+             */
+            readonly reasoning: string;
+            /**
+             * Sources
+             * @default []
+             */
+            readonly sources: readonly components["schemas"]["LiteratureSource-Output"][];
+        };
+        /**
+         * LiteralExpression
+         * @description A finite scalar constant in a model equation.
+         */
+        readonly "LiteralExpression-Output": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "literal";
+            /** Value */
+            readonly value: number;
+        };
+        /**
+         * LiteratureSource
+         * @description A literature source records cited evidence supporting a scientific modeling decision.
+         */
+        readonly "LiteratureSource-Output": {
+            /**
+             * Title
+             * @description Title of the source (paper, meta-analysis, textbook, etc.)
+             */
+            readonly title: string;
+            /**
+             * Url
+             * @description URL of the source if available
+             * @default null
+             */
+            readonly url: string | null;
+            /**
+             * Snippet
+             * @description Relevant excerpt or paraphrase from the source
+             */
+            readonly snippet: string;
+        };
+        /**
+         * MarginalParticleGibbsSpec
+         * @description Marginalized Particle Gibbs inference settings.
+         */
+        readonly MarginalParticleGibbsSpec: {
+            /**
+             * N Parameter Particles
+             * @default 2
+             */
+            readonly n_parameter_particles: number;
+            /**
+             * Latent Delta
+             * @default 0.2
+             */
+            readonly latent_delta: number;
+            /**
+             * Parameter Proposal
+             * @default pseudo_langevin
+             * @enum {string}
+             */
+            readonly parameter_proposal: "random_walk" | "pseudo_langevin";
+            /**
+             * Amala Delta Init
+             * @default 0.01
+             */
+            readonly amala_delta_init: number;
+            /**
+             * Amala Delta Min
+             * @default 0.00001
+             */
+            readonly amala_delta_min: number;
+            /**
+             * Amala Delta Max
+             * @default 10
+             */
+            readonly amala_delta_max: number;
+            /**
+             * Amala Target Accept
+             * @default 0.75
+             */
+            readonly amala_target_accept: number;
+            /**
+             * Amala Adaptation Window
+             * @default 100
+             */
+            readonly amala_adaptation_window: number;
+            /**
+             * Amala Adaptation Tolerance
+             * @default 0.05
+             */
+            readonly amala_adaptation_tolerance: number;
+            /**
+             * Amala Adaptation Rho
+             * @default 0.5
+             */
+            readonly amala_adaptation_rho: number;
+            /**
+             * Amala Adaptation Rho Min
+             * @default 0.001
+             */
+            readonly amala_adaptation_rho_min: number;
+            /**
+             * Amala Adaptation Gamma
+             * @default -0.5
+             */
+            readonly amala_adaptation_gamma: number;
+            /**
+             * Amala Kappa
+             * @default 0.75
+             */
+            readonly amala_kappa: number;
+            /** Amala Grad Clip */
+            readonly amala_grad_clip: number | "infinity";
+            /** @default amala_exact */
+            readonly dsmc_leaf_proposal: components["schemas"]["DSMCLeafProposal"];
+            /**
+             * Latent Block Coords
+             * @default null
+             */
+            readonly latent_block_coords: number | null;
+            /**
+             * Paid Mix Z Weight
+             * @default 0.85
+             */
+            readonly paid_mix_z_weight: number;
+            /**
+             * Paid Mix Pilot Weight
+             * @default 0.1
+             */
+            readonly paid_mix_pilot_weight: number;
+            /**
+             * Paid Mix Pilot Var Scale
+             * @default 0.25
+             */
+            readonly paid_mix_pilot_var_scale: number;
+            /**
+             * Paid Mix Wide Mult
+             * @default 4
+             */
+            readonly paid_mix_wide_mult: number;
+            /**
+             * Diagnostic Metrics All
+             * @default false
+             */
+            readonly diagnostic_metrics_all: boolean;
+            /**
+             * Diagnostic Metrics
+             * @default []
+             */
+            readonly diagnostic_metrics: readonly string[];
+            /**
+             * Param Step Size
+             * @default 0.02
+             */
+            readonly param_step_size: number;
+            /**
+             * Param Step Size Min
+             * @default 0.000001
+             */
+            readonly param_step_size_min: number;
+            /**
+             * Param Step Size Max
+             * @default 1000
+             */
+            readonly param_step_size_max: number;
+            /**
+             * Param Target Accept
+             * @default 0.35
+             */
+            readonly param_target_accept: number;
+            /**
+             * Adaptation Rate
+             * @default 0.05
+             */
+            readonly adaptation_rate: number;
+            /**
+             * Adaptation Scheme
+             * @default simple
+             * @enum {string}
+             */
+            readonly adaptation_scheme: "simple" | "dual_averaging";
+            /**
+             * Init Method
+             * @default pathfinder
+             * @enum {string}
+             */
+            readonly init_method: "random" | "pathfinder";
+            /**
+             * Pathfinder Num Elbo Samples
+             * @default 20
+             */
+            readonly pathfinder_num_elbo_samples: number;
+            /**
+             * Pathfinder Maxiter
+             * @default 20
+             */
+            readonly pathfinder_maxiter: number;
+            /**
+             * N Pathfinder Starts
+             * @default 8
+             */
+            readonly n_pathfinder_starts: number;
+            /**
+             * Pathfinder Parallel Workers
+             * @default null
+             */
+            readonly pathfinder_parallel_workers: number | null;
+            /**
+             * Pathfinder Init Scale
+             * @default 0.1
+             */
+            readonly pathfinder_init_scale: number | null;
+            /**
+             * Auto Preconditioner Method
+             * @default pathfinder
+             * @enum {string}
+             */
+            readonly auto_preconditioner_method: "map" | "none" | "pathfinder";
+            /**
+             * Auto Preconditioner Maxiter
+             * @default 200
+             */
+            readonly auto_preconditioner_maxiter: number;
+            /**
+             * Init Scale
+             * @default 0.05
+             */
+            readonly init_scale: number;
+            /**
+             * Compute Latent Posterior Summary
+             * @default true
+             */
+            readonly compute_latent_posterior_summary: boolean;
+            /**
+             * N Ieks Iters
+             * @default 6
+             */
+            readonly n_ieks_iters: number;
+        };
+        /**
+         * @description A measurement dtype defines the observed value domain of an indicator.
+         * @enum {string}
+         */
+        readonly MeasurementDtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
+        /** @description A persistent mechanism identity distinguishes additive terms through reordering and revision. */
+        readonly "MechanismId-Input": `mechanism:${string}`;
+        /** @description A persistent mechanism identity distinguishes additive terms through reordering and revision. */
+        readonly "MechanismId-Output": `mechanism:${string}`;
+        /**
+         * MechanismRef
+         * @description A particular additive term, independently of its position or coefficient values.
+         */
+        readonly MechanismRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "mechanism";
+            readonly id: components["schemas"]["MechanismId-Output"];
+        };
+        /**
+         * MixedLawProvenance
+         * @description Some laws retain a committed fit and others have different ancestry.
+         */
+        readonly MixedLawProvenance: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "mixed";
+            readonly fitted_data: Domain.DataRef<Domain.GitOid, number>;
+            readonly fitted_model_revision: components["schemas"]["GitOid-Output"];
+            /**
+             * Interpretation
+             * @description Mixed interpretation of draws whose parameter laws combine different provenance.
+             * @constant
+             */
+            readonly interpretation: "mixed";
+        };
+        /**
+         * ModelCheckReport
+         * @description Findings evaluated by the action against its pinned scientific inputs.
+         */
+        readonly ModelCheckReport: {
+            /** Specification */
+            readonly specification: readonly components["schemas"]["SpecificationAssessment"][];
+            readonly question: components["schemas"]["QuestionCheckReport"];
+        };
+        /** ModelDiffInput[GitOid] */
+        readonly ModelDiffInput_GitOid_: {
+            /** @description Question or model revision used as the base; a question denotes an empty spec. */
+            readonly before_ref: components["schemas"]["GitOid-Output"];
+            /** @description Question or model revision reconstructed by applying the patch to the base. */
+            readonly after_ref: components["schemas"]["GitOid-Output"];
+        };
+        /** ModelDiffInput[RevisionSelector] */
+        readonly ModelDiffInput_RevisionSelector_: {
+            /** @description Question or model revision used as the base; a question denotes an empty spec. */
+            readonly before_ref: components["schemas"]["RevisionSelector"];
+            /** @description Question or model revision reconstructed by applying the patch to the base. */
+            readonly after_ref: components["schemas"]["RevisionSelector"];
+        };
+        /**
+         * ModelDiffOutput
+         * @description Directional changes between saved specs, expressed in the model's editing language.
+         *
+         *     DynamicalModelSpec.changes_from owns the document comparison. Applying its patch with
+         *     merge_fields to the before spec reconstructs the after spec; equal specs yield
+         *     an empty document. Only saved specification fields participate, including their
+         *     exact law-buffer references. No execution findings or statistical comparisons
+         *     are computed here; those remain owned by their producing actions.
+         */
+        readonly ModelDiffOutput: {
+            /** @description Merge this document into the before spec to obtain the after spec. Omitted fields are unchanged, supplied fields are added or updated, and null map entries delete their identities. A question revision denotes the empty spec. */
+            readonly changes: components["schemas"]["DynamicalModelSpec-Input"];
+        };
+        /** ModelDiffRequest[GitOid] */
+        readonly ModelDiffRequest_GitOid_: {
+            /**
+             * Action
+             * @description Scientific action that owns this request or result.
+             * @default model_diff
+             * @constant
+             */
+            readonly action: "model_diff";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: Domain.ModelDiffInput<Domain.GitOid>;
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
+        };
+        /** ModelDiffRequest[RevisionSelector] */
+        readonly ModelDiffRequest_RevisionSelector_: {
+            /**
+             * @description Scientific action that owns this request or result. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            readonly action: "model_diff";
+            /** @description Typed arguments of the scientific action. */
+            readonly input: components["schemas"]["ModelDiffInput_RevisionSelector_"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
+        };
+        /**
+         * ModelEditResult
+         * @description Scientific entities pruned while materializing an accepted model edit.
+         */
+        readonly ModelEditResult: {
+            /**
+             * Constructs
+             * @default []
+             */
+            readonly constructs: readonly components["schemas"]["ConstructId-Output"][];
+            /**
+             * Edges
+             * @default []
+             */
+            readonly edges: readonly components["schemas"]["EdgeId-Output"][];
+            /**
+             * Parameters
+             * @default []
+             */
+            readonly parameters: readonly components["schemas"]["ParameterId-Output"][];
+            /**
+             * Distributions
+             * @default []
+             */
+            readonly distributions: readonly components["schemas"]["DistributionId-Output"][];
+        };
+        /**
+         * ModelSnapshot
+         * @description Scientific values selected from recorded action dependencies.
+         */
+        readonly ModelSnapshot: {
+            /** @default null */
+            readonly question: components["schemas"]["QuestionSpec-Output"] | null;
+            /** @default null */
+            readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Output"] | null;
+            /** Workspace Id */
+            readonly workspace_id: string;
+            readonly commit_id: components["schemas"]["GitOid-Output"];
+            /** Selected Seq */
+            readonly selected_seq: number;
+            readonly state: components["schemas"]["StudyState"];
+            /** @default null */
+            readonly metadata: components["schemas"]["PreparedDataMetadata"] | null;
+            /** @default null */
+            readonly profile: components["schemas"]["DataProfileReport"] | null;
+            /** @default null */
+            readonly identification: components["schemas"]["IdentificationReport"] | null;
+            /** @default null */
+            readonly fit_checks: components["schemas"]["FitCheckReport"] | null;
+            /** @default null */
+            readonly fit: components["schemas"]["InferenceReportCore"] | null;
+            /**
+             * Specification
+             * @default null
+             */
+            readonly specification: readonly components["schemas"]["SpecificationAssessment"][] | null;
+            /** @default null */
+            readonly question_checks: components["schemas"]["QuestionCheckReport"] | null;
+            /** @default null */
+            readonly simulation: components["schemas"]["SimulationReport"] | null;
         };
         /** NegativeBinomial2LawSpec[Expression] */
         readonly "NegativeBinomial2LawSpec_Expression_-Output": {
@@ -4961,20 +4987,7 @@ export interface components {
             readonly loc: components["schemas"]["Expression-Output"];
             readonly scale: components["schemas"]["Expression-Output"];
         };
-        /**
-         * NotApplicable
-         * @description The selected operation does not call for this result.
-         */
-        readonly NotApplicable: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "not_applicable";
-            /** Reason */
-            readonly reason: string;
-        };
-        readonly NotEvaluatedReason: components["schemas"]["PredictiveCheckReason"] | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "NO_OUTCOME" | "CONSTRUCT_UNDEFINED" | "NO_PANEL" | "STATE_NOT_RECORDED");
+        readonly NotEvaluatedReason: components["schemas"]["PredictiveCheckReason"] | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "MISSING_REPLICATE_VALUES" | "CAUSAL_EVALUATION_FAILED" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "NO_OUTCOME" | "CONSTRUCT_UNDEFINED" | "NO_PANEL" | "STATE_NOT_RECORDED");
         /** NotEvaluated[ConvergenceAssessmentSubject] */
         readonly NotEvaluated_ConvergenceAssessmentSubject_: {
             /**
@@ -4982,12 +4995,11 @@ export interface components {
              * @enum {string}
              */
             readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
             readonly subject: components["schemas"]["ConvergenceAssessmentSubject"];
             readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
+            /** Detail */
             readonly detail: string;
         };
         /** NotEvaluated[IndicatorCheckSubject] */
@@ -4997,12 +5009,45 @@ export interface components {
              * @enum {string}
              */
             readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
             readonly subject: components["schemas"]["IndicatorCheckSubject"];
             readonly reason: components["schemas"]["NotEvaluatedReason"];
+            /** Detail */
+            readonly detail: string;
+        };
+        /** NotEvaluated[IndicatorRef] */
+        readonly NotEvaluated_IndicatorRef_: {
             /**
-             * Detail
-             * @default
+             * Kind
+             * @default not_evaluated
+             * @constant
              */
+            readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["IndicatorRef"];
+            readonly reason: components["schemas"]["NotEvaluatedReason"];
+            /** Detail */
+            readonly detail: string;
+        };
+        /** NotEvaluated[Literal['causal_effect']] */
+        readonly NotEvaluated_Literal__causal_effect___: {
+            /**
+             * Kind
+             * @default not_evaluated
+             * @constant
+             */
+            readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
+            /**
+             * Subject
+             * @constant
+             */
+            readonly subject: "causal_effect";
+            readonly reason: components["schemas"]["NotEvaluatedReason"];
+            /** Detail */
             readonly detail: string;
         };
         /** NotEvaluated[PredictiveSubject] */
@@ -5012,12 +5057,11 @@ export interface components {
              * @enum {string}
              */
             readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
             readonly subject: components["schemas"]["PredictiveSubject"];
             readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
+            /** Detail */
             readonly detail: string;
         };
         /** NotEvaluated[QuestionSubject] */
@@ -5027,12 +5071,26 @@ export interface components {
              * @enum {string}
              */
             readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
             readonly subject: components["schemas"]["QuestionSubject"];
             readonly reason: components["schemas"]["NotEvaluatedReason"];
+            /** Detail */
+            readonly detail: string;
+        };
+        /** NotEvaluated[Union[IndicatorRef, Literal['dataset']]] */
+        readonly NotEvaluated_Union_IndicatorRef__Literal__dataset____: {
             /**
-             * Detail
-             * @default
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
+            readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
+            /** Subject */
+            readonly subject: components["schemas"]["IndicatorRef"] | "dataset";
+            readonly reason: components["schemas"]["NotEvaluatedReason"];
+            /** Detail */
             readonly detail: string;
         };
         /** NotEvaluated[str] */
@@ -5042,30 +5100,33 @@ export interface components {
              * @enum {string}
              */
             readonly kind: "not_evaluated";
+            /** Code */
+            readonly code: string;
             /** Subject */
             readonly subject: string;
             readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
+            /** Detail */
             readonly detail: string;
         };
+        readonly "NumPyroArray-Input": readonly Domain.NumPyroValue[];
+        readonly "NumPyroArray-Output": readonly Domain.NumPyroValue[];
         /** @description A native NumPyro probability distribution serialized by its constructor tree. */
         readonly "NumPyroDistribution-Output": {
             /** Distribution */
             readonly distribution: string;
             /** Params */
             readonly params: {
-                readonly [key: string]: components["schemas"]["NumPyroValue-Output"];
+                readonly [key: string]: Domain.NumPyroValue;
             };
         };
-        readonly "NumPyroValue-Input": Domain.JsonScalar | components["schemas"]["NumericalArray"] | readonly components["schemas"]["NumPyroValue-Input"][] | {
-            readonly [key: string]: components["schemas"]["NumPyroValue-Input"];
+        readonly "NumPyroObject-Input": {
+            readonly [key: string]: Domain.NumPyroValue;
         };
-        readonly "NumPyroValue-Output": Domain.JsonScalar | components["schemas"]["NumericalArray"] | readonly components["schemas"]["NumPyroValue-Output"][] | {
-            readonly [key: string]: components["schemas"]["NumPyroValue-Output"];
+        readonly "NumPyroObject-Output": {
+            readonly [key: string]: Domain.NumPyroValue;
         };
+        readonly "NumPyroValue-Input": Domain.JsonScalar | components["schemas"]["NumericalArray"] | Domain.NumPyroArray | Domain.NumPyroObject;
+        readonly "NumPyroValue-Output": Domain.JsonScalar | components["schemas"]["NumericalArray"] | Domain.NumPyroArray | Domain.NumPyroObject;
         /**
          * NumericCriterionEvidence
          * @description A measured scalar and the producer's numerical acceptance region.
@@ -5115,8 +5176,8 @@ export interface components {
          * NumericalArray
          * @description An immutable NPY buffer carried as a MessagePack binary value.
          *
-         *     The NPY header owns dtype, shape and storage order. Numerical decoding
-         *     belongs to the boundary that consumes the buffer.
+         *     The NPY header owns dtype and shape. Buffers use little-endian, row-major
+         *     storage; numerical decoding belongs to the boundary that consumes them.
          */
         readonly NumericalArray: {
             /**
@@ -5132,17 +5193,11 @@ export interface components {
          * @description All prepared observations, their true anchors and their measurement support.
          */
         readonly ObservationHistory: {
-            /** Label */
-            readonly label: string;
             /** Times */
             readonly times: readonly number[];
             readonly values: components["schemas"]["ScalarValues"];
             readonly support_start: components["schemas"]["ScalarValues"];
             readonly support_end: components["schemas"]["ScalarValues"];
-            /** Time Origin */
-            readonly time_origin: string | null;
-            /** Levels */
-            readonly levels: readonly string[] | null;
             /** Empirical */
             readonly empirical: readonly components["schemas"]["EmpiricalPoint"][];
         };
@@ -5222,14 +5277,9 @@ export interface components {
         };
         /**
          * OutcomeSubject
-         * @description Whether the model defines the question's outcome as a measured, modeled course.
+         * @description The outcome construct selected by the study question.
          */
         readonly OutcomeSubject: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly check: "outcome";
             readonly outcome: components["schemas"]["ConstructRef-Output"];
         };
         /**
@@ -5242,8 +5292,11 @@ export interface components {
         readonly PPCOverlay: {
             /** Times */
             readonly times: readonly number[];
-            /** Time Origin */
-            readonly time_origin: string | null;
+            /**
+             * Time Origin
+             * Format: date-time
+             */
+            readonly time_origin: string;
             /** Standardized */
             readonly standardized: boolean;
             readonly indicator_id: components["schemas"]["IndicatorId-Output"];
@@ -5305,17 +5358,19 @@ export interface components {
             readonly kind: "paired";
             readonly action: components["schemas"]["SimulationArm"];
             readonly reference: components["schemas"]["SimulationArm"];
+            /** Causal */
+            readonly causal: components["schemas"]["CausalEffectResult"] | Domain.NotEvaluated<"causal_effect">;
         };
         /**
          * ParameterConvergenceReport
          * @description Recorded-chain criteria cover parameters, not latent-path mixing.
          */
         readonly ParameterConvergenceReport: {
-            /** Assessments */
-            readonly assessments: readonly Domain.Assessment<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence>[];
+            /** Findings */
+            readonly findings: readonly Domain.Assessment<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence>[];
             /**
              * Checked
-             * @description Number of distinct parameter references represented by convergence assessments.
+             * @description Number of distinct parameter references represented by convergence findings.
              */
             readonly checked: number;
             /**
@@ -5381,7 +5436,7 @@ export interface components {
             readonly description: string;
             readonly transform: components["schemas"]["ParameterTransformSpec-Output"];
             /**
-             * @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet.
+             * @description Membership in a native law in DynamicalModelSpec.distributions; may be joint. None means the law has not been assigned yet.
              * @default null
              */
             readonly distribution: components["schemas"]["DistributionId-Output"] | null;
@@ -5462,7 +5517,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            readonly status: "passed" | "warning" | "failed" | "not_evaluated";
+            readonly status: "passed" | "failed" | "not_evaluated";
         };
         /**
          * ParticleMCMCEvidence
@@ -5672,8 +5727,8 @@ export interface components {
          * @description Posterior predictive checks report exact-model checks and their supporting plot data.
          */
         readonly PosteriorPredictiveChecks: {
-            /** Per Variable Warnings */
-            readonly per_variable_warnings: readonly Domain.Assessment<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>[];
+            /** Findings */
+            readonly findings: readonly Domain.Assessment<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>[];
             /**
              * N Subsample
              * @default 0
@@ -5717,27 +5772,33 @@ export interface components {
          */
         readonly PredictiveComparison: {
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "comparison";
-            /**
              * Reference Side
              * @enum {string}
              */
             readonly reference_side: "left" | "right";
-            readonly evaluation: Domain.Evaluation<Domain.PosteriorPredictiveChecks>;
+            /** Evaluation */
+            readonly evaluation: components["schemas"]["PosteriorPredictiveChecks"] | Domain.NotEvaluated<Domain.IndicatorRef>;
         };
-        /** @description A predictive comparison selects one reference history or records why no reference comparison applies. */
-        readonly PredictiveComparisonResult: components["schemas"]["PredictiveComparison"] | components["schemas"]["Unavailable"] | components["schemas"]["NotApplicable"];
+        /**
+         * PredictiveIndicatorComparison
+         * @description Compatible reference and replicate histories with their evaluated predictive comparison.
+         */
+        readonly PredictiveIndicatorComparison: {
+            readonly indicator_id: components["schemas"]["IndicatorId-Output"];
+            /** Changes */
+            readonly changes: readonly Domain.Change<Domain.DataPoint>[];
+            /** Statistics */
+            readonly statistics: readonly components["schemas"]["DataStatisticComparison"][];
+            /** Findings */
+            readonly findings: readonly components["schemas"]["DataFinding"][];
+            readonly predictive: components["schemas"]["PredictiveComparison"];
+        };
         readonly PredictiveLawProvenance: components["schemas"]["AuthoredLawProvenance"] | components["schemas"]["FittedLawProvenance"] | components["schemas"]["MixedLawProvenance"] | components["schemas"]["UnknownLawProvenance"];
         /**
          * PredictiveSubject
          * @description One named check and its stable target in a construct's scientific context.
          */
         readonly PredictiveSubject: {
-            /** Check */
-            readonly check: string;
             /** @default null */
             readonly construct_id: components["schemas"]["ConstructId-Output"] | null;
             /** Target */
@@ -5746,7 +5807,7 @@ export interface components {
         /** PrepareDataInput[GitOid, FileSourceRef] */
         readonly PrepareDataInput_GitOid_FileSourceRef_: {
             /** @description Model revision owning the clock and observation definitions. */
-            readonly model_ref: components["schemas"]["GitOid-Output"];
+            readonly dynamical_model_spec_ref: components["schemas"]["GitOid-Output"];
             /** @description Folder under `data/{workspace_id}/` at the HTTP boundary; the captured file reference in the saved request. */
             readonly source: components["schemas"]["FileSourceRef"];
             /**
@@ -5764,7 +5825,7 @@ export interface components {
         /** PrepareDataInput[RevisionSelector, SourceFolder] */
         readonly PrepareDataInput_RevisionSelector_SourceFolder_: {
             /** @description Model revision owning the clock and observation definitions. */
-            readonly model_ref: components["schemas"]["RevisionSelector"];
+            readonly dynamical_model_spec_ref: components["schemas"]["RevisionSelector"];
             /** @description Folder under `data/{workspace_id}/` at the HTTP boundary; the captured file reference in the saved request. */
             readonly source: components["schemas"]["SourceFolder"];
             /**
@@ -5781,15 +5842,17 @@ export interface components {
         };
         /**
          * PrepareDataOutput
-         * @description Complete prepared observations, their provenance, and data-quality findings.
+         * @description Prepared observations, their resolved metadata, and data-quality findings.
          */
         readonly PrepareDataOutput: {
             /** @description Full observation histories keyed by indicator ID, including measurement support intervals and missing values. */
             readonly data: components["schemas"]["ObservationData"];
-            /** @description Source reference, preparation recipe, resolved observation schema, and the calendar origin used to interpret model time. */
+            /** @description Preparation recipe, resolved observation schema, and the calendar origin used to interpret model time. */
             readonly metadata: components["schemas"]["PreparedDataMetadata"];
             /** @description Empirical statistics and data-quality findings for the prepared panel. */
-            readonly profile: components["schemas"]["DataProfileArtifact"];
+            readonly profile: components["schemas"]["DataProfileReport"];
+            /** @description Retained extraction workers, failed chunks and reuse counts. */
+            readonly extraction: components["schemas"]["DataPreparationResult"];
         };
         /** PrepareDataRequest[GitOid, FileSourceRef] */
         readonly PrepareDataRequest_GitOid_FileSourceRef_: {
@@ -5828,13 +5891,13 @@ export interface components {
          * @description An uploaded panel's recipe owns its resolved observation schema.
          */
         readonly PreparedDataMetadata: {
-            readonly source: components["schemas"]["FileSourceRef"];
             readonly preparation: components["schemas"]["DataPreparationSpec"];
             /**
              * Time Origin
-             * @description Calendar instant of model day zero; null denotes a calendar-free history.
+             * Format: date-time
+             * @description Calendar instant of model day zero.
              */
-            readonly time_origin: string | null;
+            readonly time_origin: string;
             /**
              * Variables
              * @description Observation definitions resolved against the clock retained in the preparation recipe.
@@ -5860,32 +5923,39 @@ export interface components {
             readonly timestamp: string;
             readonly progress: components["schemas"]["ProgressEvent"];
         };
-        /** @description A query name labels one contrast of the study question. */
-        readonly QueryName: string;
         /**
-         * QueryTargetSubject
-         * @description One query's intervention target: defined, identified, or set inside the record.
+         * ProportionComparison
+         * @description The fraction of observed values at one declared level, separately for each history.
          */
-        readonly QueryTargetSubject: {
+        readonly ProportionComparison: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            readonly check: "identification" | "range" | "target";
+            readonly statistic: "proportion";
+            /** Level */
+            readonly level: string;
+            /** Left */
+            readonly left: readonly (number | null)[];
+            /** Right */
+            readonly right: readonly (number | null)[];
+        };
+        /** @description A query name labels one contrast of the study question. */
+        readonly QueryName: string;
+        /**
+         * QueryTargetSubject
+         * @description An intervention target in one named query.
+         */
+        readonly QueryTargetSubject: {
             /** Query */
             readonly query: string;
             readonly target: components["schemas"]["ConstructRef-Output"];
         };
         /**
          * QueryWindowSubject
-         * @description Whether the record supports one query's window.
+         * @description The observation window of one named query.
          */
         readonly QueryWindowSubject: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly check: "window";
             /** Query */
             readonly query: string;
         };
@@ -5896,8 +5966,6 @@ export interface components {
          * @description The study question checked against the model and, once prepared, the record.
          */
         readonly QuestionCheckReport: {
-            readonly question_revision: components["schemas"]["GitOid-Output"];
-            readonly data: Domain.DataRef<Domain.GitOid, number> | null;
             /** Findings */
             readonly findings: readonly components["schemas"]["QuestionAssessment"][];
         };
@@ -6014,19 +6082,15 @@ export interface components {
              * @enum {string}
              */
             readonly status: "rejected";
-            /** @description Machine-readable category used to distinguish input, science, and revision-conflict rejections. */
-            readonly reason: components["schemas"]["RejectionReason"];
+            /** Code */
+            readonly code: string;
+            readonly subject: components["schemas"]["FindingSubject"];
             /**
              * Detail
              * @description Explanation of the specific condition that prevented application.
              */
             readonly detail: string;
         };
-        /**
-         * @description A rejection reason identifies the expected input or publication condition that prevented the action.
-         * @enum {string}
-         */
-        readonly RejectionReason: "revision_conflict" | "input_unavailable" | "scientific_inputs" | "recorded_rejection";
         /** Removed[DataPoint] */
         readonly Removed_DataPoint_: {
             /**
@@ -6114,10 +6178,10 @@ export interface components {
              */
             readonly num_warmup: number;
             /**
-             * Num Samples
+             * Num Samples Per Chain
              * @default 1000
              */
-            readonly num_samples: number;
+            readonly num_samples_per_chain: number;
             /**
              * Num Chains
              * @default 4
@@ -6129,10 +6193,10 @@ export interface components {
              */
             readonly seed: number;
             /**
-             * N Particles
+             * Num Particles
              * @default 64
              */
-            readonly n_particles: number;
+            readonly num_particles: number;
             /**
              * Retain Latent Paths
              * @default true
@@ -6140,7 +6204,27 @@ export interface components {
             readonly retain_latent_paths: boolean;
             readonly marginal_particle_gibbs: components["schemas"]["MarginalParticleGibbsSpec"];
         };
-        /** @description Scalar values are owned inline or selected from the action result’s numerical buffers. */
+        /**
+         * ScalarStatisticComparison
+         * @description One statistic per whole selected history, in the report's source order.
+         *
+         *     Histories are never pooled or paired across sides. Null denotes an undefined
+         *     statistic. Discrete codebooks use level proportions instead of numeric moments.
+         *     These descriptive values include each history's own observed positions; the
+         *     predictive checks separately use the reference history's observed-value mask.
+         */
+        readonly ScalarStatisticComparison: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly statistic: "max" | "mean" | "min" | "missing_count" | "observed_count" | "sd";
+            /** Left */
+            readonly left: readonly (number | null)[];
+            /** Right */
+            readonly right: readonly (number | null)[];
+        };
+        /** @description Scalar values are owned inline or selected from an owned numerical value. */
         readonly ScalarValues: readonly (number | null)[] | components["schemas"]["ArrayVector"];
         /**
          * @description A scientific action identity selects setting the question, model editing, data preparation, fitting, or simulation.
@@ -6195,14 +6279,14 @@ export interface components {
         /** SimulateInput[GitOid] */
         readonly SimulateInput_GitOid_: {
             /** @description Revision supplying the authored or fitted generative law. */
-            readonly model_ref: components["schemas"]["GitOid-Output"];
+            readonly dynamical_model_spec_ref: components["schemas"]["GitOid-Output"];
             /** @description Requested start, horizon, and interventions. */
             readonly simulation: components["schemas"]["SimulationSpec-Output"];
         };
         /** SimulateInput[RevisionSelector] */
         readonly SimulateInput_RevisionSelector_: {
             /** @description Revision supplying the authored or fitted generative law. */
-            readonly model_ref: components["schemas"]["RevisionSelector"];
+            readonly dynamical_model_spec_ref: components["schemas"]["RevisionSelector"];
             /** @description Requested start, horizon, and interventions. */
             readonly simulation: components["schemas"]["SimulationSpec-Input"];
         };
@@ -6265,11 +6349,11 @@ export interface components {
         readonly SimulationArms: components["schemas"]["SingleArmSimulation"] | components["schemas"]["PairedArmSimulation"];
         /**
          * SimulationEvidence
-         * @description Exact generated histories with their production coordinates and input provenance.
+         * @description Exact generated histories with their production coordinates.
          */
         readonly SimulationEvidence: {
-            readonly model: components["schemas"]["GitRef"];
-            readonly design: components["schemas"]["SimulationSpec-Output"];
+            /** Assignments */
+            readonly assignments: readonly components["schemas"]["StateAssignment"][];
             /**
              * Time Origin
              * Format: date-time
@@ -6294,11 +6378,6 @@ export interface components {
             };
             readonly arms: components["schemas"]["SimulationArms"];
             readonly observation_layout: components["schemas"]["SimulationObservationLayout"];
-            /**
-             * Assignments
-             * @description Intervention assignments positioned on the evidence's retained model-time origin.
-             */
-            readonly assignments: readonly components["schemas"]["StateAssignment"][];
         };
         /**
          * SimulationObservationLayout
@@ -6325,7 +6404,6 @@ export interface components {
              */
             readonly findings: readonly components["schemas"]["PredictiveAssessment"][];
             readonly fit_reliability: components["schemas"]["FitReliability"];
-            readonly causal: Domain.Evaluation<Domain.CausalEffectResult>;
         };
         /**
          * SimulationSpec
@@ -6793,19 +6871,6 @@ export interface components {
             readonly reasoning_tokens: number | null;
         };
         /**
-         * Unavailable
-         * @description An applicable result could not be produced, for an explicit reason.
-         */
-        readonly Unavailable: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "unavailable";
-            /** Reason */
-            readonly reason: string;
-        };
-        /**
          * UnknownLawProvenance
          * @description Imported laws do not establish a conditioning history.
          */
@@ -6834,40 +6899,6 @@ export interface components {
             readonly input?: unknown;
             /** Context */
             readonly ctx?: Record<string, never>;
-        };
-        /**
-         * ValidationIssue
-         * @description A data problem and its severity for one indicator or the complete dataset.
-         */
-        readonly ValidationIssue: {
-            /**
-             * @description Affected indicator; null for a dataset-wide issue.
-             * @default null
-             */
-            readonly indicator_id: components["schemas"]["IndicatorId-Output"] | null;
-            /** Issue Type */
-            readonly issue_type: string;
-            /**
-             * Severity
-             * @enum {string}
-             */
-            readonly severity: "error" | "warning" | "info";
-            /** Message */
-            readonly message: string;
-        };
-        /**
-         * ValidationReportArtifact
-         * @description Data findings composed with model-dependent execution checks.
-         */
-        readonly ValidationReportArtifact: {
-            readonly data: components["schemas"]["DataProfileArtifact"];
-            /** Preflight */
-            readonly preflight: readonly components["schemas"]["SpecificationAssessment"][];
-            /**
-             * Is Valid
-             * @description Whether both the data findings and model preflight contain no failures.
-             */
-            readonly is_valid: boolean;
         };
         /** @description Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values. */
         readonly WindowExpression: string;

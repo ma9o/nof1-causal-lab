@@ -5,7 +5,12 @@ import { attemptError, latestSeq } from "./journal";
 describe("owned journal outcomes", () => {
   it("presents rejection and execution failure details from their respective variants", () => {
     expect(
-      attemptError({ status: "rejected", reason: "scientific_inputs", detail: "inputs missing" }),
+      attemptError({
+        status: "rejected",
+        code: "INPUT_UNAVAILABLE",
+        subject: "inputs",
+        detail: "inputs missing",
+      }),
     ).toBe("inputs missing");
     expect(attemptError(failedFit.record.attempt.outcome)).toBe("FitError: Fit failed.");
     expect(attemptError(applied)).toBeNull();
@@ -13,7 +18,12 @@ describe("owned journal outcomes", () => {
   it("excludes failed attempts and read-only comparison leaves from scientific revisions", () => {
     const rejected = revision(7, {
       ...simulation.record.attempt,
-      outcome: { status: "rejected", reason: "scientific_inputs", detail: "inputs missing" },
+      outcome: {
+        status: "rejected",
+        code: "INPUT_UNAVAILABLE",
+        subject: "inputs",
+        detail: "inputs missing",
+      },
     });
     const unknown = revision(8, { action: "edit_model", request: null, outcome: applied });
     const modelComparison = revision(9, {

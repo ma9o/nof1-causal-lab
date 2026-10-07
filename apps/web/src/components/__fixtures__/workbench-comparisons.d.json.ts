@@ -3,7 +3,7 @@ import type * as Domain from "@nof1-causal-lab/api-types";
 import type { BinaryFixture } from "@/components/__fixtures__/fixture-value";
 declare const value: BinaryFixture<
   Readonly<{
-    pinned_model: Domain.ModelSpec;
+    pinned_dynamical_model_spec: Domain.DynamicalModelSpec;
     pinned_inputs: Record<string, string>;
     comparisons: Readonly<Partial<Record<string, Domain.ModelDiffOutput>>>;
   }>

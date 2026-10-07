@@ -2,7 +2,6 @@ import type {
   ActionSuccess,
   DataComparisonReport,
   DataPoint,
-  DataVariableComparison,
   GitOid,
   PrepareDataOutput,
 } from "@nof1-causal-lab/api-types";
@@ -11,14 +10,14 @@ import { historyView } from "./result-values";
 export type DataSourceResult = Extract<ActionSuccess, { action: "prepare_data" | "simulate" }>;
 
 interface DataSeriesView {
-  readonly variable: PrepareDataOutput["metadata"]["variables"][number] | null;
-  readonly time_origin: string | null;
+  readonly variable: PrepareDataOutput["metadata"]["variables"][number];
+  readonly time_origin: string;
   readonly points: readonly DataPoint[];
 }
 
-export type DataVariableView = DataVariableComparison & {
-  readonly left: readonly DataSeriesView[];
-  readonly right: readonly DataSeriesView[];
+export type DataVariableView = DataComparisonReport["variables"][number] & {
+  readonly left: readonly (DataSeriesView | null)[];
+  readonly right: readonly (DataSeriesView | null)[];
 };
 
 export type DataComparisonView = Omit<DataComparisonReport, "variables"> & {
@@ -30,26 +29,30 @@ export function dataComparisonView(
   report: DataComparisonReport,
   sources: ReadonlyMap<GitOid, DataSourceResult>,
 ): DataComparisonView {
-  const side = (name: "left" | "right", id: DataVariableComparison["indicator_id"]) =>
-    report[name].map((source): DataSeriesView => {
+  const side = (name: "left" | "right", id: DataVariableView["indicator_id"]) =>
+    report[name].map((source): DataSeriesView | null => {
       const result = coordinate(sources.get(source.revision));
       const data =
         result.action === "prepare_data"
           ? result.body.data
           : coordinate(result.body.data[source.replicate_index]);
       const recorded = data[id];
-      if (recorded === undefined) return { variable: null, time_origin: null, points: [] };
+      if (recorded === undefined) return null;
       const variables =
         result.action === "prepare_data"
           ? result.body.metadata.variables
           : result.body.report.evidence.observation_layout.variables;
       const history = historyView(recorded);
-      const origin = history.time_origin === null ? 0 : Date.parse(history.time_origin);
+      const timeOrigin =
+        result.action === "prepare_data"
+          ? result.body.metadata.time_origin
+          : result.body.report.evidence.time_origin;
+      const origin = Date.parse(timeOrigin);
       const instant = (day: number) => new Date(origin + day * 86_400_000).toISOString();
       const support = (day: number | null) => (day === null ? null : instant(day));
       return {
         variable: coordinate(variables.find((variable) => variable.id === id)),
-        time_origin: history.time_origin,
+        time_origin: timeOrigin,
         points: history.times.map((time, index) => ({
           anchor_time: instant(time),
           support_start: support(coordinate(history.support_start[index])),

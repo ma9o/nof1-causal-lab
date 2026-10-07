@@ -315,7 +315,7 @@ root_package = "nof1_causal_lab"
 exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
-name = "ARCH001 The SSM compiler uses ModelSpec accessors, not identification internals"
+name = "ARCH001 The SSM compiler uses DynamicalModelSpec accessors, not identification internals"
 type = "forbidden"
 source_modules = ["nof1_causal_lab.models.ssm.compile"]
 forbidden_modules = [

@@ -11,7 +11,6 @@ import polars as pl
 import pygit2
 import pytest
 
-from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.contracts import (
     EditModelRequest,
     FitRequest,
@@ -26,12 +25,13 @@ from nof1_causal_lab.actions.temporal.activities import (
     journal_activity,
 )
 from nof1_causal_lab.actions.temporal.messages import AttemptPublication, EvaluateChecksInput
-from nof1_causal_lab.artifacts.availability import NotApplicable
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.checks import Evaluated
-from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult, FileSourceRef
 from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import DistributionId, GitOid, GitRef
+from nof1_causal_lab.artifacts.identity import DistributionId, GitOid
 from nof1_causal_lab.artifacts.model_checks import (
     ModelCheckReport,
     QuestionCheckReport,
@@ -42,7 +42,6 @@ from nof1_causal_lab.artifacts.posterior import (
     InferenceReport,
     InferenceReportCore,
     InferenceReportDetail,
-    ModelFitResult,
 )
 from nof1_causal_lab.artifacts.posterior_diagnostics import ParameterConvergenceReport
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
@@ -55,13 +54,11 @@ from nof1_causal_lab.artifacts.simulation import (
     SingleArmSimulation,
 )
 from nof1_causal_lab.artifacts.validation_report import (
-    DataProfileArtifact,
-    ValidationReportArtifact,
+    DataProfileReport,
 )
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.lineage import fitted_law_report
-from nof1_causal_lab.study.records import Applied, DataPreparationResult
-from nof1_causal_lab.study.snapshots import ModelReader
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
 from tests.action_fixtures import applied_record, empty_simulation_summary, question_root
@@ -89,7 +86,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
             )
         },
     )
-    profile = DataProfileArtifact(indicators={}, dataset_issues=())
+    profile = DataProfileReport(indicators={}, findings=())
 
     def publish(applied, *, request=None, model_checks=None, data_profile=None):
         assert request is not None
@@ -151,8 +148,8 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         Applied(result=DataPreparationResult(), effects=ActionEffects(produced=(panel,))),
         request=PrepareDataRequest[GitOid, FileSourceRef](
             input=PrepareDataInput[GitOid, FileSourceRef](
-                model_ref=seed_model(store).revision,
-                source=panel_metadata().source,
+                dynamical_model_spec_ref=seed_model(store).revision,
+                source=FileSourceRef(files=("input/test.csv",), hashes={}),
                 extraction={
                     variable.observation.id: variable.extraction
                     for variable in panel_metadata().preparation.variables
@@ -161,46 +158,59 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         ),
         data_profile=profile,
     )
-    model = x_y_model()
+    dynamical_model_spec = x_y_model()
     authored = store.write_artifact(
         "model",
         produced_by="edit_model",
         derived_from={"question": repository.question().revision},
-        json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json", round_trip=True)},
     )
     checks = ModelCheckReport(
         specification=(
-            Evaluated(subject="model_execution", outcome="passed", evidence="Saved" * 500_000),
+            Evaluated(
+                subject="model_execution",
+                outcome="passed",
+                evidence="Saved" * 500_000,
+                code="model_execution",
+            ),
         ),
         question=QuestionCheckReport(
-            question_revision=repository.question().revision,
-            data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
             findings=(),
         ),
     )
     assert checks.question is not None
-    edit_checks = checks.revised(question=checks.question.revised(data=None))
+    edit_checks = checks
 
     identification = IdentificationReport(outcome=None)
-    validation = ValidationReportArtifact(
+    from nof1_causal_lab.artifacts.posterior import FitCheckReport
+
+    validation = FitCheckReport(
+        question=QuestionCheckReport(findings=()),
         data=profile,
-        preflight=(Evaluated(subject="fit_preflight", outcome="failed", evidence="Saved failure"),),
+        preflight=(
+            Evaluated(
+                subject="fit_preflight",
+                outcome="failed",
+                evidence="Saved failure",
+                code="fit_preflight",
+            ),
+        ),
     )
     _, edited = publish(
-        Applied(result=None, effects=ActionEffects(produced=(authored,))),
+        Applied(result=ModelEditResult(), effects=ActionEffects(produced=(authored,))),
         request=EditModelRequest[GitOid](
             input=EditModelInput[GitOid](
                 parent_ref=repository.question().revision,
-                model=model,
+                dynamical_model_spec=dynamical_model_spec,
             )
         ),
-        model_checks=(edit_checks, identification, None),
+        model_checks=(edit_checks, identification),
     )
     fitted = store.write_artifact(
         "model",
         produced_by="fit",
         derived_from={"model": authored.revision, "panel": panel.revision},
-        json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json", round_trip=True)},
     )
     from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
 
@@ -211,22 +221,18 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         chain_extra_fields={"diverging": divergent},
     )
     inference = InferenceReport(
-        run=ModelFitResult(
-            model=GitRef(workspace_id=workspace, revision=authored.revision, path="model.json"),
-            data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
-            evidence=evidence,
-        ),
+        evidence=evidence,
         core=InferenceReportCore(
             inference_metadata=InferenceMetadata(
                 distribution=DistributionId("distribution:retained"),
-                n_samples=2,
+                num_samples_total=2,
                 num_chains=1,
                 duration_seconds=3,
                 engine=ParticleMCMCEvidence(),
                 sampler_diagnostics=None,
             ),
             inference_diagnostics=None,
-            convergence=ParameterConvergenceReport(assessments=()),
+            convergence=ParameterConvergenceReport(findings=()),
             posterior_marginals=(),
             prior_densities={},
         ),
@@ -239,26 +245,24 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     monkeypatch.setattr("nof1_causal_lab.actions.fit.read_inference_report", unexpected_evaluation)
     fit_publication, fit_revision = publish(
         Applied(
-            result=ModelFitResult(
-                model=GitRef(workspace_id=workspace, revision=authored.revision, path="model.json"),
-                data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
-                evidence=evidence,
-            ),
+            result=evidence,
             effects=ActionEffects(
                 produced=(fitted,), reports={"inference": store.write_report(inference)}
             ),
         ),
         request=FitRequest[GitOid](
             input=FitInput[GitOid](
-                replicate_index=0, model_ref=authored.revision, data_ref=panel.revision
+                dynamical_model_spec_ref=authored.revision,
+                data_ref=DataRef(revision=panel.revision, replicate_index=0),
             )
         ),
-        model_checks=(checks, identification, validation),
+        model_checks=validation,
     )
     zeroes = NumericalArray.from_numpy(np.zeros((2, 2, 0)))
-    assert model.measurement_clock is not None
+    assert dynamical_model_spec.measurement_clock is not None
     variables = tuple(
-        item.observation.resolved(model.measurement_clock) for item in model.indicators
+        item.observation.resolved(dynamical_model_spec.measurement_clock)
+        for item in dynamical_model_spec.indicators
     )
     support_ends = np.broadcast_to(np.array([[0.0], [1.0]]), (2, len(variables)))
     observations = np.zeros((2, 2, len(variables)))
@@ -267,8 +271,6 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     mask = np.ones_like(observations, dtype=bool)
     mask[1, 1, 0] = False
     evidence = SimulationEvidence(
-        model=GitRef(workspace_id=workspace, revision=fitted.revision, path="model.json"),
-        design=SimulationSpec(start="2026-01-01", horizon="1d"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
         times=(0, 1),
         draws=2,
@@ -276,7 +278,9 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         state_ids=(),
         parameter_draws={},
         arms=SingleArmSimulation(
-            action=SimulationArm(latent_paths=zeroes, observations=NumericalArray.from_numpy(observations)),
+            action=SimulationArm(
+                latent_paths=zeroes, observations=NumericalArray.from_numpy(observations)
+            ),
         ),
         observation_layout={
             "variables": variables,
@@ -284,13 +288,15 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
             "support_end_times": NumericalArray.from_numpy(support_ends),
             "mask": NumericalArray.from_numpy(mask),
         },
+        assignments=SimulationSpec(start="2026-01-01", horizon="1d").assignments(
+            datetime(2026, 1, 1, tzinfo=UTC)
+        ),
     )
     simulation = SimulationReport(
         summary=empty_simulation_summary(),
         evidence=evidence,
         law=AuthoredLawProvenance(),
         fit_reliability="not_fitted",
-        causal=NotApplicable(reason="No intervention was requested."),
     )
     monkeypatch.setattr(
         "nof1_causal_lab.actions.simulate.read_simulation_report", unexpected_evaluation
@@ -303,7 +309,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         request=SimulateRequest[GitOid](
             input=SimulateInput[GitOid](
                 simulation=SimulationSpec(start="2026-01-01", horizon="1d"),
-                model_ref=fitted.revision,
+                dynamical_model_spec_ref=fitted.revision,
             )
         ),
     )
@@ -323,41 +329,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         monkeypatch.setattr(f"nof1_causal_lab.actions.{owner}", unexpected_evaluation)
     assert asyncio.run(journal_activity(fit_publication)) == fit_revision
     assert asyncio.run(journal_activity(simulation_publication)) == simulated
-    prepared_reader = ModelReader(workspace, at=prepared.commit_id)
-    saved_profile = prepared_reader.data_profile
-    assert saved_profile is not None
-    assert saved_profile == profile
-    edited_reader = ModelReader(workspace, at=edited.commit_id)
-    edited_output = edited_reader.model_output()
-    assert edited_output is not None
-    assert edited_output.checks == edit_checks
-    saved_identification = edited_reader.identification()
-    assert saved_identification is not None
-    assert saved_identification == identification
-    saved_validation = edited_reader.validation_report
-    assert saved_validation is None
-    reader = ModelReader(workspace, at=simulated.commit_id)
-    assert reader.fit_result is not None
-    assert reader.fit_result.checks.question == checks.question
-    assert reader.validation_report == validation
-    saved_inference = reader.inference_report
-    assert saved_inference is not None
-    assert saved_inference == inference
-    assert saved_inference.run.evidence.initial_latent_delta == initial_delta
-    assert saved_inference.run.evidence.chain_extra_fields["diverging"] == divergent
-    np.testing.assert_array_equal(initial_delta.values, [[1.0, 2.0]])
-    assert set(reader.fit_result.model_dump()) == {"model", "checks", "inference"}
-    for field in ("model", "checks", "inference"):
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            reader.fit_result.revised(**{field: None})
-    np.testing.assert_array_equal(divergent.values, [False, True])
-    saved_simulation = reader.simulation()
-    assert saved_simulation is not None
-    assert saved_simulation == simulation
-    assert fitted_law_report(store, reader.records, fitted.revision) == inference.core
-    from pydantic import TypeAdapter
+    from pydantic import TypeAdapter, ValidationError
 
     from nof1_causal_lab.actions.results import ActionPoll
     from nof1_causal_lab.study.action_outputs import completed_call_msgpack
@@ -368,25 +340,40 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
             unpack_result(completed_call_msgpack(workspace_id, revision))
         )
 
+    prepared_response = completed_call(workspace, prepared)
+    assert prepared_response.status == "success"
+    assert prepared_response.action == "prepare_data"
+    assert prepared_response.body.profile == profile
+    edited_response = completed_call(workspace, edited)
+    assert edited_response.status == "success"
+    assert edited_response.action == "edit_model"
+    assert edited_response.body.checks == edit_checks
+    assert edited_response.body.identification == identification
     fitted_response = completed_call(workspace, fit_revision)
     assert fitted_response.status == "success"
     assert fitted_response.action == "fit"
     assert fitted_response.body.checks.question == checks.question
-    assert fitted_response.body.inference is not None
-    assert fitted_response.body.inference == saved_inference
-    with monkeypatch.context() as isolated:
-        isolated.setattr(ModelReader, "snapshot", unexpected_evaluation)
-        isolated.setattr(ModelReader, "model_output", unexpected_evaluation)
-        isolated.setattr(ModelReader, "fit", unexpected_evaluation)
-        response = completed_call(workspace, simulated)
-        prepared_response = completed_call(workspace, prepared)
+    assert fitted_response.body.checks == validation
+    saved_inference = fitted_response.body.inference
+    assert saved_inference == inference
+    assert saved_inference.evidence.initial_latent_delta == initial_delta
+    assert saved_inference.evidence.chain_extra_fields["diverging"] == divergent
+    np.testing.assert_array_equal(initial_delta.values, [[1.0, 2.0]])
+    np.testing.assert_array_equal(divergent.values, [False, True])
+    assert set(fitted_response.body.model_dump()) == {"dynamical_model_spec", "checks", "inference"}
+    for field in ("dynamical_model_spec", "checks", "inference"):
+        with pytest.raises(ValidationError):
+            fitted_response.body.revised(**{field: None})
+    assert (
+        fitted_law_report(store, repository.records(simulated.commit_id), fitted.revision)
+        == inference.core
+    )
+    response = completed_call(workspace, simulated)
     assert response.status == "success"
     assert response.action == "simulate"
-    assert response.body.report is not None
     assert response.body.report == simulation
+    saved_simulation = response.body.report
     assert set(response.body.model_dump()) == {"report", "data"}
-    assert prepared_response.status == "success"
-    assert prepared_response.action == "prepare_data"
     assert isinstance(prepared_response.body.data, Mapping)
     prepared_history = prepared_response.body.data[panel_metadata().variables[0].id]
     assert isinstance(response.body.data, tuple)
@@ -413,31 +400,3 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         .data
     )
     assert all(record.record.trace_ids == () for record in repository.attempts())
-
-
-def test_missing_saved_reports_remain_absent(tmp_path, monkeypatch):
-    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
-    question_root("ABSENT")
-    repository, store = StudyRepository("ABSENT"), ArtifactStore("ABSENT")
-    model = store.write_artifact(
-        "model",
-        produced_by="edit_model",
-        derived_from={},
-        json_files={"model.json": x_y_model().model_dump(mode="json", round_trip=True)},
-    )
-    repository.append(
-        applied_record(
-            store.workspace_id,
-            Applied(result=None, effects=ActionEffects(produced=(model,))),
-            seq=2,
-        )
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.actions.model_checks.read_model_checks",
-        lambda *_args, **_kwargs: pytest.fail("Missing reports must not trigger evaluation"),
-    )
-    reader = ModelReader("ABSENT", at=repository.head())
-    output = reader.model_output()
-    assert output is not None
-    assert output.checks is None
-    assert reader.identification() is None

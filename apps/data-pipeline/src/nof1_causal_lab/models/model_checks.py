@@ -12,11 +12,13 @@ from nof1_causal_lab.models.model_structure import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.question import QuestionSpec
 
 
-def question_edit_reason(model: ModelSpec, question: QuestionSpec) -> str | None:
+def question_edit_reason(
+    dynamical_model_spec: DynamicalModelSpec, question: QuestionSpec
+) -> str | None:
     """Reject edits that cannot answer the question or violate scoped parameter anchors."""
     from nof1_causal_lab.artifacts.construct import Role
     from nof1_causal_lab.utils.causal_design import get_all_treatments
@@ -24,16 +26,20 @@ def question_edit_reason(model: ModelSpec, question: QuestionSpec) -> str | None
     if missing := sorted(
         identity
         for identity in {question.outcome, *question.targets}
-        if identity not in model._constructs
+        if identity not in dynamical_model_spec._constructs
     ):
         return "The model must define the question's constructs: " + ", ".join(missing)
-    outcome_construct = model.get_construct(question.outcome)
+    outcome_construct = dynamical_model_spec.get_construct(question.outcome)
     if outcome_construct.role != Role.ENDOGENOUS:
         return "The question's outcome must reference an endogenous construct"
-    ancestors = frozenset(get_all_treatments(model.constructs, model.edges, question.outcome))
+    ancestors = frozenset(
+        get_all_treatments(
+            dynamical_model_spec.constructs, dynamical_model_spec.edges, question.outcome
+        )
+    )
     outside = sorted(
         f"{construct.name!r} ({construct.id})"
-        for construct in model.constructs
+        for construct in dynamical_model_spec.constructs
         if construct.id != question.outcome and construct.name not in ancestors
     )
     if outside:
@@ -43,7 +49,7 @@ def question_edit_reason(model: ModelSpec, question: QuestionSpec) -> str | None
             "No directed path: " + ", ".join(outside)
         )
     try:
-        StructuralSelection(model, question.outcome)
+        StructuralSelection(dynamical_model_spec, question.outcome)
     except StructuralSelectionError as exc:
         return str(exc)
     return None
@@ -55,12 +61,12 @@ def validate_parameter_anchors(selection: StructuralSelection) -> None:
     from nof1_causal_lab.artifacts.expressions import StateExpression, restoring_coefficients
     from nof1_causal_lab.distributions import DistributionFamily
 
-    model = selection.model
-    if model.measurement_clock is None or not model.indicators:
+    dynamical_model_spec = selection.dynamical_model_spec
+    if dynamical_model_spec.measurement_clock is None or not dynamical_model_spec.indicators:
         return
 
     for identity in selected_state_ids(selection):
-        construct = model.get_construct(identity)
+        construct = dynamical_model_spec.get_construct(identity)
         initial_mean = construct.coefficient("initial_mean")
         channels = [
             (indicator, indicator.likelihood)
@@ -77,7 +83,7 @@ def validate_parameter_anchors(selection: StructuralSelection) -> None:
             continue
         centers = [
             operand.value
-            for owner, mechanism in model.iter_mechanisms()
+            for owner, mechanism in dynamical_model_spec.iter_mechanisms()
             if (owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id) == identity
             for operand in restoring_coefficients(
                 mechanism.expression, identity, kind=mechanism.kind
@@ -117,7 +123,7 @@ def validate_parameter_anchors(selection: StructuralSelection) -> None:
             all_categorical &= categorical
             fixed_scale |= not categorical and value is not None and value != 0.0
         if not fixed_scale and not all_categorical:
-            reference = model.indicator(reference_indicators(selection)[identity])
+            reference = dynamical_model_spec.indicator(reference_indicators(selection)[identity])
             raise StructuralSelectionError(
                 f"Construct {construct.name!r} has no scale anchor "
                 f"(reference indicator {reference.observation.name!r})"

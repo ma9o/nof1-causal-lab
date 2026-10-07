@@ -44,15 +44,16 @@ function ActionLabels({ messages }: { messages: readonly ActionMessage[] }) {
           key={`${message.timestamp}:${index}`}
           className={cn(
             "flex flex-wrap gap-x-2 text-muted-foreground",
-            message.level === "warn" && "text-amber-700",
-            message.level === "error" && "text-destructive",
+            message.severity === "warning" && "text-amber-700",
+            message.severity === "error" && "text-destructive",
           )}
         >
           <time dateTime={message.timestamp} title={message.timestamp}>
             {new Date(message.timestamp).toLocaleTimeString()}
           </time>
-          <span>{message.level}</span>
-          <span className="break-all">{message.label}</span>
+          <span>{message.severity}</span>
+          <span className="break-all">{message.code}</span>
+          <span>{message.detail}</span>
         </li>
       ))}
     </ul>
@@ -176,6 +177,7 @@ export function ActionRecord({
   running: RunningAction | null;
   useActionTrace: UseActionTrace;
 }) {
+  const request = tick?.record.attempt.request;
   const call =
     tick?.record.attempt.outcome.status === "applied" && tick.record.attempt.request !== null
       ? context?.result
@@ -227,7 +229,9 @@ export function ActionRecord({
                 {tick.record.attempt.action === "edit_model" && (
                   <EditDetails context={context} tick={tick} />
                 )}
-                {call?.action === "prepare_data" && <DataDetails applied={call.body} />}
+                {call?.action === "prepare_data" && request?.action === "prepare_data" && (
+                  <DataDetails applied={call.body} source={request.input.source} />
+                )}
                 {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
                 {call?.action === "data_diff" && context.dataDiff && (
                   <DataComparisonOutcome context={context} report={context.dataDiff} />

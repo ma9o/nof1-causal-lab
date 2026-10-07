@@ -88,7 +88,7 @@ class _ModelEntities(Value):
     @classmethod
     def parse_document(cls, value: object) -> object:
         """Expand document identities inside the complete-model parsing boundary."""
-        if not isinstance(value, ModelSpec):
+        if not isinstance(value, DynamicalModelSpec):
             return value
         return {
             "constructs": tuple(
@@ -378,7 +378,7 @@ class _ModelEntities(Value):
             raise IncompleteModelError("Measurements require a measurement clock and indicators")
 
 
-class ModelSpec(Value):
+class DynamicalModelSpec(Value):
     """One identity-addressed scientific document, usable for creation and partial edits.
 
     Omission carries no update. Null entity entries are deletion instructions. The
@@ -397,23 +397,35 @@ class ModelSpec(Value):
     parameter_definitions: Mapping[ParameterId, JsonObject | None] = Field(
         default_factory=dict, alias="parameters"
     )
-    distribution_definitions: Mapping[DistributionId, NumPyroObject | NumPyroDistribution | None] = (
-        Field(default_factory=dict, alias="distributions")
-    )
+    distribution_definitions: Mapping[
+        DistributionId, NumPyroObject | NumPyroDistribution | None
+    ] = Field(default_factory=dict, alias="distributions")
     layout_definitions: Mapping[DistributionId, JsonObject | None] = Field(
         default_factory=dict, alias="law_layouts"
     )
     measurement_clock: Duration | None = None
 
     @field_serializer("distribution_definitions", mode="wrap")
-    def serialize_laws(self, value, handler: SerializerFunctionWrapHandler, info: SerializationInfo):  # noqa: ANN201 -- The scientific owner supplies the native constructor schema.
+    def serialize_laws(  # noqa: ANN201 -- The scientific owner supplies the native constructor schema.
+        self,
+        value: Mapping[DistributionId, NumPyroObject | NumPyroDistribution | None],
+        handler: SerializerFunctionWrapHandler,
+        info: SerializationInfo,
+    ):
         """Serialize partial constructor documents through the same numerical boundary as native laws."""
         context = info.context or {}
-        return handler({
-            identity: serialize_constructor(law, binary=bool(context.get("binary_arrays")), array_loader=context.get("distribution_array_loader"))
-            if isinstance(law, Mapping) else law
-            for identity, law in self.distribution_definitions.items()
-        })
+        return handler(
+            {
+                identity: serialize_constructor(
+                    law,
+                    binary=bool(context.get("binary_arrays")),
+                    array_loader=context.get("distribution_array_loader"),
+                )
+                if isinstance(law, Mapping)
+                else law
+                for identity, law in value.items()
+            }
+        )
 
     @model_serializer(mode="wrap")  # noqa: V105 -- Pydantic invokes the registered serialization hook.
     def serialize_supplied(  # noqa: ANN201 -- Preserve the owner-derived document schema instead of replacing it with the serializer mapping type.
@@ -461,7 +473,7 @@ class ModelSpec(Value):
     @override
     def __eq__(self, other: object) -> bool:
         """Compare supplied scientific fields independently of resolved caches."""
-        return isinstance(other, ModelSpec) and bool(
+        return isinstance(other, DynamicalModelSpec) and bool(
             self.model_dump(mode="json") == other.model_dump(mode="json")
         )
 
@@ -475,7 +487,7 @@ class ModelSpec(Value):
         distributions: Mapping[DistributionId, NumPyroDistribution] | None = None,
         law_layouts: Mapping[DistributionId, JointLawLayout] | None = None,
         measurement_clock: Duration | str | None = None,
-    ) -> ModelSpec:
+    ) -> DynamicalModelSpec:
         """Build a complete document from resolved scientific values at their owner."""
         values = _ModelEntities.model_validate(
             {
@@ -498,7 +510,7 @@ class ModelSpec(Value):
         return cls._from_entities(values)
 
     @classmethod
-    def _from_entities(cls, values: _ModelEntities) -> ModelSpec:
+    def _from_entities(cls, values: _ModelEntities) -> DynamicalModelSpec:
         """Serialize entity definitions while retaining native laws and their array owners."""
         serialized = values.model_dump(mode="json")
         return cls(
@@ -529,7 +541,7 @@ class ModelSpec(Value):
         parameters: tuple[ParameterSpec, ...] | None = None,
         distributions: Mapping[DistributionId, NumPyroDistribution] | None = None,
         law_layouts: Mapping[DistributionId, JointLawLayout] | None = None,
-    ) -> ModelSpec:
+    ) -> DynamicalModelSpec:
         """Rebuild a complete document after a scientific transformation."""
         selected_edges = self.edges if edges is None else edges
         return type(self).from_entities(
@@ -647,14 +659,14 @@ class ModelSpec(Value):
         """Require both a measurement clock and indicators before preparing or binding observations."""
         self._entities.require_measurements()
 
-    def materialized(self, *, context: object = None) -> ModelSpec:
+    def materialized(self, *, context: object = None) -> DynamicalModelSpec:
         """Parse and validate the assembled document, filling scientific defaults once."""
         return type(self)._from_entities(self._resolve(context))
 
-    def changes_from(self, before: ModelSpec) -> ModelSpec:
+    def changes_from(self, before: DynamicalModelSpec) -> DynamicalModelSpec:
         """Diff saved materialized specs using model_document.diff_fields semantics.
 
-        The returned partial ModelSpec uses the existing edit language and
+        The returned partial DynamicalModelSpec uses the existing edit language and
         reconstructs this spec when merged into before. ModelDiffOutput supplies
         the action boundary; this operation does not compile or evaluate findings.
         """
@@ -675,7 +687,7 @@ class ModelEditResult(Value):
 class MaterializedModel(Value):
     """The complete model and the pruning evidence owned by its editing boundary."""
 
-    model: ModelSpec
+    dynamical_model_spec: DynamicalModelSpec
     pruning: ModelEditResult
 
 
@@ -686,7 +698,7 @@ class _PruningGraph(Value):
     memberships: Mapping[ConstructId | ParameterId, DistributionId]
 
 
-def _pruning_graph(document: ModelSpec) -> _PruningGraph:
+def _pruning_graph(document: DynamicalModelSpec) -> _PruningGraph:
     return _PruningGraph.model_validate(
         {
             "edges": {
@@ -705,10 +717,14 @@ def _pruning_graph(document: ModelSpec) -> _PruningGraph:
 
 
 def apply_model_edit(
-    parent: ModelSpec, supplied: ModelSpec, outcome: ConstructId, *, context: object = None
+    parent: DynamicalModelSpec,
+    supplied: DynamicalModelSpec,
+    outcome: ConstructId,
+    *,
+    context: object = None,
 ) -> MaterializedModel:
     """Merge a document, prune outside the outcome's ancestors, and parse the result."""
-    document = ModelSpec.model_validate(
+    document = DynamicalModelSpec.model_validate(
         merge_fields(parent.model_dump(mode="json"), supplied.model_dump(mode="json"))
     )
     graph = _pruning_graph(document)
@@ -752,7 +768,7 @@ def apply_model_edit(
         if identity in constructs or identity in parameters
     }
     removed_distributions = prior_memberships - kept_memberships
-    complete = ModelSpec(
+    complete = DynamicalModelSpec(
         constructs=constructs,
         edges=retained_edges,
         parameters=parameters,
@@ -769,7 +785,7 @@ def apply_model_edit(
         measurement_clock=document.measurement_clock,
     ).materialized(context=context)
     return MaterializedModel(
-        model=complete,
+        dynamical_model_spec=complete,
         pruning=ModelEditResult(
             constructs=tuple(
                 identity

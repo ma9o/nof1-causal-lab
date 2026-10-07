@@ -61,7 +61,7 @@ class SelectedObservations(Value):
     """The requested variables in request order, retaining their matching definitions."""
 
     series: tuple[ObservationSeries, ...]
-    time_origin: datetime | None
+    time_origin: datetime
 
     @property
     def frame(self) -> pl.DataFrame:
@@ -79,7 +79,7 @@ class ObservationDataset(Value):
     """Recorded variables; numerical consumers select their own required definitions."""
 
     series: Mapping[IndicatorId, ObservationSeries]
-    time_origin: datetime | None
+    time_origin: datetime
 
     @classmethod
     def from_frame(
@@ -87,7 +87,7 @@ class ObservationDataset(Value):
         frame: pl.DataFrame,
         variables: tuple[ResolvedObservationSpec, ...],
         *,
-        time_origin: datetime | None,
+        time_origin: datetime,
     ) -> ObservationDataset:
         """Parse external rows once under their recorded observation definitions."""
         frame = validate_observation_rows(frame, variables)

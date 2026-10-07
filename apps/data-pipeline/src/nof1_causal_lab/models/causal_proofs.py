@@ -13,9 +13,9 @@ class CausalCertificationError(Exception):
 
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReportCore
     from nof1_causal_lab.study.records import StudyRevision
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class IdentifiedEstimand:
     """Positive identification evidence for one treatment/outcome estimand."""
 
-    model: GitRef
+    dynamical_model_spec_ref: GitRef
     treatment: str
     outcome: str
     estimand: str
@@ -34,12 +34,12 @@ class IdentifiedEstimand:
 class CertifiedCausalAnalysis:
     """Identification and particle-posterior evidence joined by provenance."""
 
-    model: ModelSpec
-    model_revision: GitRef
+    dynamical_model_spec: DynamicalModelSpec
+    dynamical_model_spec_ref: GitRef
     identification: IdentificationReport
     estimands: tuple[IdentifiedEstimand, ...]
     inference: StudyRevision
-    fitted_model: ModelSpec
+    fitted_dynamical_model_spec: DynamicalModelSpec
     report: InferenceReportCore
 
     def __post_init__(self) -> None:
@@ -47,7 +47,11 @@ class CertifiedCausalAnalysis:
         if not self.estimands:
             raise CausalCertificationError("at least one identified estimand is required")
         certify_conditioned_model(
-            self.model, self.model_revision, self.inference, self.fitted_model, self.report
+            self.dynamical_model_spec,
+            self.dynamical_model_spec_ref,
+            self.inference,
+            self.fitted_dynamical_model_spec,
+            self.report,
         )
         outcomes = {estimand.outcome for estimand in self.estimands}
         if len(outcomes) != 1:
@@ -58,15 +62,15 @@ class CertifiedCausalAnalysis:
                 "identified estimands must not contain duplicate treatments"
             )
         for estimand in self.estimands:
-            if estimand.model != self.model_revision:
+            if estimand.dynamical_model_spec_ref != self.dynamical_model_spec_ref:
                 raise CausalCertificationError(
                     "identification evidence and posterior provenance reference different "
                     "model revisions"
                 )
             expected = certify_identified_estimand(
-                self.model,
+                self.dynamical_model_spec,
                 self.identification,
-                model_revision=self.model_revision,
+                dynamical_model_spec_ref=self.dynamical_model_spec_ref,
                 treatment=estimand.treatment,
                 outcome=estimand.outcome,
             )
@@ -87,19 +91,19 @@ class CertifiedCausalAnalysis:
 
 
 def certify_identified_estimand(
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
     identification: IdentificationReport,
     *,
-    model_revision: GitRef,
+    dynamical_model_spec_ref: GitRef,
     treatment: str,
     outcome: str,
 ) -> IdentifiedEstimand:
     """Validate and materialize identification evidence for one estimand."""
-    identification.validate_model(model)
+    identification.validate_model(dynamical_model_spec)
     covered = next(
         (
             construct.name
-            for construct in model.constructs
+            for construct in dynamical_model_spec.constructs
             if identification.outcome is not None and construct.id == identification.outcome
         ),
         None,
@@ -108,14 +112,14 @@ def certify_identified_estimand(
         raise CausalCertificationError(
             f"{outcome!r} does not match the outcome covered by the model identification"
         )
-    construct_ids = {construct.name: construct.id for construct in model.constructs}
+    construct_ids = {construct.name: construct.id for construct in dynamical_model_spec.constructs}
     if treatment not in construct_ids:
         raise CausalCertificationError(f"{treatment!r} is not a construct in the model")
     details = identification.treatments.get(construct_ids[treatment])
     if details is None or details.status != "identified":
         raise CausalCertificationError(f"effect of {treatment!r} on {outcome!r} is not identified")
     return IdentifiedEstimand(
-        model=model_revision,
+        dynamical_model_spec_ref=dynamical_model_spec_ref,
         treatment=treatment,
         outcome=outcome,
         estimand=details.estimand,
@@ -123,10 +127,10 @@ def certify_identified_estimand(
 
 
 def certify_conditioned_model(
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
     revision: GitRef,
     record: StudyRevision,
-    fitted_model: ModelSpec,
+    fitted_dynamical_model_spec: DynamicalModelSpec,
     report: InferenceReportCore,
 ) -> None:
     """Join the current scientific value to committed, converged exact-engine evidence."""
@@ -141,11 +145,14 @@ def certify_conditioned_model(
 
     assert record.record.attempt.action == "fit"
     assert isinstance(record.record.attempt.outcome, Applied)
-    if input_fingerprints(fitted_model)["belief"] != input_fingerprints(model)["belief"]:
+    if (
+        input_fingerprints(fitted_dynamical_model_spec)["belief"]
+        != input_fingerprints(dynamical_model_spec)["belief"]
+    ):
         raise CausalCertificationError(
             "The model value differs from the revision certified by the inference log"
         )
-    if not model.distributions or not model.time_points:
+    if not dynamical_model_spec.distributions or not dynamical_model_spec.time_points:
         raise CausalCertificationError("The model has no retained joint uncertainty")
     if failures := convergence_failures(report.convergence):
         raise CausalCertificationError(

@@ -109,10 +109,7 @@ export function observationEquation(
 }
 
 /** Display authored mechanisms or direct DAG links, never a newly inferred noise projection. */
-export function constructEquation(
-  construct: ConstructSpec,
-  entities: ModelEntities,
-) {
+export function constructEquation(construct: ConstructSpec, entities: ModelEntities) {
   if (construct.temporal_status === "time_invariant")
     return {
       title: "Static state",

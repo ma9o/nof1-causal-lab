@@ -13,7 +13,7 @@ to ADMG internally using y0's from_latent_variable_dag() for identification.
 Note on IV: y0's nonparametric do-calculus cannot identify effects via IV alone.
 ``check_identifiability`` can additionally report graph-theoretic IV candidates
 when the caller explicitly allows the parametric linearity assumption. The default
-returns only nonparametric do-calculus identifications. Nonlinear ModelSpec
+returns only nonparametric do-calculus identifications. Nonlinear DynamicalModelSpec
 authoring and causal reporting do not permit the linear-IV argument.
 """
 

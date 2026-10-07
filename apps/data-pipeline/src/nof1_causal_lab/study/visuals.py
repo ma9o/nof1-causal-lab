@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 
 from nof1_causal_lab.artifacts.arrays import ArrayVector
-from nof1_causal_lab.study.visual_models import (
+from nof1_causal_lab.artifacts.observation_history import (
     ObservationHistory,
 )
 from nof1_causal_lab.utils.histograms import empirical_points
@@ -17,9 +17,8 @@ from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
+    from nof1_causal_lab.artifacts.observation_history import ObservationData
     from nof1_causal_lab.artifacts.simulation import SimulationEvidence
-    from nof1_causal_lab.study.visual_models import ObservationData
 
 
 def finite_values(values: np.ndarray) -> tuple[float | None, ...]:
@@ -27,11 +26,9 @@ def finite_values(values: np.ndarray) -> tuple[float | None, ...]:
     return tuple(float(value) if np.isfinite(value) else None for value in values)
 
 
-def observation_history(
-    time_origin: datetime | None, variable: ResolvedObservationSpec, panel: pl.DataFrame
-) -> ObservationHistory:
+def observation_history(time_origin: datetime, panel: pl.DataFrame) -> ObservationHistory:
     """Project recorded rows into model-day coordinates with their support intervals and empirical CDF."""
-    origin = ObservationInstant.origin(time_origin)
+    origin = ObservationInstant(time_origin)
 
     def days(column: str) -> tuple[float | None, ...]:
         return tuple(
@@ -41,15 +38,12 @@ def observation_history(
 
     values = panel["value"].cast(pl.Float64).to_numpy()
     return ObservationHistory(
-        label=variable.name,
         times=tuple(
             ObservationInstant(value).relative_to(origin).days for value in panel["anchor_time"]
         ),
         values=finite_values(values),
         support_start=days("support_start"),
         support_end=days("support_end"),
-        time_origin=time_origin,
-        levels=variable.ordinal_levels or variable.categorical_levels,
         empirical=empirical_points(values),
     )
 
@@ -63,7 +57,6 @@ def simulation_observation_histories(
     return tuple(
         {
             variable.id: ObservationHistory(
-                label=variable.name,
                 times=evidence.times,
                 values=ArrayVector(
                     array=evidence.arms.action.observations,
@@ -81,8 +74,6 @@ def simulation_observation_histories(
                     array=evidence.observation_layout.support_end_times,
                     indices=(None, column),
                 ),
-                time_origin=evidence.time_origin,
-                levels=variable.ordinal_levels or variable.categorical_levels,
                 empirical=empirical_points(values),
             )
             for column, variable in enumerate(evidence.observation_layout.variables)

@@ -125,7 +125,7 @@ class TestSessionTurn:
         result = _run(session.turn("hi"))
 
         assert session.thread_id == "t-abc"
-        assert result.completion == "Done."
+        assert result.terminal_tool_name is None
 
     def test_follow_up_uses_resume_subcommand(self, monkeypatch, tmp_path):
         turn1 = [

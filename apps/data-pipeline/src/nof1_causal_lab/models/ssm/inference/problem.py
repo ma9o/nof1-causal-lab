@@ -59,13 +59,13 @@ def build_particle_problem(
 ) -> ParticleProblem:
     """Prepare the parameter transform and the exact discrete model for sampling."""
     observations, times = panel.observations, panel.times
-    model = panel.model
+    compiled_dynamical_model = panel.compiled_dynamical_model
     if scheme != LATENT_TRANSITION_EULER_MARUYAMA:
         raise ValueError(f"Particle inference requires 'euler_maruyama'; got {scheme!r}.")
     exact_constraints = compile_exact_state_constraints(
-        model, observations, input_values=panel.input_values
+        compiled_dynamical_model, observations, input_values=panel.input_values
     )
-    if DistributionFamily.STUDENT_T in numeric.diffusion_families(model):
+    if DistributionFamily.STUDENT_T in numeric.diffusion_families(compiled_dynamical_model):
         raise ValueError(
             "Particle inference currently requires Gaussian latent diffusion for every state."
         )
@@ -74,7 +74,9 @@ def build_particle_problem(
     )
 
     def continuous_model(position: jax.Array, runtime_times: jax.Array) -> dsx.DynamicalModel:
-        return build_dynamical_model(model, parameters.constrain(position), t0=runtime_times[0])
+        return build_dynamical_model(
+            compiled_dynamical_model, parameters.constrain(position), t0=runtime_times[0]
+        )
 
     # Partition once to retain static metadata outside the sampler state. Every
     # parameter-dependent value in the declared model is an explicit array leaf.
@@ -83,10 +85,10 @@ def build_particle_problem(
     )
 
     def context_fn(position: jax.Array, runtime_times: jax.Array) -> ParticleContext:
-        dynamic_model: dsx.DynamicalModel = eqx.filter(
+        dynamical_model_arrays: dsx.DynamicalModel = eqx.filter(
             continuous_model(position, runtime_times), eqx.is_array
         )
-        return dynamic_model, runtime_times
+        return dynamical_model_arrays, runtime_times
 
     def declared_model(context: ParticleContext) -> dsx.DynamicalModel:
         return dsx.discretize_dynamics(
@@ -100,6 +102,8 @@ def build_particle_problem(
         declared_model,
         observations,
         times,
-        tuple(int(index) for index in np.flatnonzero(~numeric.input_mask(model))),
+        tuple(
+            int(index) for index in np.flatnonzero(~numeric.input_mask(compiled_dynamical_model))
+        ),
     )
     return ParticleProblem(runtime, site_info, public_sites, exact_constraints)

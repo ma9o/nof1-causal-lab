@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.display_frames import central_frame
 from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.artifacts.checks import NotEvaluated
+from nof1_causal_lab.artifacts.display_frames import central_frame
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
-from nof1_causal_lab.artifacts.simulation import PairedArmSimulation
 from nof1_causal_lab.models.causal_proofs import (
     CausalCertificationError,
     CertifiedCausalAnalysis,
@@ -17,81 +17,91 @@ from nof1_causal_lab.models.causal_proofs import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.actions.io import SimulateInput
+    from nof1_causal_lab.artifacts.identity import ConstructId, GitOid, IndicatorId
+    from nof1_causal_lab.artifacts.simulation import SimulationArm
     from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.study.records import StudyRevision
     from nof1_causal_lab.study.store import ArtifactStore
 
 
 def summarize_causal_simulation(
     selection: StructuralSelection,
-    report: SimulationReport,
+    request: SimulateInput[GitOid],
     *,
     store: ArtifactStore,
-    inference: StudyRevision | None,
-) -> SimulationReport:
+    action: SimulationArm,
+    reference: SimulationArm,
+    state_ids: tuple[ConstructId, ...],
+    indicator_ids: tuple[IndicatorId, ...],
+) -> CausalEffectResult | NotEvaluated[Literal["causal_effect"]]:
     """Report the question's numeric effect only when identification and exact-fit evidence support it."""
     import jax.numpy as jnp
 
     from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
+    from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.lineage import fitted_law_report
+    from nof1_causal_lab.study.records import inference_record
     from nof1_causal_lab.study.store import read_model
 
-    model, outcome = selection.model, selection.outcome
-    arms = report.evidence.arms
-    if not isinstance(arms, PairedArmSimulation):
-        return report
-    if inference is None or outcome is None or outcome not in report.evidence.state_ids:
-        return report.without_causal_result(
+    def unavailable(detail: str) -> NotEvaluated[Literal["causal_effect"]]:
+        return NotEvaluated(
+            code="causal_effect",
+            subject="causal_effect",
+            reason="CAUSAL_EVALUATION_FAILED",
+            detail=detail,
+        )
+
+    dynamical_model_spec, outcome = selection.dynamical_model_spec, selection.outcome
+    revision = request.dynamical_model_spec_ref
+    inference = inference_record(StudyRepository(store.workspace_id).attempts(), revision)
+    if inference is None or outcome is None or outcome not in state_ids:
+        return unavailable(
             "Causal effects require the question's outcome as a model state and a committed production fit for this model revision."
         )
+    model_ref = store.dynamical_model_spec_ref(revision)
     try:
         identification = selection.identification
         CertifiedCausalAnalysis(
-            model=model,
-            model_revision=report.evidence.model,
+            dynamical_model_spec=dynamical_model_spec,
+            dynamical_model_spec_ref=model_ref,
             identification=identification,
             estimands=tuple(
                 certify_identified_estimand(
-                    model,
+                    dynamical_model_spec,
                     identification,
-                    model_revision=report.evidence.model,
-                    treatment=model.get_construct(target).name,
-                    outcome=model.get_construct(outcome).name,
+                    dynamical_model_spec_ref=model_ref,
+                    treatment=dynamical_model_spec.get_construct(target).name,
+                    outcome=dynamical_model_spec.get_construct(outcome).name,
                 )
-                for target in sorted(
-                    {event.target for event in report.evidence.design.interventions}
-                )
+                for target in sorted({event.target for event in request.simulation.interventions})
             ),
             inference=inference,
-            fitted_model=read_model(store, report.evidence.model.revision),
-            report=fitted_law_report(store, [inference], report.evidence.model.revision),
+            fitted_dynamical_model_spec=read_model(store, revision),
+            report=fitted_law_report(store, [inference], revision),
         )
     except CausalCertificationError as exc:
-        return report.without_causal_result(str(exc))
-    reference = arms.reference.latent_paths.values
-    action = arms.action.latent_paths.values
-    if not np.isfinite(reference).all() or not np.isfinite(action).all():
-        return report.without_causal_result(
-            "Non-finite histories do not support numeric causal effects."
-        )
-    outcome_index = report.evidence.state_ids.index(outcome)
-    differences = action[:, :, outcome_index] - reference[:, :, outcome_index]
+        return unavailable(str(exc))
+    reference_paths = reference.latent_paths.values
+    action_paths = action.latent_paths.values
+    if not np.isfinite(reference_paths).all() or not np.isfinite(action_paths).all():
+        return unavailable("Non-finite histories do not support numeric causal effects.")
+    outcome_index = state_ids.index(outcome)
+    differences = action_paths[:, :, outcome_index] - reference_paths[:, :, outcome_index]
     frame = central_frame(differences)
     assert frame is not None, "Finite paired histories have a display range"
-    observed = arms.action.observations.values
-    reference_observed = arms.reference.observations.values
+    observed = action.observations.values
+    reference_observed = reference.observations.values
     manifest_differences = observed[:, -1] - reference_observed[:, -1]
-    result = CausalEffectResult(
+    return CausalEffectResult(
         outcome=outcome,
-        labels={construct.id: construct.name for construct in model.constructs},
+        labels={construct.id: construct.name for construct in dynamical_model_spec.constructs},
         differences=NumericalArray.from_numpy(differences),
         frame=frame,
         summary=summarize_draws(jnp.asarray(differences[:, -1])),
-        reference_mean=float(reference[:, -1, outcome_index].mean()),
+        reference_mean=float(reference_paths[:, -1, outcome_index].mean()),
         manifest_effects={
             identity: float(manifest_differences[:, index].mean())
-            for index, identity in enumerate(report.evidence.observation_layout.indicator_ids)
+            for index, identity in enumerate(indicator_ids)
             if np.isfinite(manifest_differences[:, index]).all()
         },
         warnings=()
@@ -100,4 +110,3 @@ def summarize_causal_simulation(
             "Some indicator contrasts are unavailable because their measurement windows extend before simulation start.",
         ),
     )
-    return report.with_causal_result(result)

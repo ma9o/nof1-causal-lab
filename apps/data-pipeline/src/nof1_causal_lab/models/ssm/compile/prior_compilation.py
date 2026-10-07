@@ -53,10 +53,10 @@ from nof1_causal_lab.prior_distributions import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.compile.prior_indexing import CompiledBindingRegistry
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
@@ -78,11 +78,11 @@ class PriorCompilationError(AggregatedCompileError):
 
 
 def _decay_bindings(
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
 ) -> tuple[tuple[CompiledParameterBinding, CompiledNodeTarget | CompiledEdgeTarget], ...]:
     return tuple(
         (binding, binding.target)
-        for binding in model_spec.bindings
+        for binding in compiled_dynamical_model.bindings
         if isinstance(binding.target, (CompiledNodeTarget, CompiledEdgeTarget))
         and binding.site.site_kind == SiteKind.DYNAMICS_DECAY
         and binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY
@@ -90,12 +90,12 @@ def _decay_bindings(
 
 
 def _linear_effect_bindings(
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
 ) -> tuple[tuple[CompiledParameterBinding, CompiledEdgeTarget], ...]:
     """Transformed linear effects carry their resolved edge coordinates."""
     return tuple(
         (binding, binding.target)
-        for binding in model_spec.bindings
+        for binding in compiled_dynamical_model.bindings
         if isinstance(binding.target, CompiledEdgeTarget)
         and binding.site.site_kind == SiteKind.DYNAMICS_WEIGHT
         and binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
@@ -103,13 +103,14 @@ def _linear_effect_bindings(
 
 
 def _resolve_transform_interval_days(
-    transform: PersistenceTransformSpec | IntervalEffectTransformSpec, model: ModelSpec
+    transform: PersistenceTransformSpec | IntervalEffectTransformSpec,
+    dynamical_model_spec: DynamicalModelSpec,
 ) -> float:
     """Resolve the explicit interval reference once at the law's compiler boundary."""
     from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
 
     return (
-        get_construct_dt_days(model)
+        get_construct_dt_days(dynamical_model_spec)
         if transform.interval_days == "model_clock"
         else transform.interval_days
     )
@@ -144,7 +145,7 @@ def _compile_warning(
 
 
 def collect_compile_diagnostics(
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     *,
     prior_registry: dict[str, dist.Distribution] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
@@ -156,7 +157,7 @@ def collect_compile_diagnostics(
         diagnostics.extend(
             collect_first_order_approximation_warnings(
                 prior_registry,
-                model_spec=model_spec,
+                compiled_dynamical_model=compiled_dynamical_model,
                 offdiag_interval_days=offdiag_interval_days,
             )
         )
@@ -171,11 +172,13 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
 def collect_first_order_approximation_warnings(
     prior_registry: dict[str, dist.Distribution],
     *,
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
-    taylor_drift = _assemble_reference_drift_from_component_priors(prior_registry, model_spec)
+    taylor_drift = _assemble_reference_drift_from_component_priors(
+        prior_registry, compiled_dynamical_model
+    )
     if taylor_drift is None:
         return []
 
@@ -191,7 +194,7 @@ def collect_first_order_approximation_warnings(
     min_diag_name = next(
         (
             binding.parameter_name
-            for binding, target in _decay_bindings(model_spec)
+            for binding, target in _decay_bindings(compiled_dynamical_model)
             if target.target_index == min_diag_latent_idx
         ),
         None,
@@ -199,8 +202,8 @@ def collect_first_order_approximation_warnings(
     min_diag_label = f"{min_diag_name}" if min_diag_name else f"latent[{min_diag_latent_idx}]"
 
     warnings: list[CompileDiagnostic] = []
-    latent_names = numeric.state_names(model_spec)
-    for binding, target in _linear_effect_bindings(model_spec):
+    latent_names = numeric.state_names(compiled_dynamical_model)
+    for binding, target in _linear_effect_bindings(compiled_dynamical_model):
         prior = prior_registry.get(binding.site.name)
         if prior is None:
             continue
@@ -286,12 +289,15 @@ def _value_at(values: np.ndarray, flat_index: int, *, default: float) -> float:
 
 def _assemble_reference_drift_from_component_priors(
     prior_registry: dict[str, dist.Distribution],
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
 ) -> np.ndarray | None:
-    drift = np.zeros((numeric.n_states(model_spec), numeric.n_states(model_spec)), dtype=float)
+    drift = np.zeros(
+        (numeric.n_states(compiled_dynamical_model), numeric.n_states(compiled_dynamical_model)),
+        dtype=float,
+    )
     populated = False
 
-    for binding, target in _decay_bindings(model_spec):
+    for binding, target in _decay_bindings(compiled_dynamical_model):
         prior = prior_registry.get(binding.site.name)
         if prior is None:
             continue
@@ -305,7 +311,7 @@ def _assemble_reference_drift_from_component_priors(
         )
         populated = True
 
-    for binding, target in _linear_effect_bindings(model_spec):
+    for binding, target in _linear_effect_bindings(compiled_dynamical_model):
         prior = prior_registry.get(binding.site.name)
         if prior is None:
             continue
@@ -402,12 +408,12 @@ def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
 
 
 def compile_parameter_law(
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
     parameter: ParameterSpec,
     binding: CompiledParameterBinding,
 ) -> tuple[dist.Distribution, CompiledEffectInterval | None]:
     """Translate one scalar scientific law into its native numerical coordinates."""
-    prior, interval = quantity_parameter_law(model, parameter)
+    prior, interval = quantity_parameter_law(dynamical_model_spec, parameter)
     if interval is None:
         return prior, None
     if not isinstance(binding.target, CompiledEdgeTarget):
@@ -418,10 +424,10 @@ def compile_parameter_law(
 
 
 def quantity_parameter_law(
-    model: ModelSpec, parameter: ParameterSpec
+    dynamical_model_spec: DynamicalModelSpec, parameter: ParameterSpec
 ) -> tuple[dist.Distribution, float | None]:
     """Resolve a scalar quantity's scale without compiling unrelated model components."""
-    prior = model.distribution_for(parameter.id)
+    prior = dynamical_model_spec.distribution_for(parameter.id)
     if prior is None:
         raise PriorCompilationError(
             [f"Parameter {parameter.id!r} requires an explicit probability law"]
@@ -430,17 +436,17 @@ def quantity_parameter_law(
         raise PriorCompilationError(
             [
                 "Fitting requires independent scalar input laws; shared laws remain intact in "
-                "ModelSpec. Select an input revision supported by the fitting engine."
+                "DynamicalModelSpec. Select an input revision supported by the fitting engine."
             ]
         )
     if isinstance(prior, dist.Delta):
         raise PriorCompilationError([f"Prior {parameter.id!r}: {_DEGENERATE_PRIOR_PREAMBLE}"])
     transform = parameter.transform
     if isinstance(transform, PersistenceTransformSpec):
-        dt = _resolve_transform_interval_days(transform, model)
+        dt = _resolve_transform_interval_days(transform, dynamical_model_spec)
         return persistence_to_decay(prior, dt), None
     if isinstance(transform, IntervalEffectTransformSpec):
-        dt = _resolve_transform_interval_days(transform, model)
+        dt = _resolve_transform_interval_days(transform, dynamical_model_spec)
         return interval_effect_to_rate(prior, dt), dt
     if isinstance(transform, InitialCorrelationTransformSpec):
         prior = _correlation_prior(prior)
@@ -448,7 +454,7 @@ def quantity_parameter_law(
 
 
 def compile_priors(
-    model: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     selection: StructuralSelection,
 ) -> tuple[
     dict[str, dist.Distribution], tuple[CompiledParameterBinding, ...], list[CompileDiagnostic]
@@ -456,22 +462,22 @@ def compile_priors(
     """Bind the model's native distributions to their declared execution coordinates."""
     from nof1_causal_lab.models.model_parameters import execution_parameters
 
-    authored = selection.model
+    authored = selection.dynamical_model_spec
     parameters = {parameter.id: parameter for parameter in execution_parameters(selection)}
     missing = [parameter.id for parameter in parameters.values() if parameter.distribution is None]
     if missing:
         raise PriorCompilationError(
-            [f"ModelSpec parameters require explicit prior distributions: {missing}"]
+            [f"DynamicalModelSpec parameters require explicit prior distributions: {missing}"]
         )
 
-    active_sites = build_site_registry(model)
+    active_sites = build_site_registry(compiled_dynamical_model)
     prior_entries: dict[str, dist.Distribution] = {
         site.name: default_prior_for_descriptor(site) for site in active_sites
     }
     site_by_name = {site.name: site for site in active_sites}
     per_site: dict[str, dict[int, dist.Distribution]] = {}
 
-    bindings = model.bindings
+    bindings = compiled_dynamical_model.bindings
     binding_by_parameter = {binding.parameter_id: binding for binding in bindings}
     errors: list[str] = []
     offdiag_interval_days: dict[tuple[int, int], float] = {}
@@ -516,7 +522,7 @@ def compile_priors(
     prior_registry = prior_entries
 
     diagnostics = collect_compile_diagnostics(
-        model,
+        compiled_dynamical_model,
         prior_registry=prior_registry,
         offdiag_interval_days=offdiag_interval_days,
     )

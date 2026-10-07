@@ -1,3 +1,4 @@
+import { causalEffect } from "@/lib/simulation-report";
 import { readNumericalArray } from "@nof1-causal-lab/api-types";
 import type {
   ArrayVector,
@@ -12,7 +13,7 @@ import type {
   NumPyroDistribution,
   ScalarValues,
   SimulateOutput,
-  ModelSpec,
+  DynamicalModelSpec,
   SimulationSummary,
 } from "@nof1-causal-lab/api-types";
 
@@ -52,9 +53,7 @@ export interface DrawColumnView {
 }
 
 /** Decode a recorded vector selection; all statistical summaries already belong to the result. */
-export function scalarValues(
-  value: ScalarValues,
-): readonly (number | null)[] {
+export function scalarValues(value: ScalarValues): readonly (number | null)[] {
   if (!("array" in value)) return value;
   const selection: ArrayVector = value;
   const array = readNumericalArray(selection.array);
@@ -88,30 +87,32 @@ export function historyView(history: ObservationHistory): HistoryView {
 }
 
 /** Project the canonical evidence buffers; every reduction is already in the report. */
-export function pathsView(result: SimulateOutput, model: ModelSpec): SimulationPathsView {
-  const { evidence, summary, causal } = result.report;
+export function pathsView(
+  result: SimulateOutput,
+  dynamicalModelSpec: DynamicalModelSpec,
+): SimulationPathsView {
+  const { evidence, summary } = result.report;
+  const causal = causalEffect(result.report);
   const reference = evidence.arms.kind === "paired" ? evidence.arms.reference : null;
   const paths = (array: NumericalArray, column?: number, observed = false): readonly PathView[] =>
     Array.from({ length: evidence.draws }, (_, draw) => ({
       draw,
-      values: scalarValues(
-        {
-          array,
-          indices: column === undefined ? [draw, null] : [draw, null, column],
-          start: 0,
-          stop: null,
-          mask:
-            observed && column !== undefined
-              ? {
-                  array: evidence.observation_layout.mask,
-                  indices: [draw, null, column],
-                  start: 0,
-                  stop: null,
-                  mask: null,
-                }
-              : null,
-        },
-      ),
+      values: scalarValues({
+        array,
+        indices: column === undefined ? [draw, null] : [draw, null, column],
+        start: 0,
+        stop: null,
+        mask:
+          observed && column !== undefined
+            ? {
+                array: evidence.observation_layout.mask,
+                indices: [draw, null, column],
+                start: 0,
+                stop: null,
+                mask: null,
+              }
+            : null,
+      }),
     }));
   return {
     times: evidence.times,
@@ -123,7 +124,7 @@ export function pathsView(result: SimulateOutput, model: ModelSpec): SimulationP
       evidence.state_ids.map((id, column) => [
         id,
         {
-          label: required(model.constructs[id]).name,
+          label: required(dynamicalModelSpec.constructs[id]).name,
           action: paths(evidence.arms.action.latent_paths, column),
           reference: reference ? paths(reference.latent_paths, column) : [],
           frame: summary.state_frames[id] ?? null,
@@ -144,13 +145,13 @@ export function pathsView(result: SimulateOutput, model: ModelSpec): SimulationP
       ]),
     ),
     effect:
-      causal.kind === "available"
+      causal !== undefined
         ? {
-            label: required(causal.value.labels[causal.value.outcome]),
-            action: paths(causal.value.differences),
+            label: required(causal.labels[causal.outcome]),
+            action: paths(causal.differences),
             reference: [],
             levels: null,
-            frame: causal.value.frame,
+            frame: causal.frame,
           }
         : null,
     action_category_probabilities: summary.action_category_probabilities,
@@ -161,7 +162,13 @@ export function pathsView(result: SimulateOutput, model: ModelSpec): SimulationP
 const isArray: (value: NumPyroValue) => value is readonly NumPyroValue[] = Array.isArray;
 
 function object(value: NumPyroValue | undefined): NumPyroDistribution["params"] {
-  if (value === undefined || value === null || typeof value !== "object" || isArray(value) || "npy" in value)
+  if (
+    value === undefined ||
+    value === null ||
+    typeof value !== "object" ||
+    isArray(value) ||
+    "npy" in value
+  )
     throw new Error("Saved posterior law has an invalid constructor");
   return value;
 }
@@ -169,14 +176,18 @@ function object(value: NumPyroValue | undefined): NumPyroDistribution["params"] 
 /** Select the model's original joint atoms; empirical summaries stay backend-owned. */
 export function drawsView(result: FitOutput): readonly DrawColumnView[] {
   const identity = result.inference.core.inference_metadata.distribution;
-  const law = required(result.model.distributions[identity]);
-  const layout = required(result.model.law_layouts[identity]);
+  const law = required(result.dynamical_model_spec.distributions[identity]);
+  const layout = required(result.dynamical_model_spec.law_layouts[identity]);
   const component = object(law.params.component_distribution);
   const atoms = object(component.params).v;
   if (
     law.distribution !== "MixtureSameFamily" ||
     component.distribution !== "Delta" ||
-    atoms === undefined || atoms === null || typeof atoms !== "object" || !("npy" in atoms) || !(atoms.npy instanceof Uint8Array)
+    atoms === undefined ||
+    atoms === null ||
+    typeof atoms !== "object" ||
+    !("npy" in atoms) ||
+    !(atoms.npy instanceof Uint8Array)
   )
     throw new Error("Saved posterior law must own its retained joint atoms");
   const array = { npy: atoms.npy };
@@ -186,9 +197,9 @@ export function drawsView(result: FitOutput): readonly DrawColumnView[] {
   return coordinates.map((subject, column) => ({
     label: required(layout.labels[subject.element_id]),
     subject,
-    values: scalarValues(
-      { array, indices: [null, column], start: 0, stop: null, mask: null },
-    ).map(required),
+    values: scalarValues({ array, indices: [null, column], start: 0, stop: null, mask: null }).map(
+      required,
+    ),
     empirical: required(
       result.inference.core.posterior_marginals.find(
         (marginal) =>
@@ -223,16 +234,14 @@ export type InferenceView = Omit<InferenceReport, "detail"> & {
 export function inferenceView(result: FitOutput): InferenceView {
   const report = result.inference;
   const detail = report.detail;
-  const evidence = report.run.evidence;
+  const evidence = report.evidence;
   const rows = (array: NumericalArray | null): readonly (readonly number[])[] | null =>
     array === null
       ? null
-      : Array.from(
-          { length: required(readNumericalArray(array).shape[0]) },
-          (_, row) =>
-            scalarValues(
-              { array, indices: [row, null], start: 0, stop: null, mask: null },
-                  ).map(required),
+      : Array.from({ length: required(readNumericalArray(array).shape[0]) }, (_, row) =>
+          scalarValues({ array, indices: [row, null], start: 0, stop: null, mask: null }).map(
+            required,
+          ),
         );
   const divergent = evidence.chain_extra_fields.diverging;
   const vector = (value: ScalarValues) => scalarValues(value).map(required);
@@ -245,9 +254,7 @@ export function inferenceView(result: FitOutput): InferenceView {
         chains: trace.chains.map(vector),
       })),
       divergent:
-        divergent === undefined
-          ? null
-          : Array.from(readNumericalArray(divergent).values, Boolean),
+        divergent === undefined ? null : Array.from(readNumericalArray(divergent).values, Boolean),
       initial_latent_delta: rows(evidence.initial_latent_delta),
       final_latent_delta: rows(evidence.final_latent_delta),
     },

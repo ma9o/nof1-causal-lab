@@ -161,7 +161,7 @@ def pareto_k_points(values: Sequence[float], timesteps: Sequence[int]) -> tuple[
             if np.isnan(value)
             else "failed"
             if value > 0.7
-            else "warning"
+            else "failed"
             if value > 0.5
             else "passed",
         )

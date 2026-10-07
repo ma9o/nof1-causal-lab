@@ -178,7 +178,7 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
         Mock(spec=PriorRuntimeBundle),
         Mock(
             spec=BoundPanel,
-            model=object(),
+            compiled_dynamical_model=object(),
             observation_support=SimpleNamespace(requires_interval_summary_handling=False),
             observations=jnp.zeros((2, 1)),
             times=jnp.array([0.0, 1.0]),

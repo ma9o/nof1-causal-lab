@@ -1,13 +1,22 @@
 import { presentEntries } from "@/lib/model-accessors";
-import type { JsonArray, JsonValue, NumPyroDistribution } from "@nof1-causal-lab/api-types";
+import {
+  readNumericalArray,
+  type NumPyroValue,
+  type NumPyroDistribution,
+} from "@nof1-causal-lab/api-types";
 
-const isArray: (value: JsonValue) => value is JsonArray = Array.isArray;
+const isArray: (value: NumPyroValue) => value is readonly NumPyroValue[] = Array.isArray;
 
 /** Render native constructor arguments; probability calculations stay in Python. */
-export function distributionArgumentText(value: JsonValue): string {
+export function distributionArgumentText(value: NumPyroValue): string {
   if (typeof value === "number") return String(Number(value.toPrecision(4)));
   if (isArray(value)) return `[${value.map(distributionArgumentText).join(", ")}]`;
   if (value === null || typeof value !== "object") return String(value);
+  if ("npy" in value && value.npy instanceof Uint8Array) {
+    const array = readNumericalArray({ npy: value.npy });
+    return array.shape.length === 0 ? String(array.values[0]) : `array[${array.shape.join(" × ")}]`;
+  }
+  if ("npy" in value) throw new Error("Invalid numerical distribution argument");
   if (value.array !== undefined) return distributionArgumentText(value.array);
   if (value.tuple !== undefined) return distributionArgumentText(value.tuple);
   if ("float" in value) return String(value.float);
@@ -17,7 +26,8 @@ export function distributionArgumentText(value: JsonValue): string {
     typeof constructorName === "string" &&
     params &&
     typeof params === "object" &&
-    !isArray(params)
+    !isArray(params) &&
+    !("npy" in params)
   ) {
     return `${constructorName}(${presentEntries(params)
       .filter(([name]) => name !== "validate_args")

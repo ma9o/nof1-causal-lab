@@ -15,6 +15,7 @@ import numpyro.distributions as dist
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import (
     CallExpression,
     Expression,
@@ -34,7 +35,6 @@ from nof1_causal_lab.artifacts.likelihood import (
     NormalLawSpec,
     OrderedLogisticLawSpec,
 )
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
@@ -54,52 +54,54 @@ from tests.model_fixtures import (
 )
 
 
-def _categorical_loading_pinned_in_mixed_construct__with_likelihoods() -> ModelSpec:
+def _categorical_loading_pinned_in_mixed_construct__with_likelihoods() -> DynamicalModelSpec:
     return load_model_fixture(
         "identification_anchors/testcategoricalanchors_test_categorical_loading_pinned_in_mixed_construct__with_likelihoods.json"
     )
 
 
-def _manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods() -> ModelSpec:
+def _manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "identification_anchors/testlocationanchors_test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods.json"
     )
 
 
-def _static_t0_mean_free_with_standardized_channel__with_likelihoods() -> ModelSpec:
+def _static_t0_mean_free_with_standardized_channel__with_likelihoods() -> DynamicalModelSpec:
     return load_model_fixture(
         "identification_anchors/testlocationanchors_test_static_t0_mean_free_with_standardized_channel__with_likelihoods.json"
     )
 
 
-def _all_categorical_construct_gets_anchor_slope__with_likelihoods() -> ModelSpec:
-    model = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
-    mood = construct_named(model, "mood")
-    mood_kind = indicator_named(model, "mood_kind")
-    obs_sd_mood_rating = parameter_named(model, "obs_sd_mood_rating")
+def _all_categorical_construct_gets_anchor_slope__with_likelihoods() -> DynamicalModelSpec:
+    dynamical_model_spec = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_kind = indicator_named(dynamical_model_spec, "mood_kind")
+    obs_sd_mood_rating = parameter_named(dynamical_model_spec, "obs_sd_mood_rating")
     mood_revised = mood.revised(indicators=(mood_kind,))
-    parameters, distributions = without_parameters(model, obs_sd_mood_rating)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    parameters, distributions = without_parameters(dynamical_model_spec, obs_sd_mood_rating)
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=parameters,
         distributions=distributions,
     )
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_count() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _MOOD_RATING_INDICATOR_ID = IndicatorId("indicator:e05e217de7f4442abdc5")
     _CINT_MOOD_PARAMETER_ID = ParameterId(
         "parameter:403d1ba7a1dc2ea4b423d3918766b7d70dc5cab41ad22f6f0251ee151e43952d"
     )
-    model = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
-    mood = construct_named(model, "mood")
+    dynamical_model_spec = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+    mood = construct_named(dynamical_model_spec, "mood")
     (mood_potential,) = mood.dynamics
-    rho_mood = parameter_named(model, "rho_mood")
-    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
-    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
-    sigma_mood = parameter_named(model, "sigma_mood")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    obs_cat_intercepts = parameter_named(dynamical_model_spec, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(dynamical_model_spec, "obs_cat_slopes")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
     mood_revised = mood.revised(
         indicators=(
             IndicatorSpec(
@@ -125,7 +127,9 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_f
             ),
         ),
     )
-    _parameters, distributions = without_parameters(model, obs_cat_intercepts, obs_cat_slopes)
+    _parameters, distributions = without_parameters(
+        dynamical_model_spec, obs_cat_intercepts, obs_cat_slopes
+    )
     distributions = {
         identity: law
         for identity, law in distributions.items()
@@ -135,8 +139,8 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_f
             sigma_mood.distribution,
         )
     }
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
             ParameterSpec(
                 id=_CINT_MOOD_PARAMETER_ID, name="cint_mood", description="center of cint_mood"
@@ -149,40 +153,50 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_f
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_count()
-    mood = construct_named(model, "mood")
-    mood_rating = indicator_named(model, "mood_rating")
+    dynamical_model_spec = (
+        _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_count()
+    )
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_rating = indicator_named(dynamical_model_spec, "mood_rating")
     mood_rating_revised = mood_rating.revised(
         observation=mood_rating.observation.revised(
             measurement_dtype="continuous", aggregation=SummaryOperator.SUM
         )
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,))
+    )
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_last() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
-    mood = construct_named(model, "mood")
-    mood_rating = indicator_named(model, "mood_rating")
+    dynamical_model_spec = (
+        _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
+    )
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_rating = indicator_named(dynamical_model_spec, "mood_rating")
     mood_rating_revised = mood_rating.revised(
         observation=mood_rating.observation.revised(aggregation=SummaryOperator.LAST)
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,))
+    )
 
 
-def _free_center_without_standardized_channel_fails__with_likelihoods() -> ModelSpec:
+def _free_center_without_standardized_channel_fails__with_likelihoods() -> DynamicalModelSpec:
     _MOOD_FLAG_INDICATOR_ID = IndicatorId("indicator:f6e3cfa37e27221c32d7")
     _MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID = ParameterId(
         "parameter:5313b06cc9f7da6557b18d034bbbec6f84b3c074a293f6f005019171296895ac"
     )
-    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
-    mood = construct_named(model, "mood")
+    dynamical_model_spec = (
+        _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
+    )
+    mood = construct_named(dynamical_model_spec, "mood")
     mood_revised = mood.revised(
         indicators=(
             IndicatorSpec(
@@ -208,10 +222,10 @@ def _free_center_without_standardized_channel_fails__with_likelihoods() -> Model
             ),
         )
     )
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID,
                 name="manifest_mean_mood_flag",
@@ -222,18 +236,20 @@ def _free_center_without_standardized_channel_fails__with_likelihoods() -> Model
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID = ParameterId(
         "parameter:bca1520f34995d14ca61465d185091a1771da172ba8bb846e3a977f55273ad4e"
     )
-    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
-    mood = construct_named(model, "mood")
-    mood_rating = indicator_named(model, "mood_rating")
-    mood_rating_likelihood = likelihood_named(model, "mood_rating")
-    cint_mood = parameter_named(model, "cint_mood")
-    rho_mood = parameter_named(model, "rho_mood")
-    sigma_mood = parameter_named(model, "sigma_mood")
+    dynamical_model_spec = (
+        _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
+    )
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_rating = indicator_named(dynamical_model_spec, "mood_rating")
+    mood_rating_likelihood = likelihood_named(dynamical_model_spec, "mood_rating")
+    cint_mood = parameter_named(dynamical_model_spec, "cint_mood")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
     mood_rating_revised = mood_rating.revised(
         likelihood=mood_rating_likelihood.revised(
             law=DeltaLawSpec[Expression](
@@ -245,8 +261,8 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_tru
         )
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
             ParameterSpec(
                 id=_MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID,
@@ -261,48 +277,58 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_tru
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_last() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum()
-    mood = construct_named(model, "mood")
-    mood_rating = indicator_named(model, "mood_rating")
+    dynamical_model_spec = (
+        _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum()
+    )
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_rating = indicator_named(dynamical_model_spec, "mood_rating")
     mood_rating_revised = mood_rating.revised(
         observation=mood_rating.observation.revised(aggregation=SummaryOperator.LAST)
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,))
+    )
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_count() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
-    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum()
-    mood = construct_named(model, "mood")
-    mood_rating = indicator_named(model, "mood_rating")
+    dynamical_model_spec = (
+        _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum()
+    )
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_rating = indicator_named(dynamical_model_spec, "mood_rating")
     mood_rating_revised = mood_rating.revised(
         observation=mood_rating.observation.revised(
             measurement_dtype="count", aggregation=SummaryOperator.COUNT
         )
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,))
+    )
 
 
-def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() -> ModelSpec:
+def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() -> (
+    DynamicalModelSpec
+):
     _MANIFEST_MEAN_MOOD_KIND_PARAMETER_ID = ParameterId(
         "parameter:9ee7f16619dec0fee01eccacf7ced00544ea939bab64c6916764d6713ad0c0d2"
     )
     _MANIFEST_MEAN_MOOD_KIND_DISTRIBUTION_ID = DistributionId(
         "distribution:8fb0b4e3266ff97aba27d74c9c10662056a8c4d39d99176929f7646c4b91a73d"
     )
-    model = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
-    mood = construct_named(model, "mood")
-    mood_kind = indicator_named(model, "mood_kind")
-    mood_kind_likelihood = likelihood_named(model, "mood_kind")
-    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
-    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
-    rho_mood = parameter_named(model, "rho_mood")
-    sigma_mood = parameter_named(model, "sigma_mood")
+    dynamical_model_spec = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_kind = indicator_named(dynamical_model_spec, "mood_kind")
+    mood_kind_likelihood = likelihood_named(dynamical_model_spec, "mood_kind")
+    obs_cat_intercepts = parameter_named(dynamical_model_spec, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(dynamical_model_spec, "obs_cat_slopes")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
     mood_kind_revised = mood_kind.revised(
         likelihood=mood_kind_likelihood.revised(
             law=CategoricalLawSpec[Expression](
@@ -323,8 +349,8 @@ def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() 
         )
     )
     mood_revised = mood.revised(indicators=(mood_kind_revised,))
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
             rho_mood,
             ParameterSpec(
@@ -338,7 +364,7 @@ def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() 
             obs_cat_slopes,
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _MANIFEST_MEAN_MOOD_KIND_DISTRIBUTION_ID: dist.Normal(
                 loc=0.0, scale=1.0, validate_args=False
             ),
@@ -346,7 +372,7 @@ def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() 
     )
 
 
-def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> ModelSpec:
+def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> DynamicalModelSpec:
     _TRAIT_FLAG_INDICATOR_ID = IndicatorId("indicator:2af50d06b16a559dee9e")
     _MANIFEST_MEAN_TRAIT_FLAG_PARAMETER_ID = ParameterId(
         "parameter:7604955ad068e49b834a6599b202b4de46728634b8aa30f2e7777cc713953a6c"
@@ -354,10 +380,10 @@ def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> Mo
     _MANIFEST_MEAN_TRAIT_FLAG_DISTRIBUTION_ID = DistributionId(
         "distribution:bec02fdd1551efc70d3c081bc3cdbad3004d831683e93df523591a64fa7e948a"
     )
-    model = _static_t0_mean_free_with_standardized_channel__with_likelihoods()
-    trait = construct_named(model, "trait")
-    t0_sd_trait = parameter_named(model, "t0_sd_trait")
-    t0_mean_trait = parameter_named(model, "t0_mean_trait")
+    dynamical_model_spec = _static_t0_mean_free_with_standardized_channel__with_likelihoods()
+    trait = construct_named(dynamical_model_spec, "trait")
+    t0_sd_trait = parameter_named(dynamical_model_spec, "t0_sd_trait")
+    t0_mean_trait = parameter_named(dynamical_model_spec, "t0_mean_trait")
     trait_revised = trait.revised(
         indicators=(
             IndicatorSpec(
@@ -387,9 +413,9 @@ def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> Mo
             coefficient(t0_sd_trait.id, "initial_scale"),
         ),
     )
-    parameters, distributions = without_parameters(model, t0_mean_trait)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (trait_revised,)),
+    parameters, distributions = without_parameters(dynamical_model_spec, t0_mean_trait)
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (trait_revised,)),
         parameters=(
             *parameters,
             ParameterSpec(
@@ -408,7 +434,7 @@ def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> Mo
     )
 
 
-def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> ModelSpec:
+def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> DynamicalModelSpec:
     _MOOD_FLAG_INDICATOR_ID = IndicatorId("indicator:f6e3cfa37e27221c32d7")
     _MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID = ParameterId(
         "parameter:92944ebc8cd24d4ef9e7c52a8cf36626b63e00598eba7e4a9781680d950652aa"
@@ -416,12 +442,12 @@ def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> M
     _MANIFEST_MEAN_MOOD_FLAG_DISTRIBUTION_ID = DistributionId(
         "distribution:12b1eb4208f179cfe7f24dc517d33059930f432b6492172f54c40e83e4ed69ab"
     )
-    model = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
-    mood = construct_named(model, "mood")
-    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
-    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
-    rho_mood = parameter_named(model, "rho_mood")
-    sigma_mood = parameter_named(model, "sigma_mood")
+    dynamical_model_spec = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+    mood = construct_named(dynamical_model_spec, "mood")
+    obs_cat_intercepts = parameter_named(dynamical_model_spec, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(dynamical_model_spec, "obs_cat_slopes")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
     mood_revised = mood.revised(
         indicators=(
             IndicatorSpec(
@@ -447,9 +473,11 @@ def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> M
             ),
         )
     )
-    _parameters, distributions = without_parameters(model, obs_cat_intercepts, obs_cat_slopes)
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    _parameters, distributions = without_parameters(
+        dynamical_model_spec, obs_cat_intercepts, obs_cat_slopes
+    )
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
             rho_mood,
             ParameterSpec(
@@ -469,22 +497,24 @@ def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> M
     )
 
 
-def _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods() -> ModelSpec:
+def _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods() -> (
+    DynamicalModelSpec
+):
     _MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID = ParameterId(
         "parameter:bca1520f34995d14ca61465d185091a1771da172ba8bb846e3a977f55273ad4e"
     )
     _MANIFEST_MEAN_MOOD_RATING_DISTRIBUTION_ID = DistributionId(
         "distribution:d9087f182aea71973885f8cbf78f98441e37efbc8085c11f927f13088997b2e9"
     )
-    model = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
-    mood = construct_named(model, "mood")
-    mood_rating = indicator_named(model, "mood_rating")
-    mood_rating_likelihood = likelihood_named(model, "mood_rating")
-    obs_sd_mood_rating = parameter_named(model, "obs_sd_mood_rating")
-    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
-    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
-    rho_mood = parameter_named(model, "rho_mood")
-    sigma_mood = parameter_named(model, "sigma_mood")
+    dynamical_model_spec = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_rating = indicator_named(dynamical_model_spec, "mood_rating")
+    mood_rating_likelihood = likelihood_named(dynamical_model_spec, "mood_rating")
+    obs_sd_mood_rating = parameter_named(dynamical_model_spec, "obs_sd_mood_rating")
+    obs_cat_intercepts = parameter_named(dynamical_model_spec, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(dynamical_model_spec, "obs_cat_slopes")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
     mood_rating_revised = mood_rating.revised(
         likelihood=mood_rating_likelihood.revised(
             law=NormalLawSpec[Expression](
@@ -498,10 +528,10 @@ def _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods()
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
     _parameters, distributions = without_parameters(
-        model, obs_sd_mood_rating, obs_cat_intercepts, obs_cat_slopes
+        dynamical_model_spec, obs_sd_mood_rating, obs_cat_intercepts, obs_cat_slopes
     )
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
             rho_mood,
             ParameterSpec(
@@ -521,33 +551,37 @@ def _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods()
     )
 
 
-def _cutpoints_keep_free_base_model_fixture() -> ModelSpec:
+def _cutpoints_keep_free_base_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "identification_anchors/testorderedthresholds_test_cutpoints_keep_free_base_model_fixture.json"
     )
 
 
-def _ordinal_only_construct_compiles__with_likelihoods() -> ModelSpec:
+def _ordinal_only_construct_compiles__with_likelihoods() -> DynamicalModelSpec:
     return load_model_fixture(
         "identification_anchors/testorderedthresholds_test_ordinal_only_construct_compiles__with_likelihoods.json"
     )
 
 
-def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() -> ModelSpec:
+def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() -> DynamicalModelSpec:
     _MANIFEST_MEAN_MOOD_LEVEL_PARAMETER_ID = ParameterId(
         "parameter:0bdc340bfd8c14cfd0b29c37f345a0d3d12539d90d56333f5caff8e5aefa8faa"
     )
     _MANIFEST_MEAN_MOOD_LEVEL_DISTRIBUTION_ID = DistributionId(
         "distribution:a115b821036afd88a9926c11f8b6bb63d71a7ce1924ab784573f94d24eddf28b"
     )
-    model = _ordinal_only_construct_compiles__with_likelihoods()
-    mood = construct_named(model, "mood")
-    mood_level = indicator_named(model, "mood_level")
-    mood_level_likelihood = likelihood_named(model, "mood_level")
-    obs_ordered_base_mood_level = parameter_named(model, "obs_ordered_base_mood_level")
-    obs_ordered_gaps_mood_level = parameter_named(model, "obs_ordered_gaps_mood_level")
-    rho_mood = parameter_named(model, "rho_mood")
-    sigma_mood = parameter_named(model, "sigma_mood")
+    dynamical_model_spec = _ordinal_only_construct_compiles__with_likelihoods()
+    mood = construct_named(dynamical_model_spec, "mood")
+    mood_level = indicator_named(dynamical_model_spec, "mood_level")
+    mood_level_likelihood = likelihood_named(dynamical_model_spec, "mood_level")
+    obs_ordered_base_mood_level = parameter_named(
+        dynamical_model_spec, "obs_ordered_base_mood_level"
+    )
+    obs_ordered_gaps_mood_level = parameter_named(
+        dynamical_model_spec, "obs_ordered_gaps_mood_level"
+    )
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
     mood_level_revised = mood_level.revised(
         likelihood=mood_level_likelihood.revised(
             law=OrderedLogisticLawSpec[Expression](
@@ -566,8 +600,8 @@ def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() ->
         )
     )
     mood_revised = mood.revised(indicators=(mood_level_revised,))
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (mood_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (mood_revised,)),
         parameters=(
             rho_mood,
             ParameterSpec(
@@ -581,7 +615,7 @@ def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() ->
             obs_ordered_gaps_mood_level,
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _MANIFEST_MEAN_MOOD_LEVEL_DISTRIBUTION_ID: dist.Normal(
                 loc=0.0, scale=1.0, validate_args=False
             ),
@@ -589,13 +623,13 @@ def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() ->
     )
 
 
-def _reference_prefers_continuous_over_ordinal__with_likelihoods() -> ModelSpec:
+def _reference_prefers_continuous_over_ordinal__with_likelihoods() -> DynamicalModelSpec:
     return load_model_fixture(
         "identification_anchors/testanchorsurfaces_test_reference_prefers_continuous_over_ordinal__with_likelihoods.json"
     )
 
 
-def _free_center_with_standardized_channel_compiles__with_likelihoods() -> ModelSpec:
+def _free_center_with_standardized_channel_compiles__with_likelihoods() -> DynamicalModelSpec:
     return load_model_fixture(
         "identification_anchors/testlocationanchors_test_free_center_with_standardized_channel_compiles__with_likelihoods.json"
     )
@@ -637,13 +671,13 @@ def _structure(
     indicators: list[dict[str, Any]],
     *,
     time_invariant: set[str] | None = None,
-) -> ModelSpec:
+) -> DynamicalModelSpec:
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 
-    model = make_model(construct_names)
-    return model.with_entities(
+    dynamical_model_spec = make_model(construct_names)
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             tuple(
                 construct.revised(
                     temporal_status="time_invariant"
@@ -657,7 +691,7 @@ def _structure(
                         if row["construct_id"] == construct.id
                     ),
                 )
-                for construct in model.constructs
+                for construct in dynamical_model_spec.constructs
             ),
         )
     )
@@ -679,9 +713,9 @@ _LIKELIHOOD_BY_DTYPE = {
 class TestOrderedThresholds:
     def test_cutpoints_keep_free_base(self):
         """The threshold base shifts the cutpoints instead of cancelling out."""
-        spec = _cutpoints_keep_free_base_model_fixture()
+        dynamical_model_spec = _cutpoints_keep_free_base_model_fixture()
         laws = materialize_observation_laws(
-            compile_model_fixture(spec),
+            compile_model_fixture(dynamical_model_spec),
             {
                 "obs_ordered_base": jnp.array([0.7]),
                 "obs_ordered_gaps": jnp.array([[0.5]]),
@@ -696,11 +730,13 @@ class TestOrderedThresholds:
 
     def test_ordinal_only_construct_compiles(self):
         """Well-at-zero anchors location; the fixed logistic link anchors scale."""
-        spec = _ordinal_only_construct_compiles__with_likelihoods()
-        assert numeric.categorical_anchors(compile_model_fixture(spec)) is not None
-        assert not any(numeric.categorical_anchors(compile_model_fixture(spec)))
-        assert float(compile_model_fixture(spec).loading_block.template[0, 0]) == 1.0
-        assert not compile_model_fixture(spec).loading_block.free_support[0, 0]
+        dynamical_model_spec = _ordinal_only_construct_compiles__with_likelihoods()
+        assert numeric.categorical_anchors(compile_model_fixture(dynamical_model_spec)) is not None
+        assert not any(numeric.categorical_anchors(compile_model_fixture(dynamical_model_spec)))
+        assert (
+            float(compile_model_fixture(dynamical_model_spec).loading_block.template[0, 0]) == 1.0
+        )
+        assert not compile_model_fixture(dynamical_model_spec).loading_block.free_support[0, 0]
 
     def test_manifest_intercept_is_rejected_for_threshold_channel(self):
         with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
@@ -724,24 +760,37 @@ class TestLocationAnchors:
     def test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel(self):
         indicator = _indicator("fill_quantity", "dose", "continuous")
         indicator["observation"]["aggregation"] = "sum"
-        spec = _manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods()
+        dynamical_model_spec = (
+            _manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods()
+        )
 
-        assert numeric.observation_standardized(compile_model_fixture(spec)) == (False,)
-        assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
+        assert numeric.observation_standardized(compile_model_fixture(dynamical_model_spec)) == (
+            False,
+        )
+        assert compile_model_fixture(
+            dynamical_model_spec
+        ).observation_mean_block.free_support.tolist() == [True]
 
     def test_manifest_intercept_remains_free_for_binary_channel(self):
-        spec = _manifest_intercept_remains_free_for_binary_channel__with_likelihoods()
-        assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
+        dynamical_model_spec = (
+            _manifest_intercept_remains_free_for_binary_channel__with_likelihoods()
+        )
+        assert compile_model_fixture(
+            dynamical_model_spec
+        ).observation_mean_block.free_support.tolist() == [True]
 
     def test_free_center_without_standardized_channel_fails(self):
-        model = _free_center_without_standardized_channel_fails__with_likelihoods()
+        dynamical_model_spec = _free_center_without_standardized_channel_fails__with_likelihoods()
         with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
-            StructuralSelection(model, None)
+            StructuralSelection(dynamical_model_spec, None)
 
     def test_free_center_with_standardized_channel_compiles(self):
-        spec = _free_center_with_standardized_channel_compiles__with_likelihoods()
-        assert numeric.observation_standardized(compile_model_fixture(spec)) is not None
-        assert numeric.observation_standardized(compile_model_fixture(spec))[0]
+        dynamical_model_spec = _free_center_with_standardized_channel_compiles__with_likelihoods()
+        assert (
+            numeric.observation_standardized(compile_model_fixture(dynamical_model_spec))
+            is not None
+        )
+        assert numeric.observation_standardized(compile_model_fixture(dynamical_model_spec))[0]
 
     @pytest.mark.parametrize(
         ("affine", "model_payload"),
@@ -780,24 +829,34 @@ class TestLocationAnchors:
     )
     def test_exact_state_anchors_location_for_every_summary(self, affine, model_payload):
         payload = model_payload().model_dump_json()
-        model = ModelSpec.model_validate_json(payload).materialized()
+        dynamical_model_spec = DynamicalModelSpec.model_validate_json(payload).materialized()
         if affine:
             with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
-                StructuralSelection(model, None)
+                StructuralSelection(dynamical_model_spec, None)
         else:
-            StructuralSelection(model, None)
+            StructuralSelection(dynamical_model_spec, None)
 
     def test_static_t0_mean_gated_without_standardized_channel(self):
-        spec = _static_t0_mean_gated_without_standardized_channel__with_likelihoods()
-        assert numeric.state_names(compile_model_fixture(spec)) is not None
-        trait_index = numeric.state_names(compile_model_fixture(spec)).index("trait")
-        assert not compile_model_fixture(spec).initial_mean_block.free_support[trait_index]
+        dynamical_model_spec = (
+            _static_t0_mean_gated_without_standardized_channel__with_likelihoods()
+        )
+        assert numeric.state_names(compile_model_fixture(dynamical_model_spec)) is not None
+        trait_index = numeric.state_names(compile_model_fixture(dynamical_model_spec)).index(
+            "trait"
+        )
+        assert not compile_model_fixture(dynamical_model_spec).initial_mean_block.free_support[
+            trait_index
+        ]
 
     def test_static_t0_mean_free_with_standardized_channel(self):
-        spec = _static_t0_mean_free_with_standardized_channel__with_likelihoods()
-        assert numeric.state_names(compile_model_fixture(spec)) is not None
-        trait_index = numeric.state_names(compile_model_fixture(spec)).index("trait")
-        assert compile_model_fixture(spec).initial_mean_block.free_support[trait_index]
+        dynamical_model_spec = _static_t0_mean_free_with_standardized_channel__with_likelihoods()
+        assert numeric.state_names(compile_model_fixture(dynamical_model_spec)) is not None
+        trait_index = numeric.state_names(compile_model_fixture(dynamical_model_spec)).index(
+            "trait"
+        )
+        assert compile_model_fixture(dynamical_model_spec).initial_mean_block.free_support[
+            trait_index
+        ]
 
     def test_unmeasured_construct_stays_scientific_without_an_unidentified_state(self):
         plan = _structure(["mood", "ghost"], [_indicator("mood_rating", "mood", "continuous")])
@@ -814,21 +873,28 @@ class TestLocationAnchors:
 
 class TestCategoricalAnchors:
     def test_categorical_loading_pinned_in_mixed_construct(self):
-        spec = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
-        assert numeric.observation_names(compile_model_fixture(spec)) is not None
-        assert numeric.categorical_anchors(compile_model_fixture(spec)) is not None
-        cat_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_kind")
-        assert float(compile_model_fixture(spec).loading_block.template[cat_row, 0]) == 1.0
-        assert not compile_model_fixture(spec).loading_block.free_support[cat_row, 0]
-        assert not numeric.categorical_anchors(compile_model_fixture(spec))[cat_row]
+        dynamical_model_spec = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
+        assert numeric.observation_names(compile_model_fixture(dynamical_model_spec)) is not None
+        assert numeric.categorical_anchors(compile_model_fixture(dynamical_model_spec)) is not None
+        cat_row = numeric.observation_names(compile_model_fixture(dynamical_model_spec)).index(
+            "mood_kind"
+        )
+        assert (
+            float(compile_model_fixture(dynamical_model_spec).loading_block.template[cat_row, 0])
+            == 1.0
+        )
+        assert not compile_model_fixture(dynamical_model_spec).loading_block.free_support[
+            cat_row, 0
+        ]
+        assert not numeric.categorical_anchors(compile_model_fixture(dynamical_model_spec))[cat_row]
 
     def test_all_categorical_construct_gets_anchor_slope(self):
-        spec = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
-        assert numeric.categorical_anchors(compile_model_fixture(spec)) == (True,)
-        assert numeric.observation_level_counts(compile_model_fixture(spec)) == (3,)
+        dynamical_model_spec = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+        assert numeric.categorical_anchors(compile_model_fixture(dynamical_model_spec)) == (True,)
+        assert numeric.observation_level_counts(compile_model_fixture(dynamical_model_spec)) == (3,)
 
         laws = materialize_observation_laws(
-            compile_model_fixture(spec),
+            compile_model_fixture(dynamical_model_spec),
             {
                 "obs_cat_intercepts": jnp.array([[0.3, -0.4]]),
                 "obs_cat_slopes": jnp.array([[9.9, 2.0]]),
@@ -857,9 +923,22 @@ class TestCategoricalAnchors:
 
 class TestAnchorSurfaces:
     def test_reference_prefers_continuous_over_ordinal(self):
-        spec = _reference_prefers_continuous_over_ordinal__with_likelihoods()
-        assert numeric.observation_names(compile_model_fixture(spec)) is not None
-        continuous_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_rating")
-        ordinal_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_level")
-        assert float(compile_model_fixture(spec).loading_block.template[continuous_row, 0]) == 1.0
-        assert compile_model_fixture(spec).loading_block.free_support[ordinal_row, 0]
+        dynamical_model_spec = _reference_prefers_continuous_over_ordinal__with_likelihoods()
+        assert numeric.observation_names(compile_model_fixture(dynamical_model_spec)) is not None
+        continuous_row = numeric.observation_names(
+            compile_model_fixture(dynamical_model_spec)
+        ).index("mood_rating")
+        ordinal_row = numeric.observation_names(compile_model_fixture(dynamical_model_spec)).index(
+            "mood_level"
+        )
+        assert (
+            float(
+                compile_model_fixture(dynamical_model_spec).loading_block.template[
+                    continuous_row, 0
+                ]
+            )
+            == 1.0
+        )
+        assert compile_model_fixture(dynamical_model_spec).loading_block.free_support[
+            ordinal_row, 0
+        ]

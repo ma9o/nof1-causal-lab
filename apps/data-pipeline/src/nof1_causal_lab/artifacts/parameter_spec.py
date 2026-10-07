@@ -68,7 +68,7 @@ class ParameterSpec(Value):
     distribution: DistributionId | None = Field(
         default=None,
         description=(
-            "Membership in a native law in ModelSpec.distributions; may be joint. "
+            "Membership in a native law in DynamicalModelSpec.distributions; may be joint. "
             "None means the law has not been assigned yet."
         ),
     )

@@ -58,8 +58,8 @@ it("marks spec revisions without presenting a rename as a topology change", () =
   const overlay = placeComparisonOverlay(
     {
       changes: { constructs: { [treatment.id]: { name: "Exposure" } } },
-      beforeModel: modelFixture,
-      afterModel: after,
+      beforeDynamicalModelSpec: modelFixture,
+      afterDynamicalModelSpec: after,
     },
     built,
     [{ id: treatment.id, x: 0, y: 0, width: 100, height: 60 }],

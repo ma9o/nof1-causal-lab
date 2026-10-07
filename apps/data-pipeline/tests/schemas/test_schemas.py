@@ -1,6 +1,6 @@
 """Tests for causal design schema computed properties and utility functions.
 
-Object-level construction validation (ConstructSpec, ModelSpec, IndicatorSpec,
+Object-level construction validation (ConstructSpec, DynamicalModelSpec, IndicatorSpec,
 MeasurementStructure) is covered by test_schema_validators.py via dict validators.
 This file tests CausalDesign composition, computed properties, and utility
 functions that are not exercised through dict validation.
@@ -23,6 +23,7 @@ from nof1_causal_lab.artifacts.data_preparation import (
     check_semantic_collisions,
 )
 from nof1_causal_lab.artifacts.duration import Duration
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import (
     ConstructId,
     DistributionId,
@@ -32,7 +33,6 @@ from nof1_causal_lab.artifacts.identity import (
     ParameterElementId,
     ParameterId,
 )
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.utils.observation_semantics import (
@@ -72,20 +72,25 @@ class TestModel:
             effect=construct_factory("mood"),
             description="Stress affects mood",
         )
-        model = ModelSpec.from_entities(edges=(edge,))
-        assert [construct.name for construct in model.constructs] == ["stress", "mood"]
-        assert model.edges[0].cause is model.get_construct(edge.cause.id)
+        dynamical_model_spec = DynamicalModelSpec.from_entities(edges=(edge,))
+        assert [construct.name for construct in dynamical_model_spec.constructs] == [
+            "stress",
+            "mood",
+        ]
+        assert dynamical_model_spec.edges[0].cause is dynamical_model_spec.get_construct(
+            edge.cause.id
+        )
 
     @pytest.mark.parametrize("endpoint", ["cause", "effect"])
     def test_undefined_endpoint_reference_is_rejected(self, endpoint):
         payload = make_model(["stress", "mood"], [("stress", "mood")]).model_dump(mode="json")
         next(iter(payload["edges"].values()))[endpoint] = "construct:unknown"
         with pytest.raises(ValueError, match="Undefined construct endpoint"):
-            ModelSpec.model_validate(payload).materialized()
+            DynamicalModelSpec.model_validate(payload).materialized()
 
     def test_invalid_exogenous_cannot_be_effect(self, construct_factory):
         with pytest.raises(ValueError, match="Exogenous construct 'weather' cannot be an effect"):
-            ModelSpec.from_entities(
+            DynamicalModelSpec.from_entities(
                 edges=(
                     CausalEdgeSpec(
                         id="edge:mood-weather",
@@ -98,7 +103,7 @@ class TestModel:
 
     def test_invalid_time_varying_to_time_invariant_edge(self, construct_factory):
         with pytest.raises(ValueError, match="cannot be a cause of time-invariant construct"):
-            ModelSpec.from_entities(
+            DynamicalModelSpec.from_entities(
                 edges=(
                     CausalEdgeSpec(
                         id="edge:habit-trait",
@@ -529,63 +534,65 @@ class TestDataVariable:
 
 class TestModelContainment:
     def test_construct_owns_its_indicators(self):
-        model = make_model(["mood", "stress"], [("mood", "stress")])
-        mood, stress = model.constructs
-        assert model.get_construct(mood.id).indicators == mood.indicators
-        assert model.indicator_owner(mood.indicators[0].observation.id) is mood
-        assert model.indicator_owner(stress.indicators[0].observation.id) is stress
+        dynamical_model_spec = make_model(["mood", "stress"], [("mood", "stress")])
+        mood, stress = dynamical_model_spec.constructs
+        assert dynamical_model_spec.get_construct(mood.id).indicators == mood.indicators
+        assert dynamical_model_spec.indicator_owner(mood.indicators[0].observation.id) is mood
+        assert dynamical_model_spec.indicator_owner(stress.indicators[0].observation.id) is stress
         assert "construct_id" not in mood.indicators[0].model_dump()
 
     def test_indicator_cannot_have_an_independent_unknown_owner(self):
-        model = make_model(["mood"])
-        value = model.model_dump(mode="json")
+        dynamical_model_spec = make_model(["mood"])
+        value = dynamical_model_spec.model_dump(mode="json")
         next(iter(graph_constructs(value)[0]["indicators"].values()))["construct_id"] = (
             "construct:unknown"
         )
         with pytest.raises(ValidationError, match="Extra inputs"):
-            ModelSpec.model_validate(value).materialized()
+            DynamicalModelSpec.model_validate(value).materialized()
 
     def test_latent_construct_without_indicators_is_valid(self):
-        model = make_model(["observed", "latent"], [("observed", "latent")])
-        observed, latent = model.constructs
-        result = model.with_entities(
+        dynamical_model_spec = make_model(["observed", "latent"], [("observed", "latent")])
+        observed, latent = dynamical_model_spec.constructs
+        result = dynamical_model_spec.with_entities(
             edges=replace_constructs(
-                model.edges,
+                dynamical_model_spec.edges,
                 (observed, latent.revised(indicators=())),
             )
         )
         assert result.get_construct(latent.id).indicators == ()
 
     def test_construct_usage_is_not_an_authored_field(self):
-        model = make_model(["X", "Y"], [("X", "Y")])
-        data = model.model_dump(mode="json")
+        dynamical_model_spec = make_model(["X", "Y"], [("X", "Y")])
+        data = dynamical_model_spec.model_dump(mode="json")
         graph_constructs(data)[0]["usage"] = {
             "kind": "known_input",
-            "source_indicator_id": model.constructs[1].indicators[0].observation.id,
+            "source_indicator_id": dynamical_model_spec.constructs[1].indicators[0].observation.id,
         }
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            ModelSpec.model_validate(data).materialized()
+            DynamicalModelSpec.model_validate(data).materialized()
         graph_constructs(data)[0]["usage"] = [{"kind": "scientific_only", "reason": "context"}]
         with pytest.raises(ValidationError):
-            ModelSpec.model_validate(data).materialized()
+            DynamicalModelSpec.model_validate(data).materialized()
 
     def test_dynamic_feedback_is_valid_but_static_cycles_are_rejected(self):
-        model = make_model(["X", "Y"], [("X", "Y"), ("Y", "X")])
-        payload = model.model_dump(mode="json")
+        dynamical_model_spec = make_model(["X", "Y"], [("X", "Y"), ("Y", "X")])
+        payload = dynamical_model_spec.model_dump(mode="json")
         for construct in graph_constructs(payload):
             construct["temporal_status"] = "time_invariant"
         with pytest.raises(ValidationError, match="Time-invariant edges form cycle"):
-            ModelSpec.model_validate(payload).materialized()
+            DynamicalModelSpec.model_validate(payload).materialized()
 
     def test_edge_rejects_removed_lagged_field(self):
-        model = make_model(["sleep", "mood"], [("sleep", "mood")]).revised(measurement_clock="6h")
-        payload = model.model_dump(mode="json")
+        dynamical_model_spec = make_model(["sleep", "mood"], [("sleep", "mood")]).revised(
+            measurement_clock="6h"
+        )
+        payload = dynamical_model_spec.model_dump(mode="json")
         next(iter(payload["edges"].values()))["lagged"] = True
         with pytest.raises(ValidationError, match="lagged"):
-            ModelSpec.model_validate(payload).materialized()
+            DynamicalModelSpec.model_validate(payload).materialized()
         from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
 
-        assert get_construct_dt_days(model) == 0.25
+        assert get_construct_dt_days(dynamical_model_spec) == 0.25
 
 
 class TestDuration:

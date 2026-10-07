@@ -79,10 +79,10 @@ class SamplerSpec(Value):
     """Fully resolved controls for the exact particle sampler."""
 
     num_warmup: int = Field(default=4000, ge=0)
-    num_samples: int = Field(default=1000, ge=1)
+    num_samples_per_chain: int = Field(default=1000, ge=1)
     num_chains: int = Field(default=4, ge=1)
     seed: int = Field(default=0, ge=0)
-    n_particles: int = Field(default=64, ge=2)
+    num_particles: int = Field(default=64, ge=2)
     retain_latent_paths: bool = True
     marginal_particle_gibbs: MarginalParticleGibbsSpec = Field(
         default_factory=MarginalParticleGibbsSpec

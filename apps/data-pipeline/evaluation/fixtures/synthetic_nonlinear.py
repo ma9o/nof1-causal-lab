@@ -10,8 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate, SiteKind
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -231,17 +231,17 @@ class SyntheticNonlinearData:
     observation_support: ObservationSupportRuntime
 
 
-def load_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
+def load_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> DynamicalModelSpec:
     """Load the retained recovery model and explicitly scale its diffusion priors."""
-    model = ModelSpec.model_validate_json(
+    dynamical_model_spec = DynamicalModelSpec.model_validate_json(
         Path(__file__).with_name("synthetic_nonlinear_model.json").read_text()
     ).materialized()
-    distributions = dict(model.distributions)
-    for parameter in model.parameters:
-        if model.parameter_context(parameter.id).quantity == SiteKind.DIFFUSION_DIAG:
+    distributions = dict(dynamical_model_spec.distributions)
+    for parameter in dynamical_model_spec.parameters:
+        if dynamical_model_spec.parameter_context(parameter.id).quantity == SiteKind.DIFFUSION_DIAG:
             assert parameter.distribution is not None
             distributions[parameter.distribution] = dist.HalfNormal(0.4 * float(diffusion_scale))
-    return model.with_entities(distributions=distributions)
+    return dynamical_model_spec.with_entities(distributions=distributions)
 
 
 def load_synthetic_nonlinear_model(*, diffusion_scale: float = 1.0) -> CompiledFitInputs:
@@ -260,18 +260,19 @@ def load_synthetic_nonlinear_model(*, diffusion_scale: float = 1.0) -> CompiledF
 
 def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNonlinearData):
     """Bind generated observations through the same canonical row owner as real data."""
-    from datetime import timedelta
+    from datetime import UTC, datetime, timedelta
 
     import polars as pl
 
     from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
-    from nof1_causal_lab.utils.time_coordinates import SYNTHETIC_EPOCH
+
+    time_origin = datetime(2026, 1, 1, tzinfo=UTC)
 
     rows = []
-    for i, observation in enumerate(inputs.compiled.observations):
+    for i, observation in enumerate(inputs.compiled_dynamical_model.observations):
         for j, time in enumerate(np.asarray(data.times)):
-            anchor = SYNTHETIC_EPOCH + timedelta(days=float(time))
+            anchor = time_origin + timedelta(days=float(time))
             rows.append(
                 {
                     "indicator_id": str(observation.id),
@@ -287,10 +288,14 @@ def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNon
             )
     observations = ObservationDataset.from_frame(
         pl.DataFrame(rows),
-        tuple(item.observation for item in inputs.compiled.observations),
-        time_origin=None,
+        tuple(item.observation for item in inputs.compiled_dynamical_model.observations),
+        time_origin=time_origin,
     )
-    panel = bind_panel(observations, model=inputs.compiled, time_origin=None)
+    panel = bind_panel(
+        observations,
+        compiled_dynamical_model=inputs.compiled_dynamical_model,
+        time_origin=time_origin,
+    )
     assert isinstance(panel, BoundPanel), panel
     return panel
 
@@ -540,13 +545,13 @@ def _scalar_recovery_targets() -> dict[str, float]:
         "mechanism:interaction-1-2-0": TRUE_MULTIPLICATIVE_BY_SITE["vf_4_weight"],
         "mechanism:interaction-0-1-2": TRUE_MULTIPLICATIVE_BY_SITE["vf_8_weight"],
     }
-    model = load_synthetic_nonlinear_spec()
+    dynamical_model_spec = load_synthetic_nonlinear_spec()
     targets = {"obs_r": TRUE_OBS_R, "obs_shape": TRUE_OBS_SHAPE}
-    for binding in parameter_bindings(load_synthetic_nonlinear_model().compiled)[0]:
+    for binding in parameter_bindings(load_synthetic_nonlinear_model().compiled_dynamical_model)[0]:
         if isinstance(binding.target, (CompiledNodeTarget, CompiledEdgeTarget)):
             mechanism_id = next(
                 ref.id
-                for ref in model.parameter_context(binding.parameter_id).owners
+                for ref in dynamical_model_spec.parameter_context(binding.parameter_id).owners
                 if isinstance(ref, MechanismRef)
             )
             targets[binding.site.name] = truths[mechanism_id]

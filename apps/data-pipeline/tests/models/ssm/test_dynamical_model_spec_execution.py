@@ -1,5 +1,6 @@
-"""ModelSpec identity, parameter draws, and native model execution."""
+"""DynamicalModelSpec identity, parameter draws, and native model execution."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import jax
@@ -9,8 +10,8 @@ import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
     StructuralSelection,
 )
@@ -28,26 +29,26 @@ from tests.model_fixtures import (
 
 
 def _conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model.json"
     )
 
 
-def _model_model() -> ModelSpec:
+def _model_model() -> DynamicalModelSpec:
     return load_model_fixture("model_spec_execution/model_model.json")
 
 
 @pytest.fixture(scope="module")
-def model():
+def dynamical_model_spec():
     return _model_model()
 
 
 @pytest.mark.inference(concern="predictive")
 @pytest.mark.parametrize("categorical", [False, True])
 def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
-    model, tmp_path, monkeypatch, categorical
+    dynamical_model_spec, tmp_path, monkeypatch, categorical
 ):
     from functools import cache
 
@@ -62,8 +63,8 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("TEST")
     if categorical:
-        model = make_model(["A", "B"], [("A", "B")])
-        construct = model.constructs[1]
+        dynamical_model_spec = make_model(["A", "B"], [("A", "B")])
+        construct = dynamical_model_spec.constructs[1]
         indicator = construct.indicators[0].revised(
             observation=construct.indicators[0].observation.revised(
                 measurement_dtype="categorical",
@@ -81,37 +82,41 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                 reasoning="Joint law with category-specific parameter elements",
             ),
         )
-        model = (
+        dynamical_model_spec = (
             _conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model()
         )
     count = 3
     samples = {
         site.name: 100 * (index + 1)
         + jnp.arange(count * np.prod(site.shape), dtype=float).reshape(count, *site.shape)
-        for index, site in enumerate(build_site_registry(compile_model_fixture(model)))
+        for index, site in enumerate(
+            build_site_registry(compile_model_fixture(dynamical_model_spec))
+        )
     }
-    bindings, auxiliary = parameter_bindings(compile_model_fixture(model))
+    bindings, auxiliary = parameter_bindings(compile_model_fixture(dynamical_model_spec))
     if categorical:
         assert any(len(binding.coordinates) > 1 for binding in bindings)
     for coordinate in auxiliary:
         samples[coordinate.site_name] = (
             samples[coordinate.site_name].at[(slice(None), *coordinate.indices)].set(0)
         )
-    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
+    samples.update(
+        assemble_deterministics_from_registry(samples, compile_model_fixture(dynamical_model_spec))
+    )
     paths = jnp.arange(count * 4 * 2, dtype=float).reshape(count, 4, 2)
     result = particle_posterior(JointPosteriorDraws(samples, paths))
     conditioned, _ = condition_model(
-        model,
-        compile_model_fixture(model),
+        dynamical_model_spec,
+        compile_model_fixture(dynamical_model_spec),
         result,
         times=jnp.arange(4),
-        time_origin=None,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         array_writer=store.write_array,
         array_loader=cache(store.read_array),
     )
-    assert type(conditioned) is ModelSpec
-    assert model.time_points == ()
-    assert len(model.distributions) == len(model.parameters)
+    assert type(conditioned) is DynamicalModelSpec
+    assert dynamical_model_spec.time_points == ()
+    assert len(dynamical_model_spec.distributions) == len(dynamical_model_spec.parameters)
     assert len(conditioned.distributions) == 1
     assert all(
         p.distribution == next(iter(conditioned.distributions)) for p in conditioned.parameters
@@ -127,7 +132,10 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     )
     loaded = read_model(store, info.revision)
     assert loaded == conditioned
-    assert input_fingerprints(model)["compilation"] == input_fingerprints(loaded)["compilation"]
+    assert (
+        input_fingerprints(dynamical_model_spec)["compilation"]
+        == input_fingerprints(loaded)["compilation"]
+    )
     restored = model_draws(compile_model_fixture(loaded))
     for name, values in samples.items():
         np.testing.assert_array_equal(restored.parameters[name], values)

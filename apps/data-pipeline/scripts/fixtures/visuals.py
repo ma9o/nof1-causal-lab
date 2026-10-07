@@ -9,19 +9,19 @@ import numpy as np
 from nof1_causal_lab.actions.io import SimulateOutput
 from nof1_causal_lab.actions.simulation_summaries import simulation_summary
 from nof1_causal_lab.artifacts.arrays import NumericalArray
-from nof1_causal_lab.artifacts.availability import Available
 from nof1_causal_lab.artifacts.display_frames import central_frame
+from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.artifacts.simulation import (
     PairedArmSimulation,
     SimulationArm,
     SimulationReport,
 )
 from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
-from nof1_causal_lab.study.visuals import simulation_observation_histories
 from nof1_causal_lab.study.result_codec import result_payload
+from nof1_causal_lab.study.visuals import simulation_observation_histories
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.study.snapshots import ModelReader
+    from scripts.fixtures.reader import ModelReader
 
 
 def workbench_visuals(reader: ModelReader, template):
@@ -31,8 +31,8 @@ def workbench_visuals(reader: ModelReader, template):
     history stays source grounded; new simulation paths are explicitly illustrative,
     and their summaries are derived from these paths, never inverted into fake draws.
     """
-    model = reader.model
-    assert model is not None
+    dynamical_model_spec = reader.dynamical_model_spec
+    assert dynamical_model_spec is not None
     assert reader.data_metadata is not None
     report = SimulationReport.model_validate(restore_fixture(template)["report"])
     rng = np.random.default_rng(41)
@@ -61,40 +61,26 @@ def workbench_visuals(reader: ModelReader, template):
 
     starts = np.broadcast_to(time[:, None] - 1, (len(time), len(variables)))
     ends = np.broadcast_to(time[:, None], starts.shape)
+    arms = report.evidence.arms
+    assert isinstance(arms, PairedArmSimulation) and isinstance(arms.causal, CausalEffectResult)
+    outcome = report.evidence.state_ids.index(arms.causal.outcome)
+    contrasts = action[:, :, outcome] - reference[:, :, outcome]
     evidence = report.evidence.revised(
         arms=PairedArmSimulation(
             action=SimulationArm(latent_paths=retain(action), observations=retain(observations)),
-            reference=SimulationArm(
-                latent_paths=retain(reference), observations=retain(reference_observations)
+            reference=SimulationArm(latent_paths=retain(reference), observations=retain(reference_observations)),
+            causal=arms.causal.revised(
+                differences=retain(contrasts), frame=central_frame(contrasts),
+                summary=summarize_draws(contrasts[:, -1]),
+                reference_mean=float(reference[:, -1, outcome].mean()),
+                manifest_effects={variable.id: float((observations - reference_observations)[:, -1, index].mean()) for index, variable in enumerate(variables)},
             ),
         ),
         observation_layout=report.evidence.observation_layout.revised(
-            mask=retain(mask),
-            support_start_times=retain(starts),
-            support_end_times=retain(ends),
+            mask=retain(mask), support_start_times=retain(starts), support_end_times=retain(ends),
         ),
     )
-    assert isinstance(report.causal, Available)
-    outcome = evidence.state_ids.index(report.causal.value.outcome)
-    contrasts = action[:, :, outcome] - reference[:, :, outcome]
-    report = report.revised(
-        evidence=evidence,
-        summary=simulation_summary(
-            evidence, action, observations, mask, reference, reference_observations
-        ),
-        causal=Available(
-            value=report.causal.value.revised(
-                differences=retain(contrasts),
-                frame=central_frame(contrasts),
-                summary=summarize_draws(contrasts[:, -1]),
-                reference_mean=float(reference[:, -1, outcome].mean()),
-                manifest_effects={
-                    variable.id: float((observations - reference_observations)[:, -1, index].mean())
-                    for index, variable in enumerate(variables)
-                },
-            )
-        ),
-    )
+    report = report.revised(evidence=evidence, summary=simulation_summary(evidence, action, observations, mask, reference, reference_observations))
     result = SimulateOutput(
         report=report,
         data=simulation_observation_histories(evidence, observations, mask),
@@ -114,6 +100,7 @@ def workbench_visuals(reader: ModelReader, template):
 def render_fixture(value):
     """Spell binary fixture bytes once; subsequent views select their earlier buffer."""
     buffers = {}
+
     def visit(item):
         if isinstance(item, bytes):
             if item in buffers:
@@ -125,12 +112,14 @@ def render_fixture(value):
         if isinstance(item, (tuple, list)):
             return [visit(child) for child in item]
         return item
+
     return visit(value)
 
 
 def restore_fixture(value):
     """Restore the explicit JSON spelling before the production owner parses a fixture."""
     buffers = []
+
     def visit(item):
         if isinstance(item, dict):
             if set(item) == {"npy"}:
@@ -144,4 +133,5 @@ def restore_fixture(value):
         if isinstance(item, list):
             return [visit(child) for child in item]
         return item
+
     return visit(value)

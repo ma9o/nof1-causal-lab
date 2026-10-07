@@ -1,16 +1,16 @@
 import { presentEntries } from "@/lib/model-accessors";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import type { ActionSuccess } from "@nof1-causal-lab/api-types";
-import { callModel } from "@/lib/model-asset/compose-call-view";
+import { callModelOutput } from "@/lib/model-asset/compose-call-view";
 import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
 
 /** Current findings for the saved call remain visible when read from cache. */
 export function ActionFindings({ context, call }: { context: ScopeContext; call: ActionSuccess }) {
-  const { model, entities, select } = context;
-  const checks = callModel(call)?.checks;
+  const { modelSnapshot, entities, select } = context;
+  const checks = callModelOutput(call)?.checks;
   const identification = call.action === "edit_model" ? call.body.identification : null;
-  const validation = call.action === "fit" ? call.body.checks.validation : null;
+  const validation = call.action === "fit" ? call.body.checks : null;
   const data = validation?.data ?? (call.action === "prepare_data" ? call.body.profile : null);
   const question = call.action === "fit" ? call.body.checks.question : checks?.question;
   const findings: Array<{
@@ -22,26 +22,23 @@ export function ActionFindings({ context, call }: { context: ScopeContext; call:
   for (const finding of [...(checks?.specification ?? []), ...(validation?.preflight ?? [])]) {
     if (finding.kind !== "evaluated" || finding.outcome !== "passed")
       findings.push({
-        label: humanize(finding.subject),
+        label: humanize(finding.code),
         reason: finding.kind === "evaluated" ? finding.evidence : finding.detail,
         status: finding.kind === "evaluated" ? finding.outcome : "not_evaluated",
       });
   }
-  for (const issue of [
-    ...(data?.dataset_issues ?? []),
-    ...presentEntries(data?.indicators ?? {}).flatMap(([id, audit]) =>
-      audit.issues.map((issue) => ({ ...issue, indicator_id: id })),
-    ),
+  for (const finding of [
+    ...(data?.findings ?? []),
+    ...presentEntries(data?.indicators ?? {}).flatMap(([, audit]) => audit.findings),
   ]) {
-    if (issue.severity === "info") continue;
-    const indicator = entities.indicators.find(
-      (item) => item.observation.id === issue.indicator_id,
-    );
-    const variable = model.metadata?.variables.find((item) => item.id === issue.indicator_id);
+    if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
+    const id = typeof finding.subject === "string" ? null : finding.subject.id;
+    const indicator = entities.indicators.find((item) => item.observation.id === id);
+    const variable = modelSnapshot.metadata?.variables.find((item) => item.id === id);
     findings.push({
       label: humanize(indicator?.observation.name ?? variable?.name ?? "Dataset"),
-      reason: issue.message,
-      status: issue.severity,
+      reason: finding.kind === "evaluated" ? finding.evidence : finding.detail,
+      status: finding.kind === "evaluated" ? finding.outcome : "not_evaluated",
       ...(indicator ? { owner: { kind: "indicator" as const, id: indicator.observation.id } } : {}),
     });
   }
@@ -70,21 +67,13 @@ export function ActionFindings({ context, call }: { context: ScopeContext; call:
     if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
     const subject = finding.subject;
     const construct =
-      subject.check === "outcome"
-        ? subject.outcome.id
-        : subject.check === "window"
-          ? null
-          : subject.target.id;
+      "outcome" in subject ? subject.outcome.id : "target" in subject ? subject.target.id : null;
     const entity = entities.constructs.find((item) => item.id === construct);
     findings.push({
       label:
-        subject.check === "outcome"
+        "outcome" in subject
           ? "Question outcome"
-          : `${subject.query} · ${humanize(subject.check)}${
-              subject.check === "window"
-                ? ""
-                : ` · ${entity ? humanize(entity.name) : (construct ?? "")}`
-            }`,
+          : `${subject.query} · ${humanize(finding.code)}${entity ? ` · ${humanize(entity.name)}` : ""}`,
       reason: finding.kind === "evaluated" ? finding.evidence : finding.detail,
       status: finding.kind === "evaluated" ? finding.outcome : "not_evaluated",
       ...(entity ? { owner: { kind: "construct" as const, id: entity.id } } : {}),
@@ -92,9 +81,7 @@ export function ActionFindings({ context, call }: { context: ScopeContext; call:
   }
   if (
     call.action === "prepare_data" &&
-    call.messages.some(
-      (message) => message.kind === "log" && message.label === "EXTRACTION_PARTIAL",
-    )
+    call.body.extraction.workers.some((worker) => worker.status === "failed")
   )
     findings.push({
       label: "Extraction incomplete",

@@ -5,12 +5,14 @@ from datetime import UTC, date, datetime
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.actions.contracts import SimulateRequest
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.availability import Unavailable
+from nof1_causal_lab.actions.io import SimulateInput, SimulateOutput
+from nof1_causal_lab.actions.simulation_summaries import simulation_summary
+from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.artifacts.checks import NotEvaluated
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.identity import GitRef
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
@@ -25,7 +27,6 @@ from nof1_causal_lab.models.model_structure import StructuralSelection, selected
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied
-from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record, empty_simulation_summary
 from tests.data_fixtures import metadata_for_model
@@ -40,7 +41,7 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
-    model = make_model(
+    dynamical_model_spec = make_model(
         ["x", "binary", "ordinal", "category"],
         [("x", "binary"), ("binary", "ordinal"), ("ordinal", "category")],
     )
@@ -64,15 +65,17 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
                 for i in c.indicators
             )
         )
-        for c in model.constructs
+        for c in dynamical_model_spec.constructs
     )
-    model = model.with_entities(edges=replace_constructs(model.edges, constructs))
+    dynamical_model_spec = dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, constructs)
+    )
     store, history = ArtifactStore("SUMMARY"), StudyRepository("SUMMARY")
     definition = store.write_artifact(
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": model.model_dump(mode="json")},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json")},
     )
     history.append(
         applied_record(
@@ -94,8 +97,10 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     }
     observations = np.stack(
         [
-            np.tile(by_type[model.indicator(i).observation.measurement_dtype], (2, 1)).T
-            for i in (indicator.observation.id for indicator in model.indicators)
+            np.tile(
+                by_type[dynamical_model_spec.indicator(i).observation.measurement_dtype], (2, 1)
+            ).T
+            for i in (indicator.observation.id for indicator in dynamical_model_spec.indicators)
         ],
         axis=-1,
     )
@@ -104,32 +109,25 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     observations[:, 0, 0] = np.nan
     states = np.arange(observations.size, dtype=float).reshape(observations.shape)
     states[0, 0, 0] = np.nan
-    support_times = np.broadcast_to(np.array([[5.0], [7.0]]), (2, len(model.indicators)))
+    support_times = np.broadcast_to(
+        np.array([[5.0], [7.0]]), (2, len(dynamical_model_spec.indicators))
+    )
     layout = SimulationObservationLayout(
-        variables=metadata_for_model(model).variables,
+        variables=metadata_for_model(dynamical_model_spec).variables,
         support_start_times=NumericalArray.from_numpy(support_times),
         support_end_times=NumericalArray.from_numpy(support_times),
         mask=NumericalArray.from_numpy(mask),
     )
     report = SimulationReport(
         summary=empty_simulation_summary(),
-        causal=Unavailable(reason="No causal effect was recorded."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
         evidence=SimulationEvidence(
-            model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"),
-            design=SimulationSpec(
-                start=date(2026, 1, 6),
-                horizon="2d",
-                interventions=(
-                    {"target": selected_state_ids(StructuralSelection(model, None))[0], "value": 1},
-                ),
-            ),
             times=(5, 7),
             draws=3,
             seed=0,
             time_origin=datetime(2026, 1, 1, tzinfo=UTC),
-            state_ids=tuple(selected_state_ids(StructuralSelection(model, None))),
+            state_ids=tuple(selected_state_ids(StructuralSelection(dynamical_model_spec, None))),
             parameter_draws={},
             arms=PairedArmSimulation(
                 action=SimulationArm(
@@ -140,15 +138,51 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
                     latent_paths=NumericalArray.from_numpy(states - 1),
                     observations=NumericalArray.from_numpy(observations),
                 ),
+                causal=NotEvaluated(
+                    code="causal_effect",
+                    subject="causal_effect",
+                    reason="CAUSAL_EVALUATION_FAILED",
+                    detail="No certified effect in this fixture.",
+                ),
             ),
             observation_layout=layout,
+            assignments=SimulationSpec(
+                start=date(2026, 1, 6),
+                horizon="2d",
+                interventions=(
+                    {
+                        "target": selected_state_ids(
+                            StructuralSelection(dynamical_model_spec, None)
+                        )[0],
+                        "value": 1,
+                    },
+                ),
+            ).assignments(datetime(2026, 1, 1, tzinfo=UTC)),
         ),
     )
-    history.append(
+    report = report.revised(
+        summary=simulation_summary(
+            report.evidence, states, observations, mask, states - 1, observations
+        )
+    )
+    published = history.append(
         applied_record(
             store.workspace_id,
             Applied(
-                result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()
+                result=ModelSimulationResult(evidence=report.evidence),
+                effects=ActionEffects(reports={"simulation": store.write_report(report)}),
+            ),
+            request=SimulateRequest(
+                input=SimulateInput(
+                    dynamical_model_spec_ref=definition.revision,
+                    simulation=SimulationSpec(
+                        start=date(2026, 1, 6),
+                        horizon="2d",
+                        interventions=(
+                            {"target": report.evidence.assignments[0].target, "value": 1},
+                        ),
+                    ),
+                )
             ),
             seq=2,
             ts="2026-01-01T01:00:00Z",
@@ -156,9 +190,9 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
         )
     )
 
-    reader = ModelReader("SUMMARY", at=history.head())
-    saved = reader.simulation_result
-    assert saved is not None
+    assert published.record.attempt.outcome.status == "applied"
+    result_ref = published.record.attempt.outcome.result
+    saved = store.read_result(result_ref, SimulateOutput)
     assert set(type(saved).model_fields) == {"data", "report"}
     evidence = saved.report.evidence
     assert evidence.draws == 3
@@ -166,12 +200,8 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     assert evidence.arms.kind == "paired"
     from nof1_causal_lab.study.action_arrays import resolve_vector
 
-    np.testing.assert_array_equal(
-        evidence.arms.action.latent_paths.values, states
-    )
-    np.testing.assert_array_equal(
-        evidence.arms.reference.latent_paths.values, states - 1
-    )
+    np.testing.assert_array_equal(evidence.arms.action.latent_paths.values, states)
+    np.testing.assert_array_equal(evidence.arms.reference.latent_paths.values, states - 1)
     assert len(saved.data) == 3
     for index, variable in enumerate(layout.variables):
         expected = tuple(
@@ -194,8 +224,7 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
                 1
             ] == pytest.approx(2 / 3)
 
-    first = reader.simulation()
-    assert first is not None
+    first = saved.report
     assert first.evidence == report.evidence
 
     def no_generation(*_args, **_kwargs):
@@ -204,17 +233,17 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "nof1_causal_lab.models.ssm.predictive.simulation.generate_simulation_batch", no_generation
     )
-    assert ModelReader("SUMMARY", at=history.head()).simulation() == first
+    assert ArtifactStore("SUMMARY").read_result(result_ref, SimulateOutput).report == first
     monkeypatch.setattr("nof1_causal_lab.actions.output_builder.build_output", no_generation)
-    assert ModelReader("SUMMARY", at=history.head()).simulation() == first
+    assert ArtifactStore("SUMMARY").read_result(result_ref, SimulateOutput).report == first
 
 
 def test_authored_law_advances_from_zero_before_a_later_requested_start():
-    model = x_y_model()
+    dynamical_model_spec = x_y_model()
 
     fixed = {
         p.id: 0.5 if p.name.startswith("rho") else 0.0 if p.name.startswith("beta") else 1e-8
-        for p in model.parameters
+        for p in dynamical_model_spec.parameters
     }
 
     def literal_coefficients(value):
@@ -226,9 +255,9 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
             return {key: literal_coefficients(item) for key, item in value.items()}
         return value
 
-    payload = literal_coefficients(model.model_dump(mode="json"))
+    payload = literal_coefficients(dynamical_model_spec.model_dump(mode="json"))
     payload.update(parameters={}, distributions={})
-    model = ModelSpec.model_validate(payload).materialized()
+    dynamical_model_spec = DynamicalModelSpec.model_validate(payload).materialized()
     constructs = tuple(
         c.revised(
             coefficients=tuple(
@@ -238,10 +267,18 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
                 for coefficient in c.coefficients
             )
         )
-        for c in model.constructs
+        for c in dynamical_model_spec.constructs
     )
-    model = model.with_entities(edges=replace_constructs(model.edges, constructs))
-    batch = generate_simulation_batch(compile_model_fixture(model), start=2.0, end=3.0, draws=2)
+    dynamical_model_spec = dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, constructs)
+    )
+    batch = generate_simulation_batch(
+        compile_model_fixture(dynamical_model_spec),
+        start=2.0,
+        end=3.0,
+        draws=2,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+    )
     from nof1_causal_lab.models.ssm.predictive.simulation import SimulationBatch
 
     assert isinstance(batch, SimulationBatch)
@@ -249,4 +286,10 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
         batch.prediction.trajectory.latents[:, 0], 10 * np.exp(-1), rtol=0.002
     )
     with pytest.raises(ValueError, match="before the initial law"):
-        generate_simulation_batch(compile_model_fixture(model), start=-1.0, end=1.0, draws=2)
+        generate_simulation_batch(
+            compile_model_fixture(dynamical_model_spec),
+            start=-1.0,
+            end=1.0,
+            draws=2,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+        )

@@ -9,6 +9,7 @@ from numpyro import handlers
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import (
     CallExpression,
     CoefficientExpression,
@@ -23,7 +24,6 @@ from nof1_causal_lab.artifacts.expressions import (
 )
 from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec, DynamicsMechanismSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 from nof1_causal_lab.models.ssm.dynamics.intervention import (
     ConstantValueFn,
@@ -187,7 +187,7 @@ def _model(expression):
         )
         for name in ("x", "y", "z")
     }
-    return ModelSpec.from_entities(
+    return DynamicalModelSpec.from_entities(
         edges=(
             CausalEdgeSpec(
                 id="edge:xy",

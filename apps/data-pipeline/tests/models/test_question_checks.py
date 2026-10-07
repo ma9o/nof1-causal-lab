@@ -10,6 +10,7 @@ from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec, LikelihoodSpec
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_checks import question_edit_reason
 from nof1_causal_lab.models.model_structure import StructuralSelection
@@ -23,16 +24,16 @@ _ORIGIN = datetime(2024, 1, 1, tzinfo=UTC)
 
 def _model():
     """A given dose read exactly each day, and the mood it may change."""
-    model = make_model(["Dose", "Mood"], [("Dose", "Mood")])
-    dose = model.constructs[0]
+    dynamical_model_spec = make_model(["Dose", "Mood"], [("Dose", "Mood")])
+    dose = dynamical_model_spec.constructs[0]
     reading = dose.indicators[0].revised(
         likelihood=LikelihoodSpec(
             law=DeltaLawSpec(v=state(dose.id)), reasoning="The dose is read exactly."
         )
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges, (dose.revised(role="exogenous", indicators=(reading,)),)
+            dynamical_model_spec.edges, (dose.revised(role="exogenous", indicators=(reading,)),)
         )
     )
 
@@ -68,65 +69,81 @@ def _panel(model):
 
 
 def _findings(question, model, panel):
+    definitions = tuple(
+        indicator.observation.resolved(model.measurement_clock) for indicator in model.indicators
+    )
+    variable = definitions[0]
+    history = (
+        None
+        if panel is None
+        else ObservationDataset.from_frame(
+            panel.with_columns(
+                pl.col("support_end").alias("anchor_time"),
+                pl.lit(variable.support_kind.value).alias("support_kind"),
+                pl.lit(variable.summary_operator.value).alias("summary_operator"),
+                pl.lit(variable.anchor_policy.value).alias("anchor_policy"),
+                pl.lit(variable.observation_window.source).alias("observation_window"),
+            ),
+            definitions,
+            time_origin=_ORIGIN,
+        )
+    )
     return {
-        (finding.subject.check, finding.kind, getattr(finding, "outcome", finding.kind))
+        (finding.code, finding.kind, getattr(finding, "outcome", finding.kind))
         for finding in question_findings(
-            question,
-            StructuralSelection.for_question(model, question),
-            panel=panel,
-            time_origin=_ORIGIN if panel is not None else None,
+            question, StructuralSelection.for_question(model, question), history=history
         )
     }
 
 
 def test_model_only_checks_undefined_constructs_without_data_findings():
-    model = make_model(["Stress"])
+    dynamical_model_spec = make_model(["Stress"])
     question = _question(_model())
     findings = question_findings(
         question,
-        StructuralSelection.for_question(model, question),
-        panel=None,
-        time_origin=None,
+        StructuralSelection.for_question(dynamical_model_spec, question),
+        history=None,
     )
-    assert {(item.subject.check, item.kind) for item in findings} == {
+    assert {(item.code, item.kind) for item in findings} == {
         ("outcome", "not_evaluated"),
         ("target", "not_evaluated"),
         ("identification", "not_evaluated"),
     }
-    reasons = {item.subject.check: item.reason for item in findings if item.kind == "not_evaluated"}
+    reasons = {item.code: item.reason for item in findings if item.kind == "not_evaluated"}
     assert reasons["outcome"] == "CONSTRUCT_UNDEFINED"
 
 
 def test_queries_are_checked_against_the_model_and_the_record():
-    model = _model()
-    panel = _panel(model)
-    assert _findings(_question(model, value=15.0), model, panel) == {
-        ("outcome", "evaluated", "passed"),
-        ("target", "evaluated", "passed"),
-        ("identification", "evaluated", "passed"),
+    dynamical_model_spec = _model()
+    panel = _panel(dynamical_model_spec)
+    assert _findings(_question(dynamical_model_spec, value=15.0), dynamical_model_spec, panel) == {
         ("window", "evaluated", "passed"),
         ("range", "evaluated", "passed"),
     }
-    outside = _findings(_question(model, start="2023-12-25", value=0.0), model, panel)
+    outside = _findings(
+        _question(dynamical_model_spec, start="2023-12-25", value=0.0), dynamical_model_spec, panel
+    )
     assert ("window", "evaluated", "failed") in outside
     assert ("range", "evaluated", "failed") in outside
-    dose = model.constructs[0]
+    dose = dynamical_model_spec.constructs[0]
     with pytest.raises(ValueError, match="intervenes on the outcome"):
-        _question(model, outcome=dose.id)
+        _question(dynamical_model_spec, outcome=dose.id)
     exogenous_outcome = QuestionSpec(text="Does the dose change?", outcome=dose.id)
-    assert _findings(exogenous_outcome, model, panel) == {("outcome", "evaluated", "failed")}
+    assert _findings(exogenous_outcome, dynamical_model_spec, None) == {
+        ("outcome", "evaluated", "failed")
+    }
 
 
 def test_an_edit_defines_the_question_and_models_its_outcome():
-    model = _model()
-    dose, _ = model.constructs
-    assert question_edit_reason(model, _question(model)) is None
-    missing = question_edit_reason(make_model(["Mood"]), _question(model))
+    dynamical_model_spec = _model()
+    dose, _ = dynamical_model_spec.constructs
+    assert question_edit_reason(dynamical_model_spec, _question(dynamical_model_spec)) is None
+    missing = question_edit_reason(make_model(["Mood"]), _question(dynamical_model_spec))
     assert missing is not None
     assert dose.id in missing
     given = QuestionSpec(text="Does my dose change?", outcome=dose.id)
     assert (
-        question_edit_reason(model, given)
+        question_edit_reason(dynamical_model_spec, given)
         == "The question's outcome must reference an endogenous construct"
     )
 
@@ -140,10 +157,13 @@ def test_an_edit_defines_the_question_and_models_its_outcome():
     ],
 )
 def test_an_edit_rejects_connected_branches_without_a_path_to_the_outcome(extra_edges, outside):
-    model = make_model(["Dose", "Mood", *outside], [("Dose", "Mood"), *extra_edges])
-    draft = model.revised(measurement_clock=None).with_entities(
+    dynamical_model_spec = make_model(["Dose", "Mood", *outside], [("Dose", "Mood"), *extra_edges])
+    draft = dynamical_model_spec.revised(measurement_clock=None).with_entities(
         edges=replace_constructs(
-            model.edges, tuple(construct.revised(indicators=()) for construct in model.constructs)
+            dynamical_model_spec.edges,
+            tuple(
+                construct.revised(indicators=()) for construct in dynamical_model_spec.constructs
+            ),
         ),
     )
     reason = question_edit_reason(draft, _question(_model()))
@@ -159,7 +179,7 @@ def test_an_edit_rejects_connected_branches_without_a_path_to_the_outcome(extra_
 
 
 def test_an_edit_allows_upstream_causes_confounders_and_feedback_that_reaches_the_outcome():
-    model = make_model(
+    dynamical_model_spec = make_model(
         ["U", "Dose", "Mediator", "Mood", "Moderator"],
         [
             ("U", "Dose"),
@@ -170,17 +190,18 @@ def test_an_edit_allows_upstream_causes_confounders_and_feedback_that_reaches_th
             ("Moderator", "Mood"),
         ],
     ).revised(measurement_clock=None)
-    confounder = next(construct for construct in model.constructs if construct.name == "U")
-    model = model.with_entities(
-        edges=replace_constructs(model.edges, (confounder.revised(indicators=()),))
+    confounder = next(
+        construct for construct in dynamical_model_spec.constructs if construct.name == "U"
     )
-    assert question_edit_reason(model, _question(_model())) is None
+    dynamical_model_spec = dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (confounder.revised(indicators=()),))
+    )
+    assert question_edit_reason(dynamical_model_spec, _question(_model())) is None
 
 
-def test_an_off_path_model_edit_is_rejected_before_writing_a_revision(tmp_path, monkeypatch):
+def test_an_off_path_model_edit_retains_its_pruning_evidence(tmp_path, monkeypatch):
     from nof1_causal_lab.actions.contracts import EditModelRequest
     from nof1_causal_lab.actions.edit_model import edit_model
-    from nof1_causal_lab.study.records import Rejected
     from nof1_causal_lab.study.state import StudyState
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data
@@ -189,15 +210,20 @@ def test_an_off_path_model_edit_is_rejected_before_writing_a_revision(tmp_path, 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("question-path")
     state = StudyState().with_artifacts([write_question(store, _question(_model()))])
-    before = frozenset(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))
-    model = make_model(["Dose", "Mood", "Side"], [("Dose", "Mood"), ("Dose", "Side")])
+    dynamical_model_spec = make_model(
+        ["Dose", "Mood", "Side"], [("Dose", "Mood"), ("Dose", "Side")]
+    )
     result = edit_model(
         store.workspace_id,
         EditModelRequest[GitOid](
-            input=EditModelInput[GitOid](parent_ref=state.current["question"].revision, model=model)
+            input=EditModelInput[GitOid](
+                parent_ref=state.current["question"].revision,
+                dynamical_model_spec=dynamical_model_spec,
+            )
         ),
     )
-    assert isinstance(result, Rejected)
-    assert result.reason == "scientific_inputs"
-    assert "'Side'" in result.detail
-    assert frozenset(path.relative_to(tmp_path) for path in tmp_path.rglob("*")) == before
+    from nof1_causal_lab.study.records import Applied
+
+    assert isinstance(result, Applied)
+    assert result.result.constructs == (dynamical_model_spec.constructs[2].id,)
+    assert len(result.effects.produced) == 1

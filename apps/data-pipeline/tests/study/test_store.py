@@ -4,11 +4,11 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
     Applied,
     AttemptRecord,
-    DataPreparationResult,
     EditAttempt,
     FitAttempt,
     PrepareAttempt,
@@ -108,7 +108,9 @@ class TestStudyRepository:
         from nof1_causal_lab.artifacts.identity import GitOid
 
         store = ArtifactStore(workspace)
-        identity = GitOid(str(store.repo.create_blob(b"{}")))
+        import msgpack
+
+        identity = GitOid(str(store.repo.create_blob(msgpack.packb({}))))
         variant = {"edit_model": EditAttempt, "prepare_data": PrepareAttempt, "fit": FitAttempt}[
             action
         ]
@@ -131,7 +133,8 @@ class TestStudyRepository:
                 2,
                 "edit_model",
                 outcome=Rejected(
-                    reason="scientific_inputs",
+                    code="MODEL_SPEC_INVALID",
+                    subject="model",
                     detail=(
                         "measurement_structure requires artifacts that do not exist: "
                         "raw_data, latent_structure"
@@ -197,7 +200,7 @@ class TestDerivedCurrentState:
             # A failed outcome has no artifact payload, even if staging wrote a tree.
             variant = {"edit_model": EditAttempt, "prepare_data": PrepareAttempt}[action]
             outcome = (
-                Rejected(reason="scientific_inputs", detail="Saved rejection")
+                Rejected(code="MODEL_SPEC_INVALID", subject="model", detail="Saved rejection")
                 if status == "rejected"
                 else Raised(error_type="SavedError", error_message="Saved failure")
             )

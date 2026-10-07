@@ -91,10 +91,9 @@ const CHANGE_COLORS = {
 
 /** Every saved history of one variable on the union of their anchors, with point changes. */
 export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChartProps, "height"> {
-  const referenceSide =
-    variable.predictive.kind === "comparison" ? variable.predictive.reference_side : null;
-  const histories = [...variable.left, ...variable.right];
-  const definition = histories.flatMap((history) => history.variable ?? []).at(0);
+  const referenceSide = "predictive" in variable ? variable.predictive.reference_side : null;
+  const histories = [...variable.left, ...variable.right].filter((history) => history !== null);
+  const definition = histories.at(0)?.variable;
   const anchors = [
     ...new Set(
       histories.flatMap((history) => history.points.map((point) => Date.parse(point.anchor_time))),
@@ -113,11 +112,17 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
             key: side,
             label: side === "left" ? "Left" : "Right",
             color: referenceSide ? CHART_COLORS.replicate : chainColor(side === "left" ? 0 : 1),
-            rows: variable[side].map((history, index) => ({
-              key: `${side}-${index}`,
-              label: `history ${index + 1}`,
-              values: align(history.points),
-            })),
+            rows: variable[side].flatMap((history, index) =>
+              history
+                ? [
+                    {
+                      key: `${side}-${index}`,
+                      label: `history ${index + 1}`,
+                      values: align(history.points),
+                    },
+                  ]
+                : [],
+            ),
             points: referenceSide === null,
           },
         ],
@@ -131,11 +136,17 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
             key: "observed",
             label: "Observed",
             color: CHART_COLORS.observed,
-            rows: reference.map((history, index) => ({
-              key: `observed-${index}`,
-              label: `history ${index + 1}`,
-              values: align(history.points),
-            })),
+            rows: reference.flatMap((history, index) =>
+              history
+                ? [
+                    {
+                      key: `observed-${index}`,
+                      label: `history ${index + 1}`,
+                      values: align(history.points),
+                    },
+                  ]
+                : [],
+            ),
             strong: true,
           },
         ]
@@ -179,13 +190,7 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
   return {
     label: `${definition?.name ?? variable.indicator_id}: data comparison`,
     times: origin === null ? [] : anchors.map((anchor) => (anchor - origin) / DAY_MS),
-    timeOrigin: histories.every(
-      (history) => history.variable === null || history.time_origin !== null,
-    )
-      ? origin === null
-        ? null
-        : new Date(origin).toISOString()
-      : null,
+    timeOrigin: origin === null ? null : new Date(origin).toISOString(),
     layers: [...sides, ...references, ...changes],
     ...(single ? { observed: { label: "Observed", values: align(single.points) } } : {}),
     levels: definition?.ordinal_levels ?? definition?.categorical_levels ?? null,

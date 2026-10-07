@@ -17,10 +17,6 @@ class DataRef[RevisionT, IndexT: int | None](Value):
 
 
 type DataSelection[RevisionT] = Annotated[
-    DataRef[RevisionT, Annotated[int | None, Field(default=None)]]
-    | Annotated[
-        tuple[DataRef[RevisionT, Annotated[int | None, Field(default=None)]], ...],
-        Field(min_length=1),
-    ],
-    Field(description="A data selection identifies one or more saved observation histories."),
+    tuple[DataRef[RevisionT, Annotated[int | None, Field(default=None)]], ...],
+    Field(min_length=1, description="One or more saved observation-history references."),
 ]

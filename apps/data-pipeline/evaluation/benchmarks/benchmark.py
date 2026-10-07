@@ -143,10 +143,10 @@ def _run_one(
         panel,
         sampler=SamplerSpec(
             num_warmup=args.num_warmup,
-            num_samples=args.num_samples,
+            num_samples_per_chain=args.num_samples,
             num_chains=args.num_chains,
             seed=args.seed,
-            n_particles=args.n_particles,
+            num_particles=args.num_particles,
             retain_latent_paths=args.retain_latent_paths,
             marginal_particle_gibbs=MarginalParticleGibbsSpec(
                 n_parameter_particles=args.n_parameter_particles,
@@ -298,7 +298,7 @@ def main() -> None:
             "num_samples": args.num_samples,
             "num_chains": args.num_chains,
             "seed": args.seed,
-            "n_particles": args.n_particles,
+            "num_particles": args.num_particles,
             "n_parameter_particles": args.n_parameter_particles,
             "latent_block_coords": args.latent_block_coords,
             "diagnostic_metrics": args.diagnostic_metrics,

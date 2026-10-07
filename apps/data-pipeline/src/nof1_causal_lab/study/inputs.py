@@ -77,17 +77,15 @@ def resolve_action_inputs(
     def resolve(selector: RevisionSelector, kind: RevisionInputKind) -> GitOid:
         return latest(kind) if selector == "latest" else selector
 
-    def data_ref(source: DataRef[RevisionSelector, int | None]) -> DataRef[GitOid, int | None]:
-        return DataRef[GitOid, int | None](
+    def data_ref[IndexT: int | None](
+        source: DataRef[RevisionSelector, IndexT],
+    ) -> DataRef[GitOid, IndexT]:
+        return DataRef[GitOid, IndexT](
             revision=resolve(source.revision, "panel"), replicate_index=source.replicate_index
         )
 
     def selection(value: DataSelection[RevisionSelector]) -> DataSelection[GitOid]:
-        return (
-            tuple(data_ref(source) for source in value)
-            if isinstance(value, tuple)
-            else data_ref(value)
-        )
+        return tuple(data_ref(source) for source in value)
 
     match request:
         case EditQuestionRequest():
@@ -97,15 +95,15 @@ def resolve_action_inputs(
                 reasoning=request.reasoning,
                 input=EditModelInput[GitOid](
                     parent_ref=resolve(request.input.parent_ref, "model_parent"),
-                    model=request.input.model,
+                    dynamical_model_spec=request.input.dynamical_model_spec,
                 ),
             )
         case PrepareDataRequest():
-            model_ref = resolve(request.input.model_ref, "model")
+            dynamical_model_spec_ref = resolve(request.input.dynamical_model_spec_ref, "model")
             source, contents = _source_files(repository.workspace_id, request.input.source)
             resolved = PrepareDataRequest[GitOid, FileSourceRef](
                 input=PrepareDataInput[GitOid, FileSourceRef](
-                    model_ref=model_ref,
+                    dynamical_model_spec_ref=dynamical_model_spec_ref,
                     source=source,
                     extraction=request.input.extraction,
                     context=request.input.context,
@@ -116,9 +114,10 @@ def resolve_action_inputs(
             resolved = FitRequest[GitOid](
                 reasoning=request.reasoning,
                 input=FitInput[GitOid](
-                    replicate_index=request.input.replicate_index,
-                    model_ref=resolve(request.input.model_ref, "model"),
-                    data_ref=resolve(request.input.data_ref, "panel"),
+                    dynamical_model_spec_ref=resolve(
+                        request.input.dynamical_model_spec_ref, "model"
+                    ),
+                    data_ref=data_ref(request.input.data_ref),
                     settings=request.input.settings,
                 ),
             )
@@ -127,7 +126,9 @@ def resolve_action_inputs(
                 reasoning=request.reasoning,
                 input=SimulateInput[GitOid](
                     simulation=request.input.simulation,
-                    model_ref=resolve(request.input.model_ref, "model"),
+                    dynamical_model_spec_ref=resolve(
+                        request.input.dynamical_model_spec_ref, "model"
+                    ),
                 ),
             )
         case DataDiffRequest():
@@ -142,8 +143,8 @@ def resolve_action_inputs(
             resolved = ModelDiffRequest[GitOid](
                 reasoning=request.reasoning,
                 input=ModelDiffInput[GitOid](
-                    before_ref=resolve(request.input.before_ref, "model"),
-                    after_ref=resolve(request.input.after_ref, "model"),
+                    before_ref=resolve(request.input.before_ref, "model_parent"),
+                    after_ref=resolve(request.input.after_ref, "model_parent"),
                 ),
             )
     return resolved, contents

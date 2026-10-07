@@ -18,10 +18,10 @@ describe("argument timeline", () => {
       comparison,
     ];
     const timeline = revisionTimeline(records, [
-      { seq: 3, source_seq: 1, argument: "model" },
+      { seq: 3, source_seq: 1, argument: "dynamical_model_spec" },
       { seq: 3, source_seq: 2, argument: "panel" },
-      { seq: 4, source_seq: 1, argument: "model" },
-      { seq: 5, source_seq: 3, argument: "model" },
+      { seq: 4, source_seq: 1, argument: "dynamical_model_spec" },
+      { seq: 5, source_seq: 3, argument: "dynamical_model_spec" },
       { seq: 6, source_seq: 2, argument: "left" },
       { seq: 6, source_seq: 5, argument: "right" },
       { seq: 9, source_seq: 2, argument: "panel" },

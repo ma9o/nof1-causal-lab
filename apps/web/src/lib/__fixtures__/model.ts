@@ -1,5 +1,5 @@
 /** Small authored graph owned by the graph, entity and law contract tests. */
-import type { ConstructSpec, ModelSpec, ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { ConstructSpec, DynamicalModelSpec, ParameterSpec } from "@nof1-causal-lab/api-types";
 
 export const decay: ParameterSpec = {
   id: "parameter:00000000000000000001",
@@ -114,7 +114,7 @@ function parameterEntry({ id, ...value }: ParameterSpec) {
   return [id, value] as const;
 }
 
-export const modelFixture: ModelSpec = {
+export const modelFixture: DynamicalModelSpec = {
   constructs: Object.fromEntries([baseline, treatment, outcome].map(constructEntry)),
   edges: {
     "edge:00000000000000000001": {

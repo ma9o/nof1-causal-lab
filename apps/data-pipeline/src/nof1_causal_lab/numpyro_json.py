@@ -33,7 +33,8 @@ _NATIVE_MODULES = {
 }
 
 type ArrayLoader = Callable[[str], np.ndarray]
-type NumPyroValue = JsonScalar | NumericalArray | Sequence[NumPyroValue] | Mapping[str, NumPyroValue]
+type NumPyroValue = JsonScalar | NumericalArray | NumPyroArray | NumPyroObject
+type NumPyroArray = Sequence[NumPyroValue]
 type NumPyroObject = Mapping[str, NumPyroValue]
 
 
@@ -42,7 +43,12 @@ def _stored_constructor(value: NumPyroValue, arrays: dict[str, NumericalArray]) 
     if isinstance(value, NumericalArray):
         arrays[value.identity] = value
         shape, dtype = value.layout
-        return {"array_ref": value.identity, "shape": list(shape), "dtype": str(dtype), "index": []}
+        return {
+            "array_ref": value.identity,
+            "shape": list(shape),
+            "dtype": str(dtype),
+            "index": list[int](),
+        }
     if isinstance(value, Mapping):
         return {key: _stored_constructor(item, arrays) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, str):
@@ -62,10 +68,17 @@ def serialize_constructor(
         if binary and "array_ref" in value:
             if array_loader is None:
                 raise ValueError("Publishing a stored law requires its numerical values")
-            return NumericalArray.from_numpy(np.asarray(_decode(cast("JsonValue", value), array_loader)))
-        return {key: serialize_constructor(item, binary=binary, array_loader=array_loader) for key, item in value.items()}
+            return NumericalArray.from_numpy(
+                np.asarray(_decode(_stored_constructor(value, {}), array_loader))
+            )
+        return {
+            key: serialize_constructor(item, binary=binary, array_loader=array_loader)
+            for key, item in value.items()
+        }
     if isinstance(value, Sequence) and not isinstance(value, str):
-        return [serialize_constructor(item, binary=binary, array_loader=array_loader) for item in value]
+        return [
+            serialize_constructor(item, binary=binary, array_loader=array_loader) for item in value
+        ]
     return value
 
 
@@ -75,7 +88,10 @@ def serialize_distribution(value: dist.Distribution, info: SerializationInfo) ->
     loader = value.loader if isinstance(value, _StoredDistribution) else None
     if loader is None:
         loader = (info.context or {}).get("distribution_array_loader")
-    return cast("NumPyroObject", serialize_constructor(encode_distribution(value), binary=binary, array_loader=loader))
+    return cast(
+        "NumPyroObject",
+        serialize_constructor(encode_distribution(value), binary=binary, array_loader=loader),
+    )
 
 
 class _StoredDistribution(dist.Distribution):
@@ -436,7 +452,9 @@ def _distribution_schema(_source: object, handler: GetCoreSchemaHandler) -> core
     wire = core_schema.typed_dict_schema(
         {
             "distribution": core_schema.typed_dict_field(core_schema.str_schema()),
-            "params": core_schema.typed_dict_field(handler.generate_schema(dict[str, NumPyroValue])),
+            "params": core_schema.typed_dict_field(
+                handler.generate_schema(dict[str, NumPyroValue])
+            ),
         },
         extra_behavior="forbid",
         ref="NumPyroDistribution",
@@ -444,7 +462,7 @@ def _distribution_schema(_source: object, handler: GetCoreSchemaHandler) -> core
 
     def decode(value: NumPyroObject, info: ValidationInfo) -> dist.Distribution:
         arrays: dict[str, NumericalArray] = {}
-        constructor = cast("dict[str, JsonValue]", _stored_constructor(value, arrays))
+        constructor = {key: _stored_constructor(item, arrays) for key, item in value.items()}
         external: ArrayLoader | None = (info.context or {}).get("distribution_array_loader")
 
         def load(identity: str) -> np.ndarray:

@@ -11,7 +11,7 @@ from .base import Value
 from .identity import ConstructId
 
 if TYPE_CHECKING:
-    from .model_spec import ModelSpec
+    from .dynamical_model_spec import DynamicalModelSpec
 
 
 class IdentifiedTreatmentStatus(Value):
@@ -58,7 +58,7 @@ class IdentificationReport(Value):
         description="One tagged identification result per treatment, including its supporting evidence",
     )
 
-    def validate_model(self, model: ModelSpec) -> None:
+    def validate_model(self, dynamical_model_spec: DynamicalModelSpec) -> None:
         """Reject identification findings that refer to constructs absent from the supplied model."""
         owners = set(self.treatments)
         if self.outcome is not None:
@@ -69,7 +69,7 @@ class IdentificationReport(Value):
                 owners.update(finding.instruments)
             else:
                 owners.update(finding.confounders)
-        unknown = owners - {construct.id for construct in model.constructs}
+        unknown = owners - {construct.id for construct in dynamical_model_spec.constructs}
         if unknown:
             raise ValueError(f"Identification references unknown construct IDs: {sorted(unknown)}")
 

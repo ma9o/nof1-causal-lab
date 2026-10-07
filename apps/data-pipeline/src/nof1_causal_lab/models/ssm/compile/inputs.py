@@ -131,7 +131,7 @@ class CompiledInputTrajectory(Value):
 
 
 @dataclass(frozen=True, eq=False)
-class CompiledModel:
+class CompiledDynamicalModel:
     """Ordered execution records; authored entities remain at the compiler boundary."""
 
     clock_days: float
@@ -170,7 +170,7 @@ class CompiledModel:
 class CompiledFitInputs:
     """Fit-specific prior capability for one compiled numerical model."""
 
-    compiled: CompiledModel
+    compiled_dynamical_model: CompiledDynamicalModel
     prior_runtime_bundle: PriorRuntimeBundle
     diagnostics: tuple[PriorValidationResult, ...]
 
@@ -195,7 +195,7 @@ class UnsupportedFit:
 
 
 type CompilationFailure = IncompleteModel | UnsupportedFit
-type ModelCompilationResult = CompiledModel | CompilationFailure
+type ModelCompilationResult = CompiledDynamicalModel | CompilationFailure
 type FitCompilationResult = CompiledFitInputs | CompilationFailure
 
 
@@ -233,7 +233,7 @@ def compile_model(
     from nof1_causal_lab.models.ssm.compile import support as numeric
     from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
 
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     try:
         numeric._require_execution_choices(selection)
         require_priors(selection)
@@ -260,9 +260,9 @@ def compile_model(
         states = tuple(
             CompiledState(
                 identity,
-                model.get_construct(identity).name,
-                model.get_construct(identity).role == "exogenous",
-                model.get_construct(identity).temporal_status == "time_invariant",
+                dynamical_model_spec.get_construct(identity).name,
+                dynamical_model_spec.get_construct(identity).role == "exogenous",
+                dynamical_model_spec.get_construct(identity).temporal_status == "time_invariant",
                 family,
                 tuple(
                     (state_index[edge.cause.id], edge.id)
@@ -276,8 +276,8 @@ def compile_model(
         )
         state_index = {state.id: index for index, state in enumerate(states)}
         anchors = numeric.categorical_anchors(selection)
-        clock_days = numeric.get_construct_dt_days(model)
-        assert model.measurement_clock is not None
+        clock_days = numeric.get_construct_dt_days(dynamical_model_spec)
+        assert dynamical_model_spec.measurement_clock is not None
 
         parameters = execution_parameters(selection)
         bindings, auxiliary = bind_parameters(
@@ -293,9 +293,10 @@ def compile_model(
         observations = tuple(
             CompiledObservation(
                 indicator.observation.resolved(
-                    indicator.observation.observation_window or model.measurement_clock
+                    indicator.observation.observation_window
+                    or dynamical_model_spec.measurement_clock
                 ),
-                state_index[model.indicator_owner(indicator.observation.id).id],
+                state_index[dynamical_model_spec.indicator_owner(indicator.observation.id).id],
                 bind_observation_law(
                     indicator.likelihood.law,
                     indicator.likelihood.parsed,
@@ -315,7 +316,7 @@ def compile_model(
             for channel, (indicator, anchor) in enumerate(zip(indicators, anchors, strict=True))
             if indicator.likelihood is not None
         )
-        return CompiledModel(
+        return CompiledDynamicalModel(
             clock_days=clock_days,
             states=states,
             observations=observations,
@@ -353,15 +354,15 @@ def _compile_input_trajectories(
 
     from nof1_causal_lab.numpyro_json import materialize_distribution
 
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     result = []
     for index, state in enumerate(states):
         if not state.is_input:
             continue
-        identity = model.get_construct(state.id).distribution
+        identity = dynamical_model_spec.get_construct(state.id).distribution
         assert identity is not None  # Execution readiness owns the required membership.
-        layout = model.law_layouts[identity]
-        law = materialize_distribution(model.distributions[identity])
+        layout = dynamical_model_spec.law_layouts[identity]
+        law = materialize_distribution(dynamical_model_spec.distributions[identity])
         result.append(
             CompiledInputTrajectory(
                 index=index,
@@ -386,34 +387,39 @@ def _compile_laws(
     from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
     from nof1_causal_lab.numpyro_json import distribution_shape
 
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     parameters = execution_parameters(selection)
     endogenous = tuple(state.id for state in states if not state.is_input)
     active = {
         member.distribution
-        for member in (*parameters, *(model.get_construct(identity) for identity in endogenous))
+        for member in (
+            *parameters,
+            *(dynamical_model_spec.get_construct(identity) for identity in endogenous),
+        )
         if member.distribution is not None
     }
     result = []
     retained = set()
-    for index, (identity, law) in enumerate(sorted(model.distributions.items())):
+    for index, (identity, law) in enumerate(sorted(dynamical_model_spec.distributions.items())):
         if identity not in active:
             continue
         members = tuple(parameter for parameter in parameters if parameter.distribution == identity)
         trajectories = tuple(
-            state for state in endogenous if model.get_construct(state).distribution == identity
+            state
+            for state in endogenous
+            if dynamical_model_spec.get_construct(state).distribution == identity
         )
         retained.update(trajectories)
         layout = joint_law_layout(
             bindings,
             parameters=tuple(parameter.id for parameter in members),
             constructs=trajectories,
-            time_points=model.time_points if trajectories else (),
+            time_points=dynamical_model_spec.time_points if trajectories else (),
         )
         batch_shape, event_shape = distribution_shape(law)
         if not batch_shape and not event_shape:
             parameter = members[0]
-            law, _ = quantity_parameter_law(model, parameter)
+            law, _ = quantity_parameter_law(dynamical_model_spec, parameter)
         elif any(
             parameter.transform.kind != PriorAuthoringTransform.IDENTITY for parameter in members
         ):
@@ -421,7 +427,7 @@ def _compile_laws(
                 ["Joint probability laws must use native scientific coordinates"]
             )
         if event_shape:
-            retained_layout = model.law_layouts[identity]
+            retained_layout = dynamical_model_spec.law_layouts[identity]
             if (
                 layout.parameters != retained_layout.parameters
                 or layout.constructs != retained_layout.constructs
@@ -438,7 +444,7 @@ def _compile_laws(
     return tuple(result)
 
 
-def compile_executable_model(selection: StructuralSelection) -> CompiledModel:
+def compile_executable_model(selection: StructuralSelection) -> CompiledDynamicalModel:
     """Parse the authored execution boundary for callers whose contract requires success.
 
     Fit readiness consumes compile_model's alternatives directly. At an
@@ -449,7 +455,7 @@ def compile_executable_model(selection: StructuralSelection) -> CompiledModel:
 
     outcome = compile_model(selection)
     match outcome:
-        case CompiledModel():
+        case CompiledDynamicalModel():
             return outcome
         case IncompleteModel():
             raise IncompleteModelError(outcome.message)
@@ -473,7 +479,7 @@ def compile_fit_inputs(
     compiled: ModelCompilationResult, selection: StructuralSelection
 ) -> FitCompilationResult:
     """Resolve fitting laws once against the already compiled shared execution facts."""
-    if not isinstance(compiled, CompiledModel):
+    if not isinstance(compiled, CompiledDynamicalModel):
         return compiled
     try:
         prior_registry, _, diagnostics = compile_priors(compiled, selection)
@@ -484,7 +490,7 @@ def compile_fit_inputs(
     except AggregatedCompileError as exc:
         return UnsupportedFit(tuple(dict.fromkeys(exc.errors)))
     return CompiledFitInputs(
-        compiled=compiled,
+        compiled_dynamical_model=compiled,
         prior_runtime_bundle=prior_runtime_bundle,
         diagnostics=tuple(diagnostics),
     )

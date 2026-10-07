@@ -5,8 +5,8 @@ import json
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.study.history import StudyRepository
@@ -36,7 +36,9 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
             {
                 "input": {
                     "parent_ref": root.current["question"].revision,
-                    "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+                    "dynamical_model_spec": make_model(["X", "Y"], [("X", "Y")]).model_dump(
+                        mode="json"
+                    ),
                 }
             }
         ),
@@ -56,7 +58,9 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
             {
                 "input": {
                     "parent_ref": artifact_revision(workspace, "model", 1),
-                    "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+                    "dynamical_model_spec": make_model(["X", "Y"], [("X", "Y")]).model_dump(
+                        mode="json"
+                    ),
                 }
             }
         ),
@@ -64,11 +68,11 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
     )
     from nof1_causal_lab.actions.model_checks import read_model_checks
 
-    checks, _, _ = read_model_checks(
+    checks, _ = read_model_checks(
         workspace, state.with_artifacts(second.effects.produced), action="edit_model"
     )
     assert checks.question is not None
-    assert checks.question.question_revision == root.current["question"].revision
+    assert all(finding.code not in {"window", "range"} for finding in checks.question.findings)
     assert second.effects.produced[0].revision != effects.effects.produced[0].revision
     assert second.effects.produced[0].derived_from == {
         "question": root.current["question"].revision,
@@ -91,7 +95,7 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     measured = make_model(["X", "Y"], [("X", "Y")])
     specified = x_y_model()
     before, after = input_fingerprints(measured), input_fingerprints(specified)
-    reloaded = ModelSpec.model_validate_json(
+    reloaded = DynamicalModelSpec.model_validate_json(
         json.dumps(specified.model_dump(mode="json"), sort_keys=True)
     ).materialized()
     assert input_fingerprints(reloaded) == after
@@ -119,3 +123,54 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     for purpose in ("observations", "identification", "compilation"):
         assert reasoned[purpose] == after[purpose]
     assert reasoned["belief"] != after["belief"]
+
+
+def test_model_diff_addresses_question_and_model_without_checkpoint_traversal(workspace):
+    from nof1_causal_lab.actions.revisions import model_diff
+    from nof1_causal_lab.study.errors import StudyLookupError
+    from nof1_causal_lab.study.records import AttemptRecord, EditAttempt, Raised
+    from nof1_causal_lab.study.store import ArtifactStore
+    from tests.action_fixtures import applied_record
+
+    question = QuestionSpec(text="Does X change Y?", outcome=fixture_entity_id("construct", "Y"))
+    root = question_root(workspace, question)
+    repository = StudyRepository(workspace)
+    state = repository.state(root.commit_id)
+    definition = make_model(["X", "Y"], [("X", "Y")])
+    request = EditModelRequest[GitOid].model_validate(
+        {
+            "input": {
+                "parent_ref": state.current["question"].revision,
+                "dynamical_model_spec": definition.model_dump(mode="json"),
+            }
+        }
+    )
+    applied = edit_and_check(workspace, request, state)
+    edited = repository.append(applied_record(workspace, applied, request=request, seq=2))
+    model = applied.effects.produced[0].revision
+    empty = DynamicalModelSpec.from_entities()
+    assert model_diff(
+        workspace, state.current["question"].revision, model
+    ).changes == definition.changes_from(empty)
+    assert model_diff(
+        workspace, model, state.current["question"].revision
+    ).changes == empty.changes_from(definition)
+    failed = repository.append(
+        AttemptRecord(
+            seq=3,
+            ts="2026-10-07T12:00:00Z",
+            attempt=EditAttempt(
+                action="edit_model",
+                request=request.revised(input=request.input.revised(parent_ref=model)),
+                outcome=Raised(error_type="RuntimeError", error_message="Failed"),
+            ),
+        ),
+        parent_id=edited.commit_id,
+    )
+    assert failed.parent_ids == (edited.commit_id,)
+    panel = ArtifactStore(workspace).write_artifact(
+        "panel", produced_by="prepare_data", derived_from={}, json_files={"metadata.json": {}}
+    )
+    for invalid in (failed.commit_id, panel.revision):
+        with pytest.raises(StudyLookupError):
+            model_diff(workspace, model, invalid)

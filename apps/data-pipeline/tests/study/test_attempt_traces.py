@@ -15,8 +15,8 @@ from nof1_causal_lab.actions.progress import emit_event
 from nof1_causal_lab.actions.progress_contracts import StepEvent
 from nof1_causal_lab.actions.temporal.activities import journal_activity, read_inputs_activity
 from nof1_causal_lab.actions.temporal.messages import AttemptPublication, ReadInputsInput
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import ActionMessage, AttemptRecord, EditAttempt, Raised
 from nof1_causal_lab.study.store import collect_run_traces, trace_log_path
@@ -78,19 +78,27 @@ def test_raised_attempt_discovers_trace_and_retry_no_longer_needs_scratch(data_r
             ReadInputsInput(
                 workspace_id="ws-trace",
                 request=EditModelRequest[GitOid](
-                    input=EditModelInput[GitOid](parent_ref=question.revision, model=ModelSpec())
+                    input=EditModelInput[GitOid](
+                        parent_ref=question.revision, dynamical_model_spec=DynamicalModelSpec()
+                    )
                 ),
             )
         )
     )
     _scratch_trace("ws-trace", 1, "latent-structure")
     request = EditModelRequest[GitOid](
-        input=EditModelInput[GitOid](parent_ref=question.revision, model=ModelSpec())
+        input=EditModelInput[GitOid](
+            parent_ref=question.revision, dynamical_model_spec=DynamicalModelSpec()
+        )
     )
     attempt_id = UUID(int=1)
     messages = (
         ActionMessage(
-            timestamp=datetime(2026, 10, 1, tzinfo=UTC), level="info", label="EDIT_MODEL_STARTED"
+            timestamp=datetime(2026, 10, 1, tzinfo=UTC),
+            severity="info",
+            code="EDIT_MODEL_STARTED",
+            subject="edit_model",
+            detail="Started.",
         ),
     )
     emit_event("ws-trace", StepEvent(attempt_id=attempt_id, status="running"))

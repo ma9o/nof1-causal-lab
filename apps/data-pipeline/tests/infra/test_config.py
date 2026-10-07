@@ -38,7 +38,7 @@ class TestSamplerSpec:
 
     def test_marginal_particle_gibbs_defaults(self):
         result = InferenceConfig().sampler
-        assert result.n_particles == 64
+        assert result.num_particles == 64
         options = result.marginal_particle_gibbs
         assert options.n_parameter_particles == 2
         assert options.dsmc_leaf_proposal == "amala_exact"
@@ -57,10 +57,10 @@ class TestSamplerSpec:
 
         configured = SamplerSpec(
             num_warmup=10,
-            num_samples=20,
+            num_samples_per_chain=20,
             num_chains=2,
             seed=3,
-            n_particles=8,
+            num_particles=8,
             marginal_particle_gibbs=MarginalParticleGibbsSpec(latent_delta=0.31),
         )
         config = _make_pipeline_config()
@@ -75,27 +75,27 @@ class TestSamplerSpec:
         resolved = resolve_sampler_spec(
             FitSettingsSpec(
                 num_warmup=0,
-                num_samples=30,
+                num_samples_per_chain=30,
                 num_chains=4,
                 seed=0,
-                n_particles=16,
+                num_particles=16,
             )
         )
         assert (
             resolved.num_warmup,
-            resolved.num_samples,
+            resolved.num_samples_per_chain,
             resolved.num_chains,
             resolved.seed,
-            resolved.n_particles,
+            resolved.num_particles,
         ) == (0, 30, 4, 0, 16)
         assert resolved.marginal_particle_gibbs is configured.marginal_particle_gibbs
         assert resolved.marginal_particle_gibbs.latent_delta == 0.31
         assert (
             configured.num_warmup,
-            configured.num_samples,
+            configured.num_samples_per_chain,
             configured.num_chains,
             configured.seed,
-            configured.n_particles,
+            configured.num_particles,
         ) == (10, 20, 2, 3, 8)
         assert resolve_sampler_spec(FitSettingsSpec()) == configured
         with pytest.raises(ValidationError, match="frozen"):
@@ -146,10 +146,10 @@ FULL_CONFIG = textwrap.dedent("""\
       compute_loo_diagnostics: false
       sampler:
         num_warmup: 500
-        num_samples: 2000
+        num_samples_per_chain: 2000
         num_chains: 2
         seed: 123
-        n_particles: 24
+        num_particles: 24
         marginal_particle_gibbs:
           n_ieks_iters: 10
           n_parameter_particles: 3
@@ -226,12 +226,12 @@ class TestLoadConfig:
         assert cfg.extraction_workers.max_concurrent_workers == 6
         assert cfg.extraction_workers.max_tool_turns == 45
         assert cfg.inference.sampler.num_warmup == 500
-        assert cfg.inference.sampler.num_samples == 2000
+        assert cfg.inference.sampler.num_samples_per_chain == 2000
         assert cfg.inference.sampler.num_chains == 2
         assert cfg.inference.sampler.seed == 123
         assert cfg.inference.compute_loo_diagnostics is False
         assert cfg.inference.sampler.marginal_particle_gibbs.n_ieks_iters == 10
-        assert cfg.inference.sampler.n_particles == 24
+        assert cfg.inference.sampler.num_particles == 24
         assert cfg.inference.sampler.marginal_particle_gibbs.n_parameter_particles == 3
         assert cfg.inference.sampler.marginal_particle_gibbs.latent_delta == 0.29
         assert cfg.inference.sampler.marginal_particle_gibbs.amala_kappa == 0.2

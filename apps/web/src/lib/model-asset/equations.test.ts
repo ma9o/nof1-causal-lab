@@ -154,7 +154,10 @@ describe("authored equation display", () => {
     expect(drift.latex).toContain("\\partial");
     expect(() => renderToString(drift.latex, { throwOnError: true })).not.toThrow();
     const links = fixtureValue(
-      constructEquation({ ...treatment, dynamics: [] }, { ...entities, edges: entities.edges.filter((edge) => edge.effect.id !== treatment.id) }),
+      constructEquation(
+        { ...treatment, dynamics: [] },
+        { ...entities, edges: entities.edges.filter((edge) => edge.effect.id !== treatment.id) },
+      ),
     );
     expect(links.title).toBe("Authored connections");
     expect(links.latex).toContain("\\to");

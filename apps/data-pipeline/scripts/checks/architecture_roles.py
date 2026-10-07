@@ -102,7 +102,6 @@ MODULE_ROLES: dict[str, ModuleRole] = {
     "study/snapshot_models": "domain",
     "study/state": "domain",
     "study/view_models": "domain",
-    "study/visual_models": "domain",
     "study/visuals": "projection",
     "study_api": "edge",
     "tool_server": "edge",

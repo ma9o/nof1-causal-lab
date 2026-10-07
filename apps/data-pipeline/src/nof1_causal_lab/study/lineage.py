@@ -22,17 +22,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from nof1_causal_lab.artifacts.data_ref import DataRef
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import GitOid
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReportCore
-    from nof1_causal_lab.study.state import ArtifactRecord, StudyState
+    from nof1_causal_lab.study.state import ArtifactRecord
     from nof1_causal_lab.study.store import ArtifactStore
-
-
-def inference_report_record[T: StudyRevision](records: Iterable[T], state: StudyState) -> T | None:
-    """Find retained numerical evidence for the selected model, ignoring report-only history."""
-    model = state.get("model")
-    return inference_record(records, model.revision) if model is not None else None
 
 
 def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMetadata:
@@ -60,19 +54,23 @@ def fitted_law_report(
 def law_provenance(
     store: ArtifactStore,
     record: ArtifactRecord,
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
     data: DataRef[GitOid, int] | None,
 ) -> PredictiveLawProvenance:
     """Follow authored ancestry; a native law family alone never establishes fitting."""
     uncertain = {
         quantity.distribution
         for quantity in (
-            *model.parameters,
-            *(construct for construct in model.constructs if construct.role == "endogenous"),
+            *dynamical_model_spec.parameters,
+            *(
+                construct
+                for construct in dynamical_model_spec.constructs
+                if construct.role == "endogenous"
+            ),
         )
         if quantity.distribution is not None
     }
-    laws = model.model_dump(mode="json")["distributions"]
+    laws = dynamical_model_spec.model_dump(mode="json")["distributions"]
     current = record
     while True:
         if current.produced_by == "fit":
@@ -80,7 +78,9 @@ def law_provenance(
             inherited = {
                 key
                 for key, value in laws.items()
-                if key in uncertain and key in model.law_layouts and fitted.get(key) == value
+                if key in uncertain
+                and key in dynamical_model_spec.law_layouts
+                and fitted.get(key) == value
             }
             if inherited:
                 from pathlib import Path
@@ -98,10 +98,8 @@ def law_provenance(
                     raise ValueError("Fitted laws require their recorded data selection")
                 assert fit.record.attempt.action == "fit"
                 assert isinstance(fit.record.attempt.outcome, Applied)
-                from nof1_causal_lab.actions.io import FitOutput
-
-                result = store.read_result(fit.record.attempt.outcome.result, FitOutput)
-                fitted_data = result.inference.run.data
+                assert fit.record.attempt.request is not None
+                fitted_data = fit.record.attempt.request.input.data_ref
                 if inherited != uncertain or any(
                     fitted.get(key) != value for key, value in laws.items() if key not in uncertain
                 ):
@@ -127,5 +125,7 @@ def law_provenance(
     # does not establish a training panel, so their interpretation stays unknown.
     from nof1_causal_lab.numpyro_json import distribution_shape
 
-    joint = any(any(distribution_shape(model.distributions[key])) for key in uncertain)
+    joint = any(
+        any(distribution_shape(dynamical_model_spec.distributions[key])) for key in uncertain
+    )
     return UnknownLawProvenance() if joint else AuthoredLawProvenance()

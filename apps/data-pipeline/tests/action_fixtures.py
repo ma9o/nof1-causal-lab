@@ -12,13 +12,9 @@ def edit_and_check(workspace_id, request, state):
 
     staged = edit_model(workspace_id, request)
     assert isinstance(staged, Applied)
-    checks, identification, validation = evaluate_model_checks(
-        workspace_id, state, staged, action="edit_model"
-    )
+    checks, identification = evaluate_model_checks(workspace_id, state, staged, action="edit_model")
     store = ArtifactStore(workspace_id)
     reports = {"checks": checks, "identification": identification}
-    if validation is not None:
-        reports["validation"] = validation
     return staged.revised(
         effects=staged.effects.revised(
             reports={name: store.write_report(report) for name, report in reports.items()}
@@ -61,15 +57,15 @@ def applied_record(
     from pydantic import TypeAdapter
 
     from nof1_causal_lab.actions.output_builder import build_output, staged_state
-    from nof1_causal_lab.artifacts.model_spec import ModelEditResult
-    from nof1_causal_lab.artifacts.posterior import ModelFitResult
+    from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+    from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
     from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.records import (
         ActionAttempt,
         Applied,
         AttemptRecord,
-        DataPreparationResult,
         StagedEditAttempt,
         StagedEditQuestionAttempt,
         StagedFitAttempt,
@@ -79,18 +75,6 @@ def applied_record(
     )
     from nof1_causal_lab.study.store import ArtifactStore
 
-    if request is None and isinstance(result.result, ModelFitResult):
-        from nof1_causal_lab.actions.contracts import FitRequest
-        from nof1_causal_lab.actions.io import FitInput
-        from nof1_causal_lab.artifacts.identity import GitOid
-
-        request = FitRequest[GitOid](
-            input=FitInput[GitOid](
-                model_ref=result.result.model.revision,
-                data_ref=result.result.data.revision,
-                replicate_index=result.result.data.replicate_index,
-            )
-        )
     if result.result is None and (
         getattr(request, "action", None) == "edit_model"
         or any(artifact.artifact_id == "model" for artifact in result.effects.produced)
@@ -108,10 +92,16 @@ def applied_record(
                 attempt = StagedEditAttempt(action="edit_model", request=None, outcome=result)
             case DataPreparationResult():
                 attempt = StagedPrepareAttempt(action="prepare_data", request=None, outcome=result)
-            case ModelFitResult():
-                attempt = StagedFitAttempt(action="fit", request=None, outcome=result)
+            case InferenceEvidence():
+                attempt = StagedFitAttempt(
+                    action="fit", request=None, outcome=Applied(result=None, effects=result.effects)
+                )
             case ModelSimulationResult():
-                attempt = StagedSimulateAttempt(action="simulate", request=None, outcome=result)
+                attempt = StagedSimulateAttempt(
+                    action="simulate",
+                    request=None,
+                    outcome=Applied(result=None, effects=result.effects),
+                )
             case _:
                 raise TypeError("A publication fixture needs an owned action result")
     repository, store = StudyRepository(workspace_id), ArtifactStore(workspace_id)
@@ -120,8 +110,10 @@ def applied_record(
         from tests.helpers import write_question
 
         state = state.with_artifacts((write_question(store),))
-    if isinstance(result.result, ModelFitResult):
-        state = state.revised(data=result.result.data)
+    if isinstance(result.result, InferenceEvidence):
+        assert request is not None
+        assert request.action == "fit"
+        state = state.revised(data=request.input.data_ref)
     if isinstance(result.result, DataPreparationResult):
         from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 
@@ -139,22 +131,21 @@ def applied_record(
     ):
         from nof1_causal_lab.actions.simulate import read_simulation_report
 
+        assert request is not None
         report = read_simulation_report(
-            store, result.result.evidence, state.current["question"].revision
+            store, result.result.evidence, request.input, state.current["question"].revision
         )
         attempt = attempt.revised(
-            outcome=result.revised(
+            outcome=attempt.outcome.revised(
                 effects=result.effects.revised(
                     reports={**result.effects.reports, "simulation": store.write_report(report)}
                 )
             )
         )
-    if isinstance(result.result, ModelFitResult):
-        from nof1_causal_lab.artifacts.model_checks import ModelCheckReport, QuestionCheckReport
-        from nof1_causal_lab.artifacts.validation_report import (
-            DataProfileArtifact,
-            ValidationReportArtifact,
-        )
+    if isinstance(result.result, InferenceEvidence):
+        from nof1_causal_lab.artifacts.model_checks import QuestionCheckReport
+        from nof1_causal_lab.artifacts.posterior import FitCheckReport
+        from nof1_causal_lab.artifacts.validation_report import DataProfileReport
         from nof1_causal_lab.study.store import read_model
         from tests.inference_fixtures import _report
 
@@ -162,29 +153,39 @@ def applied_record(
         reports = dict(attempt.outcome.effects.reports)
         if "inference" not in reports:
             report = _report(read_model(store, state.current["model"].revision)).revised(
-                run=result.result,
+                evidence=result.result
             )
             reports["inference"] = store.write_report(report)
         if "checks" not in reports:
             reports["checks"] = store.write_report(
-                ModelCheckReport(
-                    specification=(),
-                    question=QuestionCheckReport(
-                        question_revision=state.current["question"].revision,
-                        data=result.result.data,
-                        findings=(),
-                    ),
-                )
-            )
-        if "validation" not in reports:
-            reports["validation"] = store.write_report(
-                ValidationReportArtifact(
-                    data=DataProfileArtifact(indicators={}, dataset_issues=()),
+                FitCheckReport(
+                    data=DataProfileReport(indicators={}, findings=()),
+                    preflight=(),
+                    question=QuestionCheckReport(findings=()),
                 )
             )
         attempt = attempt.revised(
             outcome=attempt.outcome.revised(
                 effects=attempt.outcome.effects.revised(reports=reports),
+            )
+        )
+    assert isinstance(attempt.outcome, Applied)
+    if (
+        isinstance(result.result, ModelEditResult)
+        and "checks" not in attempt.outcome.effects.reports
+    ):
+        checks, identification = evaluate_model_checks(
+            workspace_id, state, result, action="edit_model"
+        )
+        attempt = attempt.revised(
+            outcome=attempt.outcome.revised(
+                effects=attempt.outcome.effects.revised(
+                    reports={
+                        **attempt.outcome.effects.reports,
+                        "checks": store.write_report(checks),
+                        "identification": store.write_report(identification),
+                    }
+                )
             )
         )
     output = build_output(workspace_id, attempt, state)

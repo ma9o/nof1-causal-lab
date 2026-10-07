@@ -1,6 +1,6 @@
 # Parameters and Priors
 
-Defines the parameter roles, prior vocabulary, and default guidance for `ParameterSpec` entries with native priors in a `ModelSpec`.
+Defines the parameter roles, prior vocabulary, and default guidance for `ParameterSpec` entries with native priors in a `DynamicalModelSpec`.
 
 A [parameter transform](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/parameter_spec.py) owns its scale choice. `identity` and `initial_state_correlation` have only a `kind`. `dt_persistence_to_ct_decay` and `dt_effect_to_ct_rate` require `interval_days`, either a positive finite duration or the explicit string `model_clock`. The [compiler](../../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/compile/prior_compilation.py) resolves that clock and transforms the full probability law.
 

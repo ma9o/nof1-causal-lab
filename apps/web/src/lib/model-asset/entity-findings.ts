@@ -15,14 +15,14 @@ const messages = new WeakMap<
 
 /** Format retained verdicts by the model's declared coefficient references. */
 export function recordedEntityFailures(
-  model: ModelSnapshot,
+  modelSnapshot: ModelSnapshot,
 ): Readonly<Partial<Record<ConstructId | EdgeId | IndicatorId, readonly string[]>>> {
-  const cached = messages.get(model);
+  const cached = messages.get(modelSnapshot);
   if (cached) return cached;
-  const fit = model.fit;
-  const entities = indexModel(model.model);
+  const fit = modelSnapshot.fit;
+  const entities = indexModel(modelSnapshot.dynamical_model_spec);
   const convergence = (parameters: readonly ParameterId[]) =>
-    (fit?.convergence.assessments ?? []).flatMap((finding) =>
+    (fit?.convergence.findings ?? []).flatMap((finding) =>
       finding.kind === "evaluated" &&
       finding.outcome === "failed" &&
       typeof finding.subject !== "string" &&
@@ -33,14 +33,16 @@ export function recordedEntityFailures(
   const indicators = Object.fromEntries(
     entities.indicators.map((indicator) => {
       const issues = [
-        ...(model.profile?.indicators[indicator.observation.id]?.issues ?? []),
-        ...(model.validation_report?.data.indicators[indicator.observation.id]?.issues ?? []),
+        ...(modelSnapshot.profile?.indicators[indicator.observation.id]?.findings ?? []),
+        ...(modelSnapshot.fit_checks?.data.indicators[indicator.observation.id]?.findings ?? []),
       ];
       return [
         indicator.observation.id,
         [
           ...convergence(ownLawUses(indicator).map((use) => use.parameterId)),
-          ...(issues.some((issue) => issue.severity !== "info")
+          ...(issues.some(
+            (finding) => finding.kind === "not_evaluated" || finding.outcome === "failed",
+          )
             ? [`Data quality: ${indicator.observation.name}`]
             : []),
         ],
@@ -77,6 +79,6 @@ export function recordedEntityFailures(
       }),
     ),
   };
-  messages.set(model, result);
+  messages.set(modelSnapshot, result);
   return result;
 }

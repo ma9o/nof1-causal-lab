@@ -1,6 +1,6 @@
 """Inference backends for SSM models.
 
-Separates inference from model definition. CompiledModel owns the numerical model; this module provides fit() to run inference with the supported backends.
+Separates inference from model definition. CompiledDynamicalModel owns the numerical model; this module provides fit() to run inference with the supported backends.
 
 Method:
 - Marginalized Particle Gibbs: collapsed joint parameter/trajectory updates
@@ -86,7 +86,7 @@ def prior_predictive(
     )
 
     return sample_prior_predictive_from_runtime(
-        panel.model,
+        panel.compiled_dynamical_model,
         priors,
         panel.times,
         num_samples=num_samples,

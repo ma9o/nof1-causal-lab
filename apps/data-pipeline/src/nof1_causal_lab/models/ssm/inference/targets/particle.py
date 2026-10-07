@@ -34,7 +34,7 @@ class ParticleTarget:
 
     parameters: ParameterTransform
     context: Callable[[jax.Array, jax.Array], ParticleContext]
-    model: Callable[[ParticleContext], dsx.DynamicalModel]
+    dynamical_model: Callable[[ParticleContext], dsx.DynamicalModel]
     observations: jax.Array
     times: jax.Array
     density_indices: tuple[int, ...] | None = None
@@ -50,7 +50,7 @@ class ParticleTarget:
 
     def initial_moments(self, context):
         """Return the exact model's Gaussian initial-state mean and covariance for this context."""
-        distribution = self.model(context).initial_condition
+        distribution = self.dynamical_model(context).initial_condition
         assert isinstance(
             distribution, dist.MultivariateNormal
         )  # The exact model producer declares a Gaussian initial law.
@@ -58,7 +58,7 @@ class ParticleTarget:
 
     def initial_log_prob(self, context, state):
         """Evaluate initial-state density on the modeled coordinates of the supplied state."""
-        return self._modeled_log_prob(self.model(context).initial_condition, state)
+        return self._modeled_log_prob(self.dynamical_model(context).initial_condition, state)
 
     def _modeled_log_prob(self, distribution, state):
         indices = jnp.asarray(
@@ -73,7 +73,7 @@ class ParticleTarget:
 
     def _transition_distribution(self, context, previous, index):
         times = context[1]
-        evolution = cast("DiscreteStateTransition", self.model(context).state_evolution)
+        evolution = cast("DiscreteStateTransition", self.dynamical_model(context).state_evolution)
         return evolution(previous, None, times[jnp.maximum(index - 1, 0)], times[index])
 
     def transition_log_prob(self, context, previous, current, index):
@@ -98,7 +98,7 @@ class ParticleTarget:
 
     def initial_path(self, context, *, exact_constraints: ExactStateConstraints | None = None):
         """Build an initialization path from successive transition means and any exact state constraints."""
-        initial = jnp.asarray(self.model(context).initial_condition.mean)
+        initial = jnp.asarray(self.dynamical_model(context).initial_condition.mean)
         if exact_constraints is not None:
             initial = jnp.where(
                 exact_constraints.free_mask[0], initial, exact_constraints.values[0]
@@ -117,7 +117,9 @@ class ParticleTarget:
 
     def observation_increment(self, context, state, index, observations):
         """Sum observation log probabilities at one time index for the supplied latent state."""
-        distribution = self.model(context).observation_model(state, None, context[1][index])
+        distribution = self.dynamical_model(context).observation_model(
+            state, None, context[1][index]
+        )
         return jnp.sum(distribution.log_prob(observations[index]))
 
     def observation_log_probs(self, context, path, observations):

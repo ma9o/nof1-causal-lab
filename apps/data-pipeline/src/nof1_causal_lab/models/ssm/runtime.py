@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import IndicatorId
     from nof1_causal_lab.models.ssm.compile.inputs import (
         CompilationFailure,
-        CompiledModel,
+        CompiledDynamicalModel,
         FitCompilationResult,
     )
 
@@ -56,18 +56,18 @@ def reading_level(
 
 
 def input_trajectory_events(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     *,
-    time_origin: datetime | None,
+    time_origin: datetime,
     start: float,
     end: float,
 ) -> tuple[ResolvedIntervention, ...] | ObservationPreflightFailure:
     """Resolve model-owned step functions on the execution clock, holding their final value."""
     events = []
-    for trajectory in spec.input_trajectories:
+    for trajectory in compiled_dynamical_model.input_trajectories:
         origin = trajectory.layout.time_origin
         offset = (
-            ObservationInstant(origin).relative_to(ObservationInstant.origin(time_origin)).days
+            ObservationInstant(origin).relative_to(ObservationInstant(time_origin)).days
             if not isinstance(origin, str)
             else 0.0
         )
@@ -75,7 +75,7 @@ def input_trajectory_events(
         index = int(np.searchsorted(times, start, side="right")) - 1
         if index < 0:
             return ObservationPreflightFailure.rejected(
-                f"Input {spec.states[trajectory.index].name!r} has no value at the start of the requested history"
+                f"Input {compiled_dynamical_model.states[trajectory.index].name!r} has no value at the start of the requested history"
             )
         points = (
             (start, trajectory.values[index]),
@@ -96,13 +96,15 @@ def input_trajectory_events(
 
 
 def input_trajectory_values(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     times: np.ndarray | jax.Array | Sequence[float],
     events: tuple[ResolvedIntervention, ...],
 ) -> jnp.ndarray:
     """Expand deterministic input paths on the execution grid; endogenous states stay unknown."""
     grid = np.asarray(times)
-    values = np.full((len(grid), numeric.n_states(spec)), np.nan, dtype=grid.dtype)
+    values = np.full(
+        (len(grid), numeric.n_states(compiled_dynamical_model)), np.nan, dtype=grid.dtype
+    )
     for event in events:
         values[grid >= np.asarray(event.spec.time, dtype=grid.dtype), event.index] = (
             event.spec.value
@@ -147,7 +149,7 @@ def _standardize_manifest_columns(
 class BoundPanel:
     """Immutable observations and exogenous bindings on one compiled model's axes."""
 
-    model: CompiledModel
+    compiled_dynamical_model: CompiledDynamicalModel
     rows: pa.Table
     time_origin: datetime
     values: jax.Array
@@ -159,7 +161,7 @@ class BoundPanel:
     @property
     def indicator_ids(self) -> tuple[IndicatorId, ...]:
         """Observation identities in the column order used by this bound panel."""
-        return tuple(observation.id for observation in self.model.observations)
+        return tuple(observation.id for observation in self.compiled_dynamical_model.observations)
 
     @property
     def observation_mask(self) -> jax.Array:
@@ -171,8 +173,8 @@ class BoundPanel:
         """Only endogenous measurements contribute to the fitted likelihood."""
         input_columns = jnp.asarray(
             tuple(
-                self.model.states[observation.state_index].is_input
-                for observation in self.model.observations
+                self.compiled_dynamical_model.states[observation.state_index].is_input
+                for observation in self.compiled_dynamical_model.observations
             )
         )
         return jnp.where(input_columns[None, :], jnp.nan, self.values)
@@ -197,25 +199,29 @@ def prepare_fit(
     inputs: FitCompilationResult,
     observations: ObservationDataset,
     *,
-    time_origin: datetime | None,
+    time_origin: datetime,
 ) -> PreparedFit | CompilationFailure | PanelPreparationFailure:
     """Forward compilation failures or bind the resolved fitting inputs once."""
     if not isinstance(inputs, CompiledFitInputs):
         return inputs
-    panel = bind_panel(observations, model=inputs.compiled, time_origin=time_origin)
+    panel = bind_panel(
+        observations,
+        compiled_dynamical_model=inputs.compiled_dynamical_model,
+        time_origin=time_origin,
+    )
     if isinstance(panel, PanelPreparationFailure):
         return panel
     return PreparedFit(inputs, panel)
 
 
 def prepare_fit_inputs(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     wide_data: pl.DataFrame,
 ) -> tuple[jnp.ndarray, jnp.ndarray, tuple[str, ...], pl.DataFrame]:
     """Extract numerical observations on the explicit bound time grid."""
-    manifest_cols = numeric.observation_names(spec)
+    manifest_cols = numeric.observation_names(compiled_dynamical_model)
     standardized_data = _standardize_manifest_columns(
-        wide_data, manifest_cols, numeric.observation_standardized(spec)
+        wide_data, manifest_cols, numeric.observation_standardized(compiled_dynamical_model)
     )
     observations = jnp.array(standardized_data.select(manifest_cols).to_numpy(), dtype=jnp.float32)
     times = jnp.array(standardized_data["time"].to_numpy(), dtype=jnp.float32)
@@ -225,51 +231,58 @@ def prepare_fit_inputs(
 def bind_panel(
     observations: ObservationDataset,
     *,
-    model: CompiledModel,
-    time_origin: datetime | None,
+    compiled_dynamical_model: CompiledDynamicalModel,
+    time_origin: datetime,
 ) -> BoundPanel | PanelPreparationFailure:
     """Own compatibility once, retaining the exact identity-bearing input rows."""
     observation_selection = observations.select(
-        tuple(item.observation for item in model.observations)
+        tuple(item.observation for item in compiled_dynamical_model.observations)
     )
     if not isinstance(observation_selection, SelectedObservations):
         return PanelPreparationFailure(observation_selection.message)
     data_for_model = observation_selection.frame
-    time_origin = ObservationInstant.origin(time_origin).value
+    time_origin = ObservationInstant(time_origin).value
     if data_for_model.is_empty():
         return PanelPreparationFailure("Cannot bind an empty observation panel")
-    projected = project_observation_data(data_for_model, model_spec=model, time_origin=time_origin)
+    projected = project_observation_data(
+        data_for_model, compiled_dynamical_model=compiled_dynamical_model, time_origin=time_origin
+    )
     if isinstance(projected, ObservationPreflightFailure):
         return PanelPreparationFailure(projected.message)
     wide, selected = projected
     rows = selected
-    labels = {observation.id: observation.name for observation in model.observations}
+    labels = {
+        observation.id: observation.name for observation in compiled_dynamical_model.observations
+    }
     support_rows = rows.with_columns(
         pl.col("indicator_id").replace_strict(labels).alias("indicator")
     )
     wide = augment_wide_data_with_support_boundaries(support_rows, wide, time_origin=time_origin)
-    support_failure = validate_observation_support(model, wide)
+    support_failure = validate_observation_support(compiled_dynamical_model, wide)
     if support_failure is not None:
         return PanelPreparationFailure(support_failure.message)
     events = input_trajectory_events(
-        model, time_origin=time_origin, start=float(wide["time"][0]), end=float(wide["time"][-1])
+        compiled_dynamical_model,
+        time_origin=time_origin,
+        start=float(wide["time"][0]),
+        end=float(wide["time"][-1]),
     )
     if isinstance(events, ObservationPreflightFailure):
         return PanelPreparationFailure(events.message)
     if events:
         boundaries = pl.DataFrame({"time": sorted({event.spec.time for event in events})})
         wide = wide.join(boundaries, on="time", how="full", coalesce=True).sort("time")
-    values, times, names, wide = prepare_fit_inputs(model, wide)
+    values, times, names, wide = prepare_fit_inputs(compiled_dynamical_model, wide)
     support = compile_observation_support_runtime(
         support_rows, wide, names, time_origin=time_origin
     )
     if isinstance(support, ObservationPreflightFailure):
         return PanelPreparationFailure(support.message)
-    input_values = input_trajectory_values(model, times, events)
+    input_values = input_trajectory_values(compiled_dynamical_model, times, events)
     channels = tuple(
         index
-        for index, observation in enumerate(model.observations)
-        if model.states[observation.state_index].is_input
+        for index, observation in enumerate(compiled_dynamical_model.observations)
+        if compiled_dynamical_model.states[observation.state_index].is_input
     )
     if channels:
         from nof1_causal_lab.models.ssm.execution.observation_operator import (
@@ -277,7 +290,9 @@ def bind_panel(
         )
 
         operator = compile_observation_operator(support, held_channels=channels)
-        response = input_values[:, jnp.asarray([item.state_index for item in model.observations])]
+        response = input_values[
+            :, jnp.asarray([item.state_index for item in compiled_dynamical_model.observations])
+        ]
         expected, _ = operator.project_response_trajectory(response)
         for channel in channels:
             recorded = np.asarray(values[:, channel])
@@ -286,18 +301,28 @@ def bind_panel(
             )
             if not consistent.all():
                 return PanelPreparationFailure(
-                    f"Exact readings for {model.observations[channel].name!r} conflict with its deterministic trajectory law"
+                    f"Exact readings for {compiled_dynamical_model.observations[channel].name!r} conflict with its deterministic trajectory law"
                 )
     return BoundPanel(
-        model, selected.to_arrow(), time_origin, values, times, support, input_values, events
+        compiled_dynamical_model,
+        selected.to_arrow(),
+        time_origin,
+        values,
+        times,
+        support,
+        input_values,
+        events,
     )
 
 
 def project_observation_data(
-    data_for_model: pl.DataFrame, *, model_spec: CompiledModel, time_origin: datetime | None
+    data_for_model: pl.DataFrame,
+    *,
+    compiled_dynamical_model: CompiledDynamicalModel,
+    time_origin: datetime,
 ) -> tuple[pl.DataFrame, pl.DataFrame] | ObservationPreflightFailure:
     """Project selected identities to display columns without changing the exact rows."""
-    labels = {indicator.id: indicator.name for indicator in model_spec.observations}
+    labels = {indicator.id: indicator.name for indicator in compiled_dynamical_model.observations}
     selected = data_for_model.filter(pl.col("indicator_id").is_in(list(labels)))
     present = set(selected["indicator_id"])
     missing = [

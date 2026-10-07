@@ -24,27 +24,27 @@ from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
 from nof1_causal_lab.actions.io import DataDiffOutput, ModelDiffOutput
 from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.actions.results import ActionPoll
-from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, GitOid
 from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
+from nof1_causal_lab.artifacts.observation_history import (
+    ObservationHistory,
+)
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
 )
 from nof1_causal_lab.study.records import StudyRevision
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
-from nof1_causal_lab.study.visual_models import (
-    ObservationHistory,
-)
 from nof1_causal_lab.study_api import (
     TimelineResponse,
     TimelineRevision,
 )
 from nof1_causal_lab.utils.llm import LLMTrace
+from scripts.artifact_contracts import ARTIFACT_CONTRACTS
 from scripts.codegen.type_system_catalog import (
     ContractJsonSchema,
     annotate_definitions,

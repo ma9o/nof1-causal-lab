@@ -6,35 +6,38 @@ from functools import cache, cached_property
 from typing import TYPE_CHECKING, cast
 
 from nof1_causal_lab.actions.io import EditModelOutput, FitOutput, PrepareDataOutput, SimulateOutput
-from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, StudyRevision
+from nof1_causal_lab.study.records import Applied, StudyRevision, inference_record
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
-from nof1_causal_lab.study.store import ArtifactStore, read_payload
+from nof1_causal_lab.study.store import ArtifactStore, read_model
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import (
         ArtifactId,
         EntityRef,
+        GitOid,
         IndicatorId,
     )
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.observation_history import (
+        ObservationHistory,
+    )
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.artifacts.posterior import InferenceReport, InferenceReportCore
+    from nof1_causal_lab.artifacts.posterior import (
+        FitCheckReport,
+        InferenceReport,
+        InferenceReportCore,
+    )
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.artifacts.validation_report import (
-        DataProfileArtifact,
-        ValidationReportArtifact,
+        DataProfileReport,
     )
     from nof1_causal_lab.study.state import StudyState
-    from nof1_causal_lab.study.visual_models import (
-        ObservationHistory,
-    )
 
 
 class ModelReader:
@@ -83,10 +86,18 @@ class ModelReader:
         return self.records[-1].record.seq if self.records else 0
 
     def _selected(self, artifact_id: ArtifactId) -> object:
-        return read_payload(
-            self.store,
-            artifact_id,
-            self.state.current[artifact_id].revision,
+        from pydantic import TypeAdapter
+
+        from nof1_causal_lab.study.artifact_files import artifact_file_spec
+        from scripts.artifact_contracts import ARTIFACT_CONTRACTS
+
+        revision = self.state.current[artifact_id].revision
+        if artifact_id == "model":
+            return read_model(self.store, revision)
+        filename = next(iter(artifact_file_spec(artifact_id).json_files.values()))
+        return TypeAdapter(ARTIFACT_CONTRACTS[artifact_id]).validate_python(
+            self.store.read_json_file(artifact_id, revision, filename),
+            context={"distribution_array_loader": cache(self.store.read_array)},
         )
 
     @cached_property
@@ -97,34 +108,43 @@ class ModelReader:
         )
 
     @cached_property
-    def model(self) -> ModelSpec | None:
+    def dynamical_model_spec(self) -> DynamicalModelSpec | None:
         """Selected scientific model definition, or ``None`` before a model is available."""
-        return cast("ModelSpec", self.selected("model")) if self.state.has("model") else None
+        return (
+            cast("DynamicalModelSpec", self.selected("model")) if self.state.has("model") else None
+        )
 
     def constructs(self) -> tuple[ConstructSpec, ...]:
         """Return the selected model's constructs, or an empty tuple without a model."""
-        return self.model.constructs if self.model else ()
+        return self.dynamical_model_spec.constructs if self.dynamical_model_spec else ()
 
     def edges(self) -> tuple[CausalEdgeSpec, ...]:
         """Return the selected model's causal edges, or an empty tuple without a model."""
-        return self.model.edges if self.model else ()
+        return self.dynamical_model_spec.edges if self.dynamical_model_spec else ()
 
     def indicators(self) -> tuple[IndicatorSpec, ...]:
         """Return the selected model's observation indicators, or an empty tuple without a model."""
-        return self.model.indicators if self.model else ()
+        return self.dynamical_model_spec.indicators if self.dynamical_model_spec else ()
 
     def parameters(self, owner: EntityRef | None = None) -> tuple[ParameterSpec, ...]:
         """Return model parameters, optionally restricted to those owned by a scientific entity."""
-        if self.model is None:
+        if self.dynamical_model_spec is None:
             return ()
-        return self.model.parameters if owner is None else self.model.parameters_for(owner.id)
+        return (
+            self.dynamical_model_spec.parameters
+            if owner is None
+            else self.dynamical_model_spec.parameters_for(owner.id)
+        )
+
+    @cached_property
+    def _fit_record(self) -> StudyRevision | None:
+        model = self.state.get("model")
+        return inference_record(self.records, model.revision) if model is not None else None
 
     @cached_property
     def fit_result(self) -> FitOutput | None:
         """The saved fit that produced the selected model."""
-        from nof1_causal_lab.study.lineage import inference_report_record
-
-        record = inference_report_record(self.records, self.state)
+        record = self._fit_record
         if record is None:
             return None
         assert isinstance(record.record.attempt.outcome, Applied)
@@ -133,19 +153,13 @@ class ModelReader:
     @cached_property
     def fit_for_selected_data(self) -> FitOutput | None:
         """Select model/data findings only while their conditioning history is selected."""
-        from nof1_causal_lab.artifacts.data_ref import DataRef
-        from nof1_causal_lab.study.lineage import inference_report_record
-
-        record = inference_report_record(self.records, self.state)
+        record = self._fit_record
         if record is None:
             return None
         attempt = record.record.attempt
         assert attempt.action == "fit"
         assert attempt.request is not None
-        selected = DataRef[GitOid, int](
-            revision=attempt.request.input.data_ref,
-            replicate_index=attempt.request.input.replicate_index,
-        )
+        selected = attempt.request.input.data_ref
         return self.fit_result if selected == self.state.data else None
 
     def model_output(self) -> EditModelOutput | None:
@@ -209,7 +223,7 @@ class ModelReader:
         return self.prepared_result.metadata if self.prepared_result is not None else None
 
     @property
-    def data_profile(self) -> DataProfileArtifact | None:
+    def data_profile(self) -> DataProfileReport | None:
         """Data-quality findings owned by the selected preparation."""
         return self.prepared_result.profile if self.prepared_result is not None else None
 
@@ -219,19 +233,14 @@ class ModelReader:
         return self.fit_result.inference if self.fit_result is not None else None
 
     @property
-    def validation_report(self) -> ValidationReportArtifact | None:
+    def fit_checks(self) -> FitCheckReport | None:
         """Model/data findings retained by the owning fit."""
-        return (
-            self.fit_for_selected_data.checks.validation
-            if self.fit_for_selected_data is not None
-            else None
-        )
+        return self.fit_for_selected_data.checks if self.fit_for_selected_data is not None else None
 
     def identification(self) -> IdentificationReport | None:
         """Identification findings retained by the model edit."""
         result = self.model_output()
         return result.identification if result is not None else None
-
 
     def fit(self) -> InferenceReportCore | None:
         """Select the owning fit's recorded scientific summaries."""
@@ -264,7 +273,7 @@ class ModelReader:
 
     def snapshot(self) -> ModelSnapshot:
         """Compose stored values by their action ownership for the workbench."""
-        model = self.model_output()
+        model_output = self.model_output()
         fit = self.fit_for_selected_data
         return ModelSnapshot(
             workspace_id=self.workspace_id,
@@ -272,17 +281,19 @@ class ModelReader:
             selected_seq=self.seq,
             state=self.state,
             question=self.question,
-            model=self.model,
+            dynamical_model_spec=self.dynamical_model_spec,
             metadata=self.data_metadata,
             profile=self.data_profile,
-            identification=model.identification if model else None,
-            validation_report=self.validation_report,
+            identification=model_output.identification if model_output else None,
+            fit_checks=self.fit_checks,
             fit=self.fit(),
-            specification=model.checks.specification if model and model.checks else None,
+            specification=model_output.checks.specification
+            if model_output and model_output.checks
+            else None,
             question_checks=fit.checks.question
             if fit
-            else model.checks.question
-            if model and model.checks
+            else model_output.checks.question
+            if model_output and model_output.checks
             else None,
             simulation=self.simulation(),
         )

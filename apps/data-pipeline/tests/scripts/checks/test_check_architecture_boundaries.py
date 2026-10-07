@@ -88,7 +88,7 @@ if typing.TYPE_CHECKING:
         "dict[str, object]",
         "Options",
         "SamplerSpec | None",
-        "ModelSpec",
+        "DynamicalModelSpec",
         "ObservationLawSpec",
         "LikelihoodSpec",
         "pl.DataFrame",
@@ -105,7 +105,7 @@ def test_execution_rejects_partial_sampler_inputs(tmp_path: Path, annotation: st
 from typing import TypedDict
 import polars as pl
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec, LikelihoodSpec
 from nof1_causal_lab.sampler_config import SamplerSpec
 type SettingsAlias = FitSettingsSpec

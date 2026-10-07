@@ -8,21 +8,23 @@ from nof1_causal_lab.models.model_structure import reference_indicators
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.duration import Duration
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
 def get_reference_indicator_lookup(selection: StructuralSelection) -> dict[str, str]:
     """Return retained construct name to its planned reference indicator name."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     return {
-        model._constructs[construct_id].name: (model.indicator(indicator_id).observation.name)
+        dynamical_model_spec._constructs[construct_id].name: (
+            dynamical_model_spec.indicator(indicator_id).observation.name
+        )
         for construct_id, indicator_id in reference_indicators(selection).items()
     }
 
 
-def get_model_clock(model: ModelSpec) -> Duration:
+def get_model_clock(dynamical_model_spec: DynamicalModelSpec) -> Duration:
     """Require a measurement-ready model and return its authored clock duration."""
-    model.require_measurements()
-    assert model.measurement_clock is not None
-    return model.measurement_clock
+    dynamical_model_spec.require_measurements()
+    assert dynamical_model_spec.measurement_clock is not None
+    return dynamical_model_spec.measurement_clock

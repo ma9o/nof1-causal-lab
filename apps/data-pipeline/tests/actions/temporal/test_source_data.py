@@ -85,5 +85,5 @@ def test_parquet_preserves_authored_column_metadata(tmp_path, monkeypatch):
 def test_unprepared_sources_are_rejected(tmp_path, monkeypatch, filename, content, reason):
     result = _read_sources(tmp_path, monkeypatch, {f"input/{filename}": content})
     assert isinstance(result, Rejected)
-    assert result.reason == "scientific_inputs"
+    assert result.code == "SOURCE_INVALID"
     assert reason in result.detail

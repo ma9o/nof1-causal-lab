@@ -1592,8 +1592,8 @@
           "id": "TJzrnsJJTnbLNt2mvnKTX"
         },
         {
-          "id": "to-valid",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-valid"
         }
       ],
       "updated": 1791289079710,
@@ -1812,16 +1812,16 @@
           "id": "20rRRek9Z9eTBQm-CMpaj"
         },
         {
-          "id": "valid-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "valid-no"
         },
         {
-          "id": "to-valid",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-valid"
         },
         {
-          "id": "to-call-saved",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-saved"
         }
       ],
       "updated": 1791289079710,
@@ -1898,8 +1898,8 @@
           "id": "zc93IZaNo4v-fQMMMXuKR"
         },
         {
-          "id": "valid-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "valid-no"
         }
       ],
       "updated": 1791289079710,
@@ -1974,16 +1974,16 @@
           "id": "RTLiwXtnhcABze0rSTeAT"
         },
         {
-          "id": "to-call-saved",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-saved"
         },
         {
-          "id": "call-saved-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-saved-yes"
         },
         {
-          "id": "to-writable",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-writable"
         }
       ],
       "updated": 1791289079710,
@@ -2060,8 +2060,8 @@
           "id": "pCCOGDAqXe7AsrMykQUr6"
         },
         {
-          "id": "call-saved-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-saved-yes"
         }
       ],
       "updated": 1791289079710,
@@ -2136,16 +2136,16 @@
           "id": "0dUS4I4y6QrD9ZmPO5lrF"
         },
         {
-          "id": "writable-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "writable-no"
         },
         {
-          "id": "to-writable",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-writable"
         },
         {
-          "id": "to-call-running",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-running"
         }
       ],
       "updated": 1791289079710,
@@ -2222,8 +2222,8 @@
           "id": "b2IstwMxkYLr93-Evngao"
         },
         {
-          "id": "writable-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "writable-no"
         }
       ],
       "updated": 1791289079710,
@@ -2298,16 +2298,16 @@
           "id": "Jl6zIDyW50ZGzwMViYSU8"
         },
         {
-          "id": "to-call-running",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-running"
         },
         {
-          "id": "call-running-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-running-yes"
         },
         {
-          "id": "to-accepted",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-accepted"
         }
       ],
       "updated": 1791289079710,
@@ -2384,8 +2384,8 @@
           "id": "LSr7p6Mmc_kEAoA7wffOd"
         },
         {
-          "id": "call-running-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-running-yes"
         }
       ],
       "updated": 1791289079710,
@@ -2460,16 +2460,16 @@
           "id": "pZLKSOLbQ7aDSeC2FRzwS"
         },
         {
-          "id": "accepted-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "accepted-no"
         },
         {
-          "id": "to-accepted",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-accepted"
         },
         {
-          "id": "to-inputs",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-inputs"
         }
       ],
       "updated": 1791289079710,
@@ -2546,8 +2546,8 @@
           "id": "i6CnANODKGZ1ubyfl37WI"
         },
         {
-          "id": "accepted-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "accepted-no"
         }
       ],
       "updated": 1791289079710,
@@ -2622,16 +2622,16 @@
           "id": "Aid4wot5MAtZE6MXZjpCk"
         },
         {
-          "id": "inputs-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "inputs-no"
         },
         {
-          "id": "to-inputs",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-inputs"
         },
         {
-          "id": "to-write",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-write"
         }
       ],
       "updated": 1791289079710,
@@ -2708,8 +2708,8 @@
           "id": "VXoKYijj0MYLLWWSjm8gc"
         },
         {
-          "id": "inputs-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "inputs-no"
         }
       ],
       "updated": 1791289079710,
@@ -2786,8 +2786,8 @@
           "id": "xQSOvPOUcN3ReucP-0W-F"
         },
         {
-          "id": "question-to-write",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-to-write"
         }
       ],
       "updated": 1791289079710,
@@ -2827,8 +2827,8 @@
           "id": "lkxcwZRh00ahmeX9FgRL9"
         },
         {
-          "id": "to-spec",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-spec"
         }
       ],
       "updated": 1791289079710,
@@ -2866,12 +2866,12 @@
           "id": "_6F-3KHM7J8YU8hof-z8h"
         },
         {
-          "id": "to-spec",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-spec"
         },
         {
-          "id": "spec-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "spec-yes"
         }
       ],
       "updated": 1791289079710,
@@ -2911,8 +2911,8 @@
           "id": "8m_f6gImqUAH6AdAtdiMa"
         },
         {
-          "id": "spec-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "spec-yes"
         }
       ],
       "updated": 1791289079710,
@@ -2989,8 +2989,8 @@
           "id": "KO4bh-fKrhQ5f4pRGvgJF"
         },
         {
-          "id": "to-passed",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-passed"
         }
       ],
       "updated": 1791289079710,
@@ -3028,16 +3028,16 @@
           "id": "BTz76SZFxpQY11kOjJUC9"
         },
         {
-          "id": "to-passed",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-passed"
         },
         {
-          "id": "passed-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "passed-no"
         },
         {
-          "id": "passed-yes-trunk",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "passed-yes-trunk"
         }
       ],
       "updated": 1791289079710,
@@ -3114,12 +3114,12 @@
           "id": "i14xYECD18Pu8SCWPzHFK"
         },
         {
-          "id": "passed-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "passed-no"
         },
         {
-          "id": "not-executable-lane",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "not-executable-lane"
         }
       ],
       "updated": 1791289079710,
@@ -3196,8 +3196,8 @@
           "id": "9n9Fv-WMjf41GGgJjXpxQ"
         },
         {
-          "id": "passed-yes-0",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "passed-yes-0"
         }
       ],
       "updated": 1791289079710,
@@ -3274,8 +3274,8 @@
           "id": "ihHjPqyG7fBFEZkdX5bpV"
         },
         {
-          "id": "spec-out-0",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "spec-out-0"
         }
       ],
       "updated": 1791289079710,
@@ -3315,8 +3315,8 @@
           "id": "Vc1cNUPYD-3gJSujoKdve"
         },
         {
-          "id": "passed-yes-1",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "passed-yes-1"
         }
       ],
       "updated": 1791289079710,
@@ -3393,8 +3393,8 @@
           "id": "DhV_SBTu9Yn1OcGsqKkSd"
         },
         {
-          "id": "spec-out-1",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "spec-out-1"
         }
       ],
       "updated": 1791289079710,
@@ -3456,16 +3456,16 @@
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "spec-out-into",
-          "type": "arrow"
-        },
-        {
           "type": "text",
           "id": "3lEU1TJL52gFgimtkds_l"
         },
         {
-          "id": "ident-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "spec-out-into"
+        },
+        {
+          "type": "arrow",
+          "id": "ident-yes"
         }
       ],
       "updated": 1791289079710,
@@ -3505,12 +3505,16 @@
           "id": "R-gaMuPAb2yWyvORPENE8"
         },
         {
-          "id": "ident-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "ident-yes"
         },
         {
-          "id": "identify-each",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "identify-each"
+        },
+        {
+          "type": "arrow",
+          "id": "identify-each"
         }
       ],
       "updated": 1791289079710,
@@ -3585,6 +3589,10 @@
         {
           "type": "text",
           "id": "mGclhaRBX_t2SY9cAx_e-"
+        },
+        {
+          "type": "arrow",
+          "id": "to-question"
         }
       ],
       "updated": 1791289079710,
@@ -4557,9 +4565,9 @@
     {
       "id": "TJzrnsJJTnbLNt2mvnKTX",
       "type": "text",
-      "x": 662.13671875,
+      "x": 600.32421875,
       "y": 83.5,
-      "width": 315.7265625,
+      "width": 439.3515625,
       "height": 104,
       "angle": 0,
       "strokeColor": "#172033",
@@ -4580,13 +4588,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "POST {action, input, reasoning}\ninput: model · parent_ref (question or model)\nreasoning optional; excluded from call_id\nlatest: current model, otherwise question\nGET /{action}/{call_id} reads the same call",
+      "text": "POST {action, input, reasoning}\ninput: dynamical_model_spec \u00b7 parent_ref (question or model)\nreasoning optional; excluded from call_id\nlatest: current model, otherwise question\nGET /{action}/{call_id} reads the same call",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "request-body",
-      "originalText": "POST {action, input, reasoning}\ninput: model · parent_ref (question or model)\nreasoning optional; excluded from call_id\nlatest: current model, otherwise question\nGET /{action}/{call_id} reads the same call",
+      "originalText": "POST {action, input, reasoning}\ninput: dynamical_model_spec \u00b7 parent_ref (question or model)\nreasoning optional; excluded from call_id\nlatest: current model, otherwise question\nGET /{action}/{call_id} reads the same call",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b12"
@@ -5137,13 +5145,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "status: running · commit_id: null · body: null\nmessages: accumulated log, progress and traces",
+      "text": "status: running \u00b7 commit_id: null \u00b7 body: null\nmessages: accumulated log, progress and traces",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "running-result-body",
-      "originalText": "status: running · commit_id: null · body: null\nmessages: accumulated log, progress and traces",
+      "originalText": "status: running \u00b7 commit_id: null \u00b7 body: null\nmessages: accumulated log, progress and traces",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1H"
@@ -5322,13 +5330,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "no receipt · nothing saved",
+      "text": "no receipt \u00b7 nothing saved",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "accepted-error-outcome",
-      "originalText": "no receipt · nothing saved",
+      "originalText": "no receipt \u00b7 nothing saved",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1M"
@@ -5470,13 +5478,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "inputs-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1Q"
@@ -5655,13 +5663,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "completeness · references · measurements",
+      "text": "completeness \u00b7 references \u00b7 measurements",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "execution-body",
-      "originalText": "completeness · references · measurements",
+      "originalText": "completeness \u00b7 references \u00b7 measurements",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1Y"
@@ -5669,9 +5677,9 @@
     {
       "id": "KO4bh-fKrhQ5f4pRGvgJF",
       "type": "text",
-      "x": 666.19140625,
+      "x": 622.0,
       "y": 2291,
-      "width": 307.6171875,
+      "width": 396.0,
       "height": 39,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -5685,20 +5693,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 697581651,
-      "version": 4,
+      "version": 5,
       "versionNonce": 1010443106,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "incomplete → warn MODEL_INCOMPLETE\ninvalid → warn MODEL_NOT_EXECUTABLE",
+      "text": "incomplete \u2192 NotEvaluated \u00b7 invalid \u2192 failed\nwarning with code model_execution",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "execution-outcome",
-      "originalText": "incomplete → warn MODEL_INCOMPLETE\ninvalid → warn MODEL_NOT_EXECUTABLE",
+      "originalText": "incomplete \u2192 NotEvaluated \u00b7 invalid \u2192 failed\nwarning with code model_execution",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1Z"
@@ -5840,13 +5848,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "fit_laws · DT-to-CT do not run",
+      "text": "fit_laws \u00b7 DT-to-CT do not run",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "not-executable-outcome",
-      "originalText": "fit_laws · DT-to-CT do not run",
+      "originalText": "fit_laws \u00b7 DT-to-CT do not run",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1d"
@@ -5914,13 +5922,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "compile the priors: bindings · support\nfitting-engine capability",
+      "text": "compile the priors: bindings \u00b7 support\nfitting-engine capability",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "fit-laws-body",
-      "originalText": "compile the priors: bindings · support\nfitting-engine capability",
+      "originalText": "compile the priors: bindings \u00b7 support\nfitting-engine capability",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1f"
@@ -5928,9 +5936,9 @@
     {
       "id": "ihHjPqyG7fBFEZkdX5bpV",
       "type": "text",
-      "x": 385.48046875,
+      "x": 373.0,
       "y": 2658.25,
-      "width": 290.0390625,
+      "width": 315.0,
       "height": 19.5,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -5944,20 +5952,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 908642675,
-      "version": 4,
+      "version": 5,
       "versionNonce": 240200830,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "fails → warn FIT_LAWS_UNSUPPORTED",
+      "text": "failed \u2192 warning with code fit_laws",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "fit-laws-outcome",
-      "originalText": "fails → warn FIT_LAWS_UNSUPPORTED",
+      "originalText": "failed \u2192 warning with code fit_laws",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1g"
@@ -6039,9 +6047,9 @@
     {
       "id": "DhV_SBTu9Yn1OcGsqKkSd",
       "type": "text",
-      "x": 955.69140625,
+      "x": 929.5,
       "y": 2658.25,
-      "width": 307.6171875,
+      "width": 360.0,
       "height": 19.5,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -6055,20 +6063,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 106936915,
-      "version": 4,
+      "version": 5,
       "versionNonce": 1271776802,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "reported → warn DT_CT_APPROXIMATION",
+      "text": "failed \u2192 warning with the finding\u2019s code",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "dtct-outcome",
-      "originalText": "reported → warn DT_CT_APPROXIMATION",
+      "originalText": "failed \u2192 warning with the finding\u2019s code",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1j"
@@ -6187,9 +6195,9 @@
     {
       "id": "mGclhaRBX_t2SY9cAx_e-",
       "type": "text",
-      "x": 631.03515625,
+      "x": 608.5,
       "y": 3086.25,
-      "width": 377.9296875,
+      "width": 423.0,
       "height": 19.5,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -6203,20 +6211,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 173224435,
-      "version": 4,
+      "version": 5,
       "versionNonce": 441425342,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "not identified → warn TARGET_NOT_IDENTIFIED",
+      "text": "unidentified \u2192 warning with code identification",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "identify-outcome",
-      "originalText": "not identified → warn TARGET_NOT_IDENTIFIED",
+      "originalText": "unidentified \u2192 warning with code identification",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b1q"
@@ -6251,12 +6259,12 @@
           "id": "question-Aid4wot5MAtZE6MXZjpCk"
         },
         {
-          "id": "question-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-no"
         },
         {
-          "id": "question-to-write",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-to-write"
         },
         {
           "type": "arrow",
@@ -6426,8 +6434,8 @@
           "id": "question-VXoKYijj0MYLLWWSjm8gc"
         },
         {
-          "id": "question-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-no"
         }
       ],
       "updated": 1791289079710,
@@ -6535,13 +6543,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "scientific_inputs",
+      "text": "MODEL_SPEC_INVALID",
       "fontSize": 16,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "question-error-name",
-      "originalText": "scientific_inputs",
+      "originalText": "MODEL_SPEC_INVALID",
       "autoResize": true,
       "lineHeight": 1.25,
       "index": "b1y"
@@ -6609,13 +6617,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "question-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b20"
@@ -6855,8 +6863,12 @@
           "id": "question-3lEU1TJL52gFgimtkds_l"
         },
         {
-          "id": "question-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-yes"
+        },
+        {
+          "type": "arrow",
+          "id": "to-question"
         }
       ],
       "updated": 1791289079710,
@@ -6896,12 +6908,16 @@
           "id": "question-R-gaMuPAb2yWyvORPENE8"
         },
         {
-          "id": "question-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-yes"
         },
         {
-          "id": "question-checks-each",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-checks-each"
+        },
+        {
+          "type": "arrow",
+          "id": "question-checks-each"
         }
       ],
       "updated": 1791289079710,
@@ -6976,6 +6992,10 @@
         {
           "type": "text",
           "id": "question-mGclhaRBX_t2SY9cAx_e-"
+        },
+        {
+          "type": "arrow",
+          "id": "to-commit"
         }
       ],
       "updated": 1791289079710,
@@ -7157,13 +7177,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "outcome · intervention targets · identification\nfor each named query",
+      "text": "outcome \u00b7 intervention targets \u00b7 identification\nfor each named query",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "question-checks-body",
-      "originalText": "outcome · intervention targets · identification\nfor each named query",
+      "originalText": "outcome \u00b7 intervention targets \u00b7 identification\nfor each named query",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b2O"
@@ -7171,9 +7191,9 @@
     {
       "id": "question-mGclhaRBX_t2SY9cAx_e-",
       "type": "text",
-      "x": 692.55859375,
+      "x": 644.5,
       "y": 3486.25,
-      "width": 254.8828125,
+      "width": 351.0,
       "height": 19.5,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -7187,20 +7207,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 173224435,
-      "version": 4,
+      "version": 5,
       "versionNonce": 672443618,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "findings saved with the model",
+      "text": "failed \u2192 warning \u00b7 not evaluated \u2192 info",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "question-checks-outcome",
-      "originalText": "findings saved with the model",
+      "originalText": "failed \u2192 warning \u00b7 not evaluated \u2192 info",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b2P"
@@ -7237,8 +7257,8 @@
           "id": "isrZ6AWOmmVuZX5e8dBr4"
         },
         {
-          "id": "to-commit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-commit"
         }
       ],
       "updated": 1791289079710,
@@ -7360,9 +7380,9 @@
     {
       "id": "hMeRFMkzSoF_5xkf5DwVz",
       "type": "text",
-      "x": 683.05078125,
+      "x": 632.8,
       "y": 3661.2,
-      "width": 273.8984375,
+      "width": 374.40000000000003,
       "height": 41.6,
       "angle": 0,
       "strokeColor": "#172033",
@@ -7376,20 +7396,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 1978392659,
-      "version": 9,
+      "version": 10,
       "versionNonce": 733450942,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "model · checks · identification\nmodel laws own their numerical values",
+      "text": "model \u00b7 checks \u00b7 identification \u00b7 pruning\nall required; model laws own numerical values",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "commit-body",
-      "originalText": "model · checks · identification\nmodel laws own their numerical values",
+      "originalText": "model \u00b7 checks \u00b7 identification \u00b7 pruning\nall required; model laws own numerical values",
       "autoResize": true,
       "lineHeight": 1.3,
       "customData": {},
@@ -7421,13 +7441,13 @@
       "updated": 1791289079710,
       "link": null,
       "locked": false,
-      "text": "status: success · commit_id · body · messages\nMessagePack · NPY buffers remain binary",
+      "text": "status: success \u00b7 commit_id \u00b7 body \u00b7 messages\nMessagePack \u00b7 NPY buffers remain binary",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "commit-outcome",
-      "originalText": "status: success · commit_id · body · messages\nMessagePack · NPY buffers remain binary",
+      "originalText": "status: success \u00b7 commit_id \u00b7 body \u00b7 messages\nMessagePack \u00b7 NPY buffers remain binary",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b2V"
@@ -7617,9 +7637,9 @@
     {
       "id": "assemble-title",
       "type": "text",
-      "x": 684.0625,
+      "x": 641.875,
       "y": 1331,
-      "width": 271.875,
+      "width": 356.25,
       "height": 20,
       "angle": 0,
       "strokeColor": "#ffffff",
@@ -7640,13 +7660,13 @@
       "updated": 1791360862992,
       "link": null,
       "locked": false,
-      "text": "merge and prune the ModelSpec",
+      "text": "merge and prune the DynamicalModelSpec",
       "fontSize": 16,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "assemble-name",
-      "originalText": "merge and prune the ModelSpec",
+      "originalText": "merge and prune the DynamicalModelSpec",
       "autoResize": true,
       "lineHeight": 1.25,
       "index": "b2a"
@@ -7654,9 +7674,9 @@
     {
       "id": "assemble-text",
       "type": "text",
-      "x": 607.953125,
+      "x": 587.04,
       "y": 1405.6,
-      "width": 424.09375,
+      "width": 465.92,
       "height": 124.80000000000001,
       "angle": 0,
       "strokeColor": "#172033",
@@ -7670,20 +7690,20 @@
       "frameId": null,
       "roundness": null,
       "seed": 318661427,
-      "version": 2,
+      "version": 3,
       "versionNonce": 1113074603,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791360862992,
       "link": null,
       "locked": false,
-      "text": "question parent: start empty · model parent: merge by ID\nomitted fields remain · null entity entries delete\nchanged scientific alternatives replace their fields\nretain the outcome and its directed ancestors\nremove orphan parameters and their exclusive laws\nwarn MODEL_COMPONENTS_PRUNED with removed IDs",
+      "text": "question parent: start empty \u00b7 model parent: merge by ID\nomitted fields remain \u00b7 null entity entries delete\nchanged scientific alternatives replace their fields\nretain the outcome and its directed ancestors\nremove orphan parameters and their exclusive laws\nwarn MODEL_COMPONENTS_PRUNED; IDs belong to body.pruning",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "assemble-body",
-      "originalText": "question parent: start empty · model parent: merge by ID\nomitted fields remain · null entity entries delete\nchanged scientific alternatives replace their fields\nretain the outcome and its directed ancestors\nremove orphan parameters and their exclusive laws\nwarn MODEL_COMPONENTS_PRUNED with removed IDs",
+      "originalText": "question parent: start empty \u00b7 model parent: merge by ID\nomitted fields remain \u00b7 null entity entries delete\nchanged scientific alternatives replace their fields\nretain the outcome and its directed ancestors\nremove orphan parameters and their exclusive laws\nwarn MODEL_COMPONENTS_PRUNED; IDs belong to body.pruning",
       "autoResize": true,
       "lineHeight": 1.3,
       "index": "b2b"

@@ -2,19 +2,23 @@
 import type { InferenceReportCore, ModelSnapshot } from "@nof1-causal-lab/api-types";
 import { decay, diffusion, modelFixture, outcome } from "./model";
 
-export const modelRef = { workspace_id: "TEST", revision: "1".repeat(40), path: "model.json" };
+export const dynamicalModelSpecRef = {
+  workspace_id: "TEST",
+  revision: "1".repeat(40),
+  path: "model.json",
+};
 
 export const emptySnapshot: ModelSnapshot = {
   workspace_id: "TEST",
   commit_id: "0".repeat(40),
   selected_seq: 0,
   question: null,
-  model: null,
+  dynamical_model_spec: null,
   state: { current: {}, data: null },
   metadata: null,
   profile: null,
   identification: null,
-  validation_report: null,
+  fit_checks: null,
   fit: null,
   specification: null,
   question_checks: null,
@@ -26,7 +30,7 @@ export const authoredSnapshot: ModelSnapshot = {
   ...emptySnapshot,
   commit_id: "3".repeat(40),
   selected_seq: 3,
-  model: modelFixture,
+  dynamical_model_spec: modelFixture,
   question: { text: "How does treatment change the outcome?", outcome: outcome.id, queries: {} },
   state: {
     current: {
@@ -40,7 +44,7 @@ export const authoredSnapshot: ModelSnapshot = {
       },
       model: {
         artifact_id: "model",
-        revision: modelRef.revision,
+        revision: dynamicalModelSpecRef.revision,
         derived_from: { question: "2".repeat(40) },
         produced_by: "edit_model",
         created_at: "2026-01-01T00:00:00Z",
@@ -50,19 +54,21 @@ export const authoredSnapshot: ModelSnapshot = {
     data: null,
   },
   identification: { outcome: outcome.id, treatments: {} },
+  question_checks: { findings: [] },
+  specification: [],
 };
 
 const fit: InferenceReportCore = {
   inference_metadata: {
     distribution: "distribution:00000000000000000003",
-    n_samples: 3,
+    num_samples_total: 3,
     num_chains: 1,
     duration_seconds: 0,
     engine: {},
     sampler_diagnostics: null,
   },
   inference_diagnostics: null,
-  convergence: { assessments: [], checked: 0, status: "not_evaluated", messages: [] },
+  convergence: { findings: [], checked: 0, status: "not_evaluated", messages: [] },
   loo_diagnostics: null,
   posterior_marginals: [decay, diffusion].map((parameter) => ({
     parameter: parameter.name,
@@ -91,14 +97,12 @@ export const fittedSnapshot: ModelSnapshot = {
   selected_seq: 4,
   fit: fit,
   state: { ...authoredSnapshot.state, data: { revision: "5".repeat(40), replicate_index: 0 } },
-  validation_report: {
-    data: { indicators: {}, dataset_issues: [], is_valid: true },
+  fit_checks: {
+    data: { indicators: {}, findings: [] },
     preflight: [],
-    is_valid: true,
+    question: { findings: [] },
   },
   question_checks: {
-    question_revision: "2".repeat(40),
-    data: { revision: "5".repeat(40), replicate_index: 0 },
     findings: [],
   },
 };

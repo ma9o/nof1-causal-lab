@@ -18,17 +18,17 @@ from tests.model_fixtures import (
 )
 
 
-def _all_fixed_spec_yields_no_sites__all_fixed_spec() -> ModelSpec:
-    model = load_model_fixture(
+def _all_fixed_spec_yields_no_sites__all_fixed_spec() -> DynamicalModelSpec:
+    dynamical_model_spec = load_model_fixture(
         "runtime_ssm/testssmmodeldynamicsdispatch_test_nonlinear_dynamics_uses_vector_field_backend_method_model_fixture.json"
     )
-    latent_0 = construct_named(model, "latent_0")
-    manifest_0 = indicator_named(model, "manifest_0")
-    manifest_0_likelihood = likelihood_named(model, "manifest_0")
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
+    manifest_0 = indicator_named(dynamical_model_spec, "manifest_0")
+    manifest_0_likelihood = likelihood_named(dynamical_model_spec, "manifest_0")
     (latent_0_drift,) = latent_0.dynamics
-    latent_1 = construct_named(model, "latent_1")
-    manifest_1 = indicator_named(model, "manifest_1")
-    manifest_1_likelihood = likelihood_named(model, "manifest_1")
+    latent_1 = construct_named(dynamical_model_spec, "latent_1")
+    manifest_1 = indicator_named(dynamical_model_spec, "manifest_1")
+    manifest_1_likelihood = likelihood_named(dynamical_model_spec, "manifest_1")
     (latent_1_drift,) = latent_1.dynamics
     manifest_0_revised = manifest_0.revised(
         likelihood=manifest_0_likelihood.revised(
@@ -78,9 +78,9 @@ def _all_fixed_spec_yields_no_sites__all_fixed_spec() -> ModelSpec:
             coefficient(1.0, "initial_scale"),
         ),
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 latent_0_revised,
                 latent_1_revised,
@@ -90,12 +90,12 @@ def _all_fixed_spec_yields_no_sites__all_fixed_spec() -> ModelSpec:
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.contract
 
 
 def test_all_fixed_spec_yields_no_sites():
-    spec = _all_fixed_spec_yields_no_sites__all_fixed_spec()
-    assert list(compile_model_fixture(spec).site_registry) == []
+    dynamical_model_spec = _all_fixed_spec_yields_no_sites__all_fixed_spec()
+    assert list(compile_model_fixture(dynamical_model_spec).site_registry) == []

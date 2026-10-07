@@ -1,5 +1,6 @@
 """Partial models stay inspectable; numerical operations validate their own inputs."""
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
@@ -7,14 +8,13 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest
-from nof1_causal_lab.actions.io import FitInput
+from nof1_causal_lab.actions.io import EditModelOutput, FitInput
 from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, GitOid
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record, edit_and_check, question_root
@@ -52,7 +52,8 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
 
     question = QuestionSpec(text="Does X change Y?", outcome=fixture_entity_id("construct", "Y"))
     state = journal.state(question_root(workspace, question).commit_id)
-    snapshots = []
+    store = ArtifactStore(workspace)
+    saved_results = []
     for revision, model in (
         (1, partial),
         (2, complete),
@@ -66,33 +67,33 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
                         "parent_ref": state.current["model"].revision
                         if state.has("model")
                         else state.current["question"].revision,
-                        "model": model.model_dump(mode="json"),
+                        "dynamical_model_spec": model.model_dump(mode="json"),
                     }
                 }
             ),
             state,
         )
         state = state.with_artifacts(effects.effects.produced)
-        journal.append(
+        published = journal.append(
             applied_record(
                 workspace, effects, seq=revision + 1, ts="2026-09-14T12:00:00Z", trace_ids=[]
             )
         )
-        snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
-        assert snapshot.model is not None
-        assert snapshot.model == model
-        assert snapshot.specification is not None
-        execution = snapshot.specification[0]
+        assert published.record.attempt.outcome.status == "applied"
+        result_ref = published.record.attempt.outcome.result
+        output = store.read_result(result_ref, EditModelOutput)
+        assert output.dynamical_model_spec == model
+        execution = output.checks.specification[0]
         assert execution.kind == ("evaluated" if revision == 2 else "not_evaluated")
         if revision == 2:
             assert execution.kind == "evaluated"
             assert execution.outcome == "passed"
-        assert "execution" not in snapshot.model_dump()
-        assert "execution_readiness" not in snapshot.model.model_dump()
-        snapshots.append(snapshot)
+        assert "execution" not in output.model_dump()
+        assert "execution_readiness" not in output.dynamical_model_spec.model_dump()
+        saved_results.append((result_ref, output))
     assert "compiled_ssm" not in ARTIFACT_IDS
-    for snapshot in snapshots:
-        assert ModelReader(workspace, at=snapshot.commit_id).snapshot() == snapshot
+    for result_ref, output in saved_results:
+        assert store.read_result(result_ref, EditModelOutput) == output
 
 
 def test_incomplete_model_is_rejected_before_inference(workspace, monkeypatch):
@@ -120,9 +121,8 @@ def test_incomplete_model_is_rejected_before_inference(workspace, monkeypatch):
                 workspace,
                 FitRequest[GitOid](
                     input=FitInput[GitOid](
-                        replicate_index=0,
-                        model_ref=model.revision,
-                        data_ref=panel.revision,
+                        dynamical_model_spec_ref=model.revision,
+                        data_ref=DataRef(revision=panel.revision, replicate_index=0),
                     )
                 ),
                 state,
@@ -192,7 +192,7 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
     )
 
     def fit(**kwargs):
-        model = kwargs["selection"].model
+        model = kwargs["selection"].dynamical_model_spec
         assert model == edited
         conditioned, _ = condition_model(
             model,
@@ -201,12 +201,12 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
                 JointPosteriorDraws(parameter_draws(model, 4), jnp.zeros((4, 2, 2)))
             ),
             times=jnp.array([0.0, 1.0]),
-            time_origin=None,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             array_writer=store.write_array,
             array_loader=store.read_array,
         )
         return {
-            "_model": conditioned,
+            "_dynamical_model_spec": conditioned,
             "evidence": InferenceEvidence(),
             "metadata": inference_metadata(conditioned),
         }
@@ -226,9 +226,6 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
         )
     )
     assert effects.effects.produced[0].derived_from == pins
-    assert {"model": effects.result.model.revision, "panel": effects.result.data.revision} == {
-        key: pins[key] for key in ("model", "panel")
-    }
     assert (
         read_model(store, effects.effects.produced[0].revision).edges[0].description
         == edited.edges[0].description

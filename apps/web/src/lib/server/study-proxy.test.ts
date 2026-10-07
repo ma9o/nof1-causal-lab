@@ -11,7 +11,7 @@ it("preserves named inputs, payload and backend rejections for calls", async () 
   vi.stubGlobal("fetch", fetcher);
   const body = JSON.stringify({
     action: "edit_model",
-    input: { parent_ref: "a".repeat(40), model: {} },
+    input: { parent_ref: "a".repeat(40), dynamical_model_spec: {} },
   });
   const path = "/api/studies/STUDY/edit_model";
   const response = await proxyStudyRequest(

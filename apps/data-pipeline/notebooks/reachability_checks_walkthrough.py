@@ -41,7 +41,7 @@ def imports():
     import networkx as nx
     import numpy as np
 
-    from nof1_causal_lab.actions.validation.checks import data_availability_issue
+    from nof1_causal_lab.actions.validation.rules import indicator_findings
     from nof1_causal_lab.models.ssm.reachability import (
         check_confinement,
         check_coverage,
@@ -53,7 +53,7 @@ def imports():
     )
 
     return (
-        data_availability_issue,
+        indicator_findings,
         check_confinement,
         check_coverage,
         check_edge_share,
@@ -1190,9 +1190,14 @@ def show_c5c(c5c_case, mo, np, plt, result_panel, stress_observed, style_axes, t
 
 
 @app.cell
-def make_c5d_case(data_availability_issue):
-    _result = data_availability_issue("indicator:hrv", 0)
-    assert _result is not None
+def make_c5d_case(indicator_findings):
+    import polars as pl
+
+    from nof1_causal_lab.artifacts.identity import IndicatorId
+
+    _result = indicator_findings(
+        IndicatorId("indicator:hrv"), pl.DataFrame(schema={"value": pl.Float64}), {}
+    )[0]
     c5d_case = {"result": _result}
     return (c5d_case,)
 
@@ -1220,7 +1225,7 @@ def show_c5d(c5d_case, mo, np, plt, style_axes, times):
             mo.md(
                 "### C5d model/data compatibility — a proposed channel with no rows\n\n"
                 "**Increment.** Declare HRV as an indicator of `AutonomicArousal` but supply no "
-                f"observations for it.\n\n**Finding.** {c5d_case['result'].message}\n\n"
+                f"observations for it.\n\n**Finding.** {c5d_case['result'].evidence}\n\n"
                 "Unlike C1–C5c, this check runs when the model and data are submitted together "
                 "and needs no generated trajectories."
             ),

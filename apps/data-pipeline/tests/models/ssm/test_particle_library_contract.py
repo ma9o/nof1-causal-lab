@@ -74,7 +74,7 @@ def test_library_parameter_output_preserves_public_vector_sites_and_chain_order(
     runtime = ParticleTarget(
         parameters=parameters,
         context=_no_numerical_execution,
-        model=_no_numerical_execution,
+        dynamical_model=_no_numerical_execution,
         observations=jnp.zeros((4, 1)),
         times=jnp.arange(4.0),
     )

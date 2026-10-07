@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.identity import ConstructId
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.structure.sites import SiteSelection
 
 
@@ -92,10 +92,10 @@ class CompiledEffectInterval(Value):
 
 
 def parameter_bindings(
-    model: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
 ) -> tuple[tuple[CompiledParameterBinding, ...], tuple[ParameterCoordinate, ...]]:
     """Read scientific bindings already resolved by the compiler."""
-    return model.bindings, model.auxiliary_coordinates
+    return compiled_dynamical_model.bindings, compiled_dynamical_model.auxiliary_coordinates
 
 
 def joint_law_layout(

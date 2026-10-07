@@ -32,13 +32,13 @@ it("selects original joint posterior atoms and native chain evidence without red
   }));
   const saved: FitOutput = {
     ...base,
-    model: {
-      ...base.model,
+    dynamical_model_spec: {
+      ...base.dynamical_model_spec,
       parameters: Object.fromEntries(
         marginals.map(({ subject }) => [
           subject.parameter_id,
           {
-            ...fixtureValue(base.model.parameters[subject.parameter_id]),
+            ...fixtureValue(base.dynamical_model_spec.parameters[subject.parameter_id]),
             distribution: identity,
             transform: { kind: "identity" },
           },
@@ -76,19 +76,16 @@ it("selects original joint posterior atoms and native chain evidence without red
     },
     inference: {
       ...base.inference,
-      run: {
-        ...base.inference.run,
-        evidence: {
-          ...base.inference.run.evidence,
-          chain_extra_fields: { diverging: divergences },
-          initial_latent_delta: delta,
-        },
+      evidence: {
+        ...base.inference.evidence,
+        chain_extra_fields: { diverging: divergences },
+        initial_latent_delta: delta,
       },
       core: {
         ...base.inference.core,
         inference_metadata: {
           ...base.inference.core.inference_metadata,
-          n_samples: 4,
+          num_samples_total: 4,
           num_chains: 2,
         },
         posterior_marginals: marginals,
@@ -109,7 +106,6 @@ it("selects original joint posterior atoms and native chain evidence without red
         ],
       },
     },
-
   };
   const columns = drawsView(saved);
   expect(columns.map(({ values }) => values)).toEqual([
@@ -131,7 +127,10 @@ it("selects original joint posterior atoms and native chain evidence without red
 });
 
 it("selects a saved replicate without exposing masked or non-finite observations", () => {
-  const observations = array([2, 4, 2], [90, 91, 92, 93, 94, 95, 96, 97, 0, 1, 2, 5, 3, 7, 4, Number.POSITIVE_INFINITY]);
+  const observations = array(
+    [2, 4, 2],
+    [90, 91, 92, 93, 94, 95, 96, 97, 0, 1, 2, 5, 3, 7, 4, Number.POSITIVE_INFINITY],
+  );
   const mask = array([2, 4, 2], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1], "b1");
   const selection: ArrayVector = {
     array: observations,

@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.availability import Available, Evaluation, NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.checks import (
     Assessment,
     Evaluated,
@@ -20,13 +19,18 @@ from nof1_causal_lab.artifacts.checks import (
 )
 from nof1_causal_lab.artifacts.data_comparison import (
     Added,
+    Change,
+    DataPoint,
     DataStatistic,
     DataStatisticComparison,
-    DataVariableComparison,
+    DescriptiveIndicatorComparison,
+    IndicatorComparison,
     PredictiveComparison,
-    PredictiveComparisonResult,
+    PredictiveIndicatorComparison,
+    ProportionComparison,
     Removed,
     Revised,
+    ScalarStatisticComparison,
 )
 from nof1_causal_lab.artifacts.identity import IndicatorId, IndicatorRef
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
@@ -34,7 +38,6 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
     PPCOverlay,
     PPCTestStat,
 )
-from nof1_causal_lab.study.view_models import DataSeries, Dataset
 from nof1_causal_lab.utils.histograms import histogram_draws
 from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 
@@ -43,6 +46,8 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.checks import IndicatorCheck
+    from nof1_causal_lab.artifacts.validation_report import DataFinding
+    from nof1_causal_lab.study.view_models import DataSeries, Dataset
 
 
 import jax.numpy as jnp
@@ -59,8 +64,6 @@ import jax.numpy as jnp
 def _indicator_columns(
     observations: jnp.ndarray,
     indicator_ids: Sequence[IndicatorId],
-    *,
-    check: IndicatorCheck,
 ) -> tuple[tuple[int, IndicatorCheckSubject, jnp.ndarray, jnp.ndarray], ...]:
     """Bind indicator identities and observed-position masks in column order."""
 
@@ -68,7 +71,7 @@ def _indicator_columns(
         j: int, name: IndicatorId
     ) -> tuple[int, IndicatorCheckSubject, jnp.ndarray, jnp.ndarray]:
         observed = observations[:, j]
-        subject = IndicatorCheckSubject(check=check, target=IndicatorRef(id=name))
+        subject = IndicatorCheckSubject(target=IndicatorRef(id=name))
         return j, subject, observed, ~jnp.isnan(observed)
 
     return tuple(
@@ -80,7 +83,8 @@ def _indicator_columns(
 def _evaluated_indicator(
     subject: IndicatorCheckSubject,
     *,
-    outcome: Literal["passed", "warning"],
+    code: IndicatorCheck,
+    outcome: Literal["passed", "failed"],
     value: float,
     lower: float,
     upper: float,
@@ -88,10 +92,11 @@ def _evaluated_indicator(
 ) -> Evaluated[IndicatorCheckSubject, NumericCriterionEvidence]:
     """Construct the criterion evidence from its existing indicator subject."""
     return Evaluated(
+        code=code,
         subject=subject,
         outcome=outcome,
         evidence=NumericCriterionEvidence(
-            criterion=subject.check, value=value, lower=lower, upper=upper, note=note
+            criterion=code, value=value, lower=lower, upper=upper, note=note
         ),
     )
 
@@ -124,13 +129,12 @@ def _check_calibration(
     q025 = jnp.percentile(y_sim, 2.5, axis=0)  # (T, m)
     q975 = jnp.percentile(y_sim, 97.5, axis=0)  # (T, m)
 
-    for j, subject, obs_j, valid in _indicator_columns(
-        observations, indicator_ids, check="calibration"
-    ):
+    for j, subject, obs_j, valid in _indicator_columns(observations, indicator_ids):
         n_valid = jnp.sum(valid)
         if n_valid < 2:
             warnings.append(
                 NotEvaluated(
+                    code="calibration",
                     subject=subject,
                     reason="INSUFFICIENT_OBSERVATIONS",
                     detail="Calibration requires at least two observations.",
@@ -142,10 +146,10 @@ def _check_calibration(
         coverage = float(jnp.sum(in_interval) / n_valid)
 
         if coverage < low_threshold:
-            outcome = "warning"
+            outcome = "failed"
             note = f"Undercoverage: {coverage:.0%} of observations fall in 95% PPC interval (expected ~95%)"
         elif coverage > high_threshold:
-            outcome = "warning"
+            outcome = "failed"
             note = f"Overcoverage: {coverage:.0%} of observations fall in 95% PPC interval (model may be too diffuse)"
         else:
             outcome = "passed"
@@ -153,6 +157,7 @@ def _check_calibration(
         warnings.append(
             _evaluated_indicator(
                 subject,
+                code="calibration",
                 outcome=outcome,
                 value=coverage,
                 lower=low_threshold,
@@ -180,7 +185,7 @@ def _check_residual_autocorrelation(
         threshold: Largest accepted absolute residual correlation.
 
     Returns:
-        Per-indicator assessments using consecutive available residuals. Fewer
+        Per-indicator findings using consecutive available residuals. Fewer
         than five observations or negligible residual variance yields an
         unevaluated assessment.
     """
@@ -188,15 +193,14 @@ def _check_residual_autocorrelation(
 
     pp_mean = jnp.mean(y_sim, axis=0)  # (T, m)
 
-    for j, subject, obs_j, valid in _indicator_columns(
-        observations, indicator_ids, check="autocorrelation"
-    ):
+    for j, subject, obs_j, valid in _indicator_columns(observations, indicator_ids):
         # Build valid residuals
         residuals = jnp.where(valid, obs_j - pp_mean[:, j], 0.0)
         n_valid = int(jnp.sum(valid))
         if n_valid < 5:
             warnings.append(
                 NotEvaluated(
+                    code="autocorrelation",
                     subject=subject,
                     reason="INSUFFICIENT_OBSERVATIONS",
                     detail="Autocorrelation requires at least five observations.",
@@ -216,6 +220,7 @@ def _check_residual_autocorrelation(
         if var_r < 1e-12:
             warnings.append(
                 NotEvaluated(
+                    code="autocorrelation",
                     subject=subject,
                     reason="ZERO_RESIDUAL_VARIANCE",
                     detail="Residual autocorrelation is undefined with zero residual variance.",
@@ -230,7 +235,8 @@ def _check_residual_autocorrelation(
         warnings.append(
             _evaluated_indicator(
                 subject,
-                outcome="passed" if passed else "warning",
+                code="autocorrelation",
+                outcome="passed" if passed else "failed",
                 value=rho,
                 lower=-threshold,
                 upper=threshold,
@@ -260,19 +266,18 @@ def _check_variance_ratio(
         low_ratio: Smallest accepted predicted-to-observed standard-deviation ratio.
 
     Returns:
-        Per-indicator assessments of the mean replicated standard deviation divided
+        Per-indicator findings of the mean replicated standard deviation divided
         by the observed standard deviation, using the same observed time points.
         Insufficient observations or negligible observed variance is unevaluated.
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
 
-    for j, subject, obs_j, valid in _indicator_columns(
-        observations, indicator_ids, check="variance"
-    ):
+    for j, subject, obs_j, valid in _indicator_columns(observations, indicator_ids):
         n_valid = int(jnp.sum(valid))
         if n_valid < 3:
             warnings.append(
                 NotEvaluated(
+                    code="variance",
                     subject=subject,
                     reason="INSUFFICIENT_OBSERVATIONS",
                     detail="Variance comparison requires at least three observations.",
@@ -285,6 +290,7 @@ def _check_variance_ratio(
         if obs_std < 1e-12:
             warnings.append(
                 NotEvaluated(
+                    code="variance",
                     subject=subject,
                     reason="ZERO_OBSERVED_VARIANCE",
                     detail="Variance ratio is undefined with zero observed variance.",
@@ -299,17 +305,23 @@ def _check_variance_ratio(
         ratio = predicted_std / obs_std
 
         if ratio > high_ratio:
-            outcome = "warning"
+            outcome = "failed"
             note = f"PPC variance too high: simulated std / observed std = {ratio:.1f}"
         elif ratio < low_ratio:
-            outcome = "warning"
+            outcome = "failed"
             note = f"PPC variance too low: simulated std / observed std = {ratio:.1f}"
         else:
             outcome = "passed"
             note = f"Predicted variance {predicted_std:.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})"
         warnings.append(
             _evaluated_indicator(
-                subject, outcome=outcome, value=ratio, lower=low_ratio, upper=high_ratio, note=note
+                subject,
+                code="variance",
+                outcome=outcome,
+                value=ratio,
+                lower=low_ratio,
+                upper=high_ratio,
+                note=note,
             )
         )
 
@@ -332,7 +344,7 @@ def _compute_overlays(
     indicator_ids: Sequence[IndicatorId],
     *,
     times: tuple[float, ...],
-    time_origin: datetime | None,
+    time_origin: datetime,
     standardized: tuple[bool, ...],
 ) -> list[PPCOverlay]:
     """Compose observed values, predictive medians, and retained trajectories for plotting.
@@ -459,7 +471,7 @@ def measure_predictive_checks(
     indicator_ids: Sequence[IndicatorId],
     *,
     times: tuple[float, ...],
-    time_origin: datetime | None,
+    time_origin: datetime,
     standardized: tuple[bool, ...],
 ) -> PosteriorPredictiveChecks:
     """Measure an existing predictive batch without generating more trajectories."""
@@ -487,7 +499,7 @@ def measure_predictive_checks(
     test_stats = _compute_test_stats(y_sim, observations, indicator_ids)
 
     return PosteriorPredictiveChecks(
-        per_variable_warnings=warnings,
+        findings=warnings,
         n_subsample=int(y_sim.shape[0]),
         overlays=tuple(overlays),
         test_stats=tuple(test_stats),
@@ -495,18 +507,17 @@ def measure_predictive_checks(
 
 
 def _statistics(
-    left: tuple[DataSeries, ...], right: tuple[DataSeries, ...]
+    left: tuple[DataSeries | None, ...], right: tuple[DataSeries | None, ...]
 ) -> tuple[DataStatisticComparison, ...]:
-    def measure(series: DataSeries) -> dict[tuple[DataStatistic, str | None], float | None]:
+    def measure(series: DataSeries | None) -> dict[tuple[DataStatistic, str | None], float | None]:
+        if series is None:
+            return {}
         values = np.asarray([point.value for point in series.points if point.value is not None])
         statistics: dict[tuple[DataStatistic, str | None], float | None] = {
             ("observed_count", None): float(len(values)),
             ("missing_count", None): float(len(series.points) - len(values)),
         }
-        variable = series.variable
-        if variable is None:
-            return statistics
-        levels = variable.categorical_levels or variable.ordinal_levels
+        levels = series.variable.categorical_levels or series.variable.ordinal_levels
         if levels is not None:
             statistics.update(
                 {
@@ -515,68 +526,50 @@ def _statistics(
                 }
             )
         else:
-            statistics[("mean", None)] = float(np.mean(values)) if len(values) else None
-            statistics[("sd", None)] = float(np.std(values)) if len(values) else None
-            statistics[("min", None)] = float(np.min(values)) if len(values) else None
-            statistics[("max", None)] = float(np.max(values)) if len(values) else None
+            statistics.update(
+                {
+                    ("mean", None): float(np.mean(values)) if len(values) else None,
+                    ("sd", None): float(np.std(values)) if len(values) else None,
+                    ("min", None): float(np.min(values)) if len(values) else None,
+                    ("max", None): float(np.max(values)) if len(values) else None,
+                }
+            )
         return statistics
 
     a, b = tuple(map(measure, left)), tuple(map(measure, right))
     keys = sorted(set().union(*(item.keys() for item in (*a, *b))))
-    result = []
+    result: list[DataStatisticComparison] = []
     for statistic, level in keys:
         sides = [tuple(item.get((statistic, level)) for item in side) for side in (a, b)]
-        result.append(
-            DataStatisticComparison(
-                statistic=statistic,
-                level=level,
-                left=sides[0],
-                right=sides[1],
+        if statistic == "proportion":
+            assert level is not None
+            result.append(ProportionComparison(level=level, left=sides[0], right=sides[1]))
+        else:
+            result.append(
+                ScalarStatisticComparison(statistic=statistic, left=sides[0], right=sides[1])
             )
-        )
     return tuple(result)
 
 
 def _predictive_comparison(
-    identity: IndicatorId, left: Sequence[DataSeries], right: Sequence[DataSeries]
-) -> PredictiveComparisonResult:
-    if len(left) == len(right) == 1:
-        return NotApplicable(reason="A predictive comparison requires replicated histories.")
-    if len(left) > 1 and len(right) > 1:
-        return Unavailable(
-            reason="Requires one reference history and multiple replicated histories"
-        )
-    side: Literal["left", "right"]
-    if len(left) == 1:
-        (reference,) = left
-        side, replicas = "left", right
-    else:
-        (reference,) = right
-        side, replicas = "right", left
-    variable = reference.variable
-
-    def _comparison(evaluation: Evaluation[PosteriorPredictiveChecks]) -> PredictiveComparison:
-        return PredictiveComparison(reference_side=side, evaluation=evaluation)
-
-    # Shared input problems belong to comparison_issues, not a second PPC reason.
-    if any((item.time_origin is None) != (reference.time_origin is None) for item in replicas):
-        return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
-    if variable is None or any(item.variable is None for item in replicas):
-        return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
-    if any(
-        item.variable.definition != variable.definition
-        for item in replicas
-        if item.variable is not None
-    ):
-        return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
-    if variable.measurement_dtype in {"categorical", "ordinal"}:
-        return _comparison(
-            Unavailable(
-                reason="Discrete codebooks use per-level proportions, not numeric PPC summaries"
-            )
-        )
+    identity: IndicatorId,
+    reference: DataSeries,
+    replicas: tuple[DataSeries, ...],
+    reference_side: Literal["left", "right"],
+    time_origin: datetime,
+) -> PredictiveComparison | DataFinding:
+    """Align reference anchors once; retain compatibility failures with the outer comparison."""
+    subject = IndicatorRef(id=identity)
     if not any(point.value is not None for point in reference.points):
-        return _comparison(Unavailable(reason="The reference history contains no observed values"))
+        return PredictiveComparison(
+            reference_side=reference_side,
+            evaluation=NotEvaluated(
+                code="predictive_comparison",
+                subject=subject,
+                reason="NO_OBSERVATIONS",
+                detail="The reference history contains no observed values.",
+            ),
+        )
     aligned = []
     for series in replicas:
         lookup = {point.anchor_time: point for point in series.points}
@@ -588,96 +581,110 @@ def _predictive_comparison(
                     point.support_start,
                     point.support_end,
                 ):
-                    return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
+                    return Evaluated(
+                        code="observation_support",
+                        subject=subject,
+                        outcome="failed",
+                        evidence="Replicates must cover the support of every observed reference anchor.",
+                    )
                 if candidate.value is None:
-                    return _comparison(
-                        Unavailable(reason="Replicas contain missing values at observed anchors")
+                    return PredictiveComparison(
+                        reference_side=reference_side,
+                        evaluation=NotEvaluated(
+                            code="predictive_comparison",
+                            subject=subject,
+                            reason="MISSING_REPLICATE_VALUES",
+                            detail="Replicates contain missing values at observed reference anchors.",
+                        ),
                     )
             values.append(
                 candidate.value if candidate is not None and candidate.value is not None else np.nan
             )
         aligned.append(values)
-    import jax.numpy as jnp
-
     observed = [point.value if point.value is not None else np.nan for point in reference.points]
     checks = measure_predictive_checks(
         jnp.asarray(aligned)[:, :, None],
         jnp.asarray(observed)[:, None],
         (identity,),
         times=tuple(
-            ObservationInstant(point.anchor_time)
-            .relative_to(ObservationInstant.origin(reference.time_origin))
-            .days
+            ObservationInstant(point.anchor_time).relative_to(ObservationInstant(time_origin)).days
             for point in reference.points
         ),
-        time_origin=reference.time_origin,
+        time_origin=time_origin,
         standardized=(False,),
     )
-    return _comparison(Available(value=checks))
+    return PredictiveComparison(reference_side=reference_side, evaluation=checks)
 
 
 def compare_data_variables(
-    left: Dataset | Sequence[Dataset],
-    right: Dataset | Sequence[Dataset],
+    left: Sequence[Dataset],
+    right: Sequence[Dataset],
     *,
     input_indicators: set[IndicatorId] | frozenset[IndicatorId] = frozenset(),
-) -> tuple[DataVariableComparison, ...]:
-    """Compute the evidence defined by DataComparisonReport from parsed saved histories."""
-    sides = tuple(
-        (value,) if isinstance(value, Dataset) else tuple(value) for value in (left, right)
-    )
-    for side in sides:
+) -> tuple[IndicatorComparison, ...]:
+    """Compare retained histories with explicit findings and no fabricated missing series."""
+    for side in (left, right):
         if not side:
             raise ValueError("Each comparison side requires at least one dataset")
         if len(
-            {
-                (
-                    dataset.source.revision,
-                    dataset.source.replicate_index,
-                )
-                for dataset in side
-            }
+            {(dataset.source.revision, dataset.source.replicate_index) for dataset in side}
         ) != len(side):
             raise ValueError("A dataset cannot be counted twice within a comparison side")
-    left_series, right_series = (tuple(dataset.series for dataset in side) for side in sides)
-    variables = sorted(set().union(*(item.keys() for item in (*left_series, *right_series))))
-    comparisons = []
-    absent = DataSeries(variable=None, time_origin=None, points=())
+    variables = sorted(set().union(*(dataset.series.keys() for dataset in (*left, *right))))
+    comparisons: list[IndicatorComparison] = []
     for identity in variables:
         if identity in input_indicators:
             continue
-        a, b = (
-            tuple(item.get(identity, absent) for item in side)
-            for side in (left_series, right_series)
+        a, b = (tuple(dataset.series.get(identity) for dataset in side) for side in (left, right))
+        present = tuple(series for series in (*a, *b) if series is not None)
+        subject = IndicatorRef(id=identity)
+        findings: list[DataFinding] = []
+        complete = len(present) == len(a) + len(b)
+        if not complete:
+            findings.append(
+                Evaluated(
+                    code="indicator_presence",
+                    subject=subject,
+                    outcome="failed",
+                    evidence="Indicator is absent from one or more histories.",
+                )
+            )
+        same_definition = all(
+            series.variable.definition == present[0].variable.definition for series in present[1:]
         )
-        issues = []
-        series = (*a, *b)
-        definitions = [item.variable for item in series if item.variable is not None]
-        mixed_calendars = (
-            len({item.time_origin is None for item in series if item.variable is not None}) > 1
-        )
-        if mixed_calendars:
-            issues.append("Calendar-free histories cannot be aligned to calendar-bound histories")
-        if len(definitions) != len(series):
-            issues.append("Variable is absent from one or more histories")
-        if any(item.definition != definitions[0].definition for item in definitions[1:]):
-            issues.append(
-                "Measurement definitions differ; statistics describe each side separately"
+        if not same_definition:
+            findings.append(
+                Evaluated(
+                    code="measurement_definition",
+                    subject=subject,
+                    outcome="failed",
+                    evidence="Measurement definitions differ; statistics describe each history separately.",
+                )
             )
         schedules = {
-            tuple((p.anchor_time, p.support_start, p.support_end) for p in item.points)
-            for item in series
+            tuple(
+                (point.anchor_time, point.support_start, point.support_end)
+                for point in series.points
+            )
+            for series in present
         }
         if len(schedules) > 1:
-            issues.append("Observation schedules or measurement windows differ")
-        changes = []
-        if len(a) == len(b) == 1 and not mixed_calendars:
+            findings.append(
+                Evaluated(
+                    code="observation_schedule",
+                    subject=subject,
+                    outcome="failed",
+                    evidence="Observation schedules or measurement windows differ.",
+                )
+            )
+        changes: list[Change[DataPoint]] = []
+        if len(a) == len(b) == 1:
             old, new = (
-                {point.anchor_time: point for point in item.points} for item in (a[0], b[0])
+                {point.anchor_time: point for point in series.points} if series is not None else {}
+                for series in (a[0], b[0])
             )
             for anchor in sorted(old.keys() | new.keys()):
-                before, after = old.get(anchor), new.get(anchor)
-                if before != after:
+                if old.get(anchor) != new.get(anchor):
                     changes.append(
                         Added(after=new[anchor])
                         if anchor not in old
@@ -685,13 +692,44 @@ def compare_data_variables(
                         if anchor not in new
                         else Revised(before=old[anchor], after=new[anchor])
                     )
+        statistics = _statistics(a, b)
+        if (
+            complete
+            and same_definition
+            and (len(a) == 1) != (len(b) == 1)
+            and present[0].variable.measurement_dtype not in {"categorical", "ordinal"}
+        ):
+            reference_side: Literal["left", "right"] = "left" if len(a) == 1 else "right"
+            reference_group, replica_group = (
+                (left, right) if reference_side == "left" else (right, left)
+            )
+            reference_dataset = reference_group[0]
+            predictive = _predictive_comparison(
+                identity,
+                reference_dataset.series[identity],
+                tuple(dataset.series[identity] for dataset in replica_group),
+                reference_side,
+                reference_dataset.time_origin,
+            )
+            if not isinstance(predictive, PredictiveComparison):
+                findings.append(predictive)
+            else:
+                comparisons.append(
+                    PredictiveIndicatorComparison(
+                        indicator_id=identity,
+                        changes=tuple(changes),
+                        statistics=statistics,
+                        findings=tuple(findings),
+                        predictive=predictive,
+                    )
+                )
+                continue
         comparisons.append(
-            DataVariableComparison(
+            DescriptiveIndicatorComparison(
                 indicator_id=identity,
                 changes=tuple(changes),
-                statistics=_statistics(a, b),
-                comparison_issues=tuple(issues),
-                predictive=_predictive_comparison(identity, a, b),
+                statistics=statistics,
+                findings=tuple(findings),
             )
         )
     return tuple(comparisons)

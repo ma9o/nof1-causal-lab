@@ -57,14 +57,14 @@ with workflow.unsafe.imports_passed_through():
     )
     from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
     from nof1_causal_lab.actions.temporal.workflow_support import temporal_failure
-    from nof1_causal_lab.artifacts.model_spec import ModelEditResult
+    from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+    from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
     from nof1_causal_lab.study.records import (
         ActionAttempt,
         ActionBase,
         ActionMessage,
         Applied,
         AttemptRecord,
-        DataPreparationResult,
         Rejected,
         StagedEditAttempt,
         StagedEditQuestionAttempt,
@@ -138,9 +138,11 @@ class StudyWorkflow:
                     messages=(
                         *self._messages,
                         ActionMessage(
+                            subject=request.request.action,
+                            detail=failure.error_message,
                             timestamp=workflow.now(),
-                            level="error",
-                            label=_error_label(failure.error_type),
+                            severity="error",
+                            code=_error_label(failure.error_type),
                         ),
                     ),
                 )
@@ -153,7 +155,11 @@ class StudyWorkflow:
         self._seq += 1
         self._messages = (
             ActionMessage(
-                timestamp=workflow.now(), level="info", label=f"{action.action.upper()}_STARTED"
+                subject=request.request.action,
+                detail=f"Started {action.action.replace('_', ' ')}.",
+                timestamp=workflow.now(),
+                severity="info",
+                code=f"{action.action.upper()}_STARTED",
             ),
         )
         self._report_progress(request)
@@ -168,7 +174,7 @@ class StudyWorkflow:
         except ActivityError as exc:
             failure = temporal_failure(exc)
             outcome = (
-                Rejected(reason="input_unavailable", detail=failure.error_message)
+                Rejected(code="INPUT_UNAVAILABLE", subject="inputs", detail=failure.error_message)
                 if failure.error_type == "StudyLookupError"
                 else failure
             )
@@ -191,7 +197,9 @@ class StudyWorkflow:
             else (None if base.state.has("question") else "Set the study question first")
         )
         rejection = (
-            Rejected(reason="input_unavailable", detail=lineage) if lineage is not None else None
+            Rejected(code="INPUT_UNAVAILABLE", subject="inputs", detail=lineage)
+            if lineage is not None
+            else None
         )
         if rejection is not None:
             await self._journal(seq, request, base, failed_attempt(action, rejection))
@@ -229,9 +237,13 @@ class StudyWorkflow:
                 self._messages = (
                     *self._messages,
                     ActionMessage(
+                        subject=request.request.action,
+                        detail="Evaluating data findings."
+                        if attempt.action == "prepare_data"
+                        else "Evaluating model findings.",
                         timestamp=workflow.now(),
-                        level="info",
-                        label="DATA_CHECKS_STARTED"
+                        severity="info",
+                        code="DATA_CHECKS_STARTED"
                         if attempt.action == "prepare_data"
                         else "MODEL_CHECKS_STARTED",
                     ),
@@ -253,9 +265,7 @@ class StudyWorkflow:
                         retry_policy=_ACTIVITY_RETRY,
                     )
                 else:
-                    assert result.result is None or isinstance(
-                        result.result, ModelEditResult
-                    )
+                    assert result.result is None or isinstance(result.result, ModelEditResult)
                     evaluated = await workflow.execute_activity(
                         evaluate_model_checks_activity,
                         EvaluateChecksInput[ModelEditResult | None](
@@ -371,16 +381,24 @@ class StudyWorkflow:
         label = (
             "ACTION_COMPLETED"
             if isinstance(outcome, Applied)
-            else "ACTION_REJECTED"
+            else outcome.code
             if isinstance(outcome, Rejected)
             else _error_label(outcome.error_type)
         )
         messages = (
             *self._messages,
             ActionMessage(
+                subject=outcome.subject
+                if isinstance(outcome, Rejected)
+                else request.request.action,
+                detail=outcome.detail
+                if isinstance(outcome, Rejected)
+                else "Action completed."
+                if isinstance(outcome, Applied)
+                else outcome.error_message,
                 timestamp=workflow.now(),
-                level="info" if isinstance(outcome, Applied) else "error",
-                label=label,
+                severity="info" if isinstance(outcome, Applied) else "error",
+                code=label,
             ),
         )
         revision = await workflow.execute_activity(

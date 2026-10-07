@@ -1101,11 +1101,11 @@ def toy_kernels(
             trajectory_label_log_probs=_trajectory_label_log_probs,
         )
 
-    def run_amala_exact(y_obs, n_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
+    def run_amala_exact(y_obs, num_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
         """MCMC chain of latent paths from the REAL dsmc.step c-dSMC tree and its
         amala_exact leaf."""
         _t_len = int(y_obs.shape[0])
-        _ctx = _build_ctx(y_obs, delta, kappa)._replace(num_free_particles=n_particles - 1)
+        _ctx = _build_ctx(y_obs, delta, kappa)._replace(num_free_particles=num_particles - 1)
         _x0 = jnp.asarray(y_obs).reshape(_t_len, 1)
 
         def _body(x_ref, key):
@@ -1116,7 +1116,7 @@ def toy_kernels(
         _, _chain = jax.lax.scan(_body, _x0, _keys)
         return np.asarray(_chain)[:, :, 0]
 
-    def run_mgrad(y_obs, n_particles=16, delta=0.7, kappa=1.0, n_iter=700, seed=0):
+    def run_mgrad(y_obs, num_particles=16, delta=0.7, kappa=1.0, n_iter=700, seed=0):
         """Published Particle-mGRAD CSMC (Corenflos & Finke, Algorithm 7), scalar case.
 
         Forward-filter with the guided mGRAD proposal + marginal x̄_t/v̄_t weight
@@ -1125,7 +1125,7 @@ def toy_kernels(
         """
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles  # N + 1
+        _p = num_particles  # N + 1
         _n = _p - 1
         _half = 0.5 * delta
 
@@ -1329,7 +1329,7 @@ def dsmc_tree_machinery(DRIFT_A, DRIFT_B, DRIFT_W, INIT_SD, PROC_SD, jax, jnp, m
 def agrad_kernel(
     INIT_SD, OBS_SD, dsmc_prior_mean, dsmc_prior_var, jax, jnp, make_dsmc_tree, np, random
 ):
-    def run_agrad(y_obs, n_particles=16, delta=0.7, kappa=1.0, n_iter=700, seed=0):
+    def run_agrad(y_obs, num_particles=16, delta=0.7, kappa=1.0, n_iter=700, seed=0):
         """PARALLEL Particle-aGRAD: prior-covariance-folding leaf on a c-dSMC tree.
 
         Fold the Gaussian prior dynamics into the proposal like mGRAD, but KEEP the
@@ -1346,7 +1346,7 @@ def agrad_kernel(
         """
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _half = 0.5 * delta
         _smooth = make_dsmc_tree(_t_len, _p, dsmc_prior_mean, dsmc_prior_var)
 
@@ -1387,7 +1387,7 @@ def agrad_kernel(
 def amala_plus_kernel(
     INIT_SD, OBS_SD, dsmc_prior_mean, dsmc_prior_var, jax, jnp, make_dsmc_tree, np, random
 ):
-    def run_amala_plus(y_obs, n_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
+    def run_amala_plus(y_obs, num_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
         """The historical amala_plus leaf on the c-dSMC tree: biased by construction.
 
         Production dsmc.py shipped this leaf until it was removed for the bias §11.1
@@ -1398,7 +1398,7 @@ def amala_plus_kernel(
         """
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _half = 0.5 * delta
         _smooth = make_dsmc_tree(_t_len, _p, dsmc_prior_mean, dsmc_prior_var)
 
@@ -2046,7 +2046,7 @@ def twisted_kernel(
     np,
     random,
 ):
-    def run_twisted(y_obs, n_particles=16, inflate=1.5, n_iter=700, seed=0, n_pilot=3):
+    def run_twisted(y_obs, num_particles=16, inflate=1.5, n_iter=700, seed=0, n_pilot=3):
         """Twisted-leaf c-dSMC: fixed lookahead proposals, exact ψ-correction.
 
         Pilot: iterated extended RTS around the data (linearise the drift, smooth,
@@ -2057,7 +2057,7 @@ def twisted_kernel(
         """
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _smooth = make_dsmc_tree(_t_len, _p, dsmc_prior_mean, dsmc_prior_var)
 
         def _logn(v, mu, var):
@@ -2192,23 +2192,23 @@ def invariance_probe_run(
     _configs = (
         (
             "aGRAD leaf (§11), P=4, δ=4",
-            lambda: run_agrad(_y, n_particles=4, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_agrad(_y, num_particles=4, delta=4.0, n_iter=20000, seed=11),
         ),
         (
             "aGRAD leaf (§11), P=16, δ=4",
-            lambda: run_agrad(_y, n_particles=16, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_agrad(_y, num_particles=16, delta=4.0, n_iter=20000, seed=11),
         ),
         (
             "twisted leaf (§12), P=4",
-            lambda: run_twisted(_y, n_particles=4, n_iter=20000, seed=11),
+            lambda: run_twisted(_y, num_particles=4, n_iter=20000, seed=11),
         ),
         (
             "Particle-mGRAD, P=4, δ=4",
-            lambda: run_mgrad(_y, n_particles=4, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_mgrad(_y, num_particles=4, delta=4.0, n_iter=20000, seed=11),
         ),
         (
             "amala_exact (production), P=4, δ=4",
-            lambda: run_amala_exact(_y, n_particles=4, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_amala_exact(_y, num_particles=4, delta=4.0, n_iter=20000, seed=11),
         ),
     )
     _lines = [
@@ -2356,12 +2356,12 @@ def width_sweep_run(ess_per_sweep, run_agrad, run_mgrad, run_twisted, simulate_s
     _ess = {"mgrad": [], "agrad": [], "twisted": []}
     for _p in _ps:
         _ess["mgrad"].append(
-            ess_per_sweep(run_mgrad(_y, n_particles=_p, delta=0.7, n_iter=700, seed=5))
+            ess_per_sweep(run_mgrad(_y, num_particles=_p, delta=0.7, n_iter=700, seed=5))
         )
         _ess["agrad"].append(
-            ess_per_sweep(run_agrad(_y, n_particles=_p, delta=0.7, n_iter=700, seed=5))
+            ess_per_sweep(run_agrad(_y, num_particles=_p, delta=0.7, n_iter=700, seed=5))
         )
-        _ess["twisted"].append(ess_per_sweep(run_twisted(_y, n_particles=_p, n_iter=700, seed=5)))
+        _ess["twisted"].append(ess_per_sweep(run_twisted(_y, num_particles=_p, n_iter=700, seed=5)))
     width_results = {"P": _ps, "ess": _ess}
     return (width_results,)
 
@@ -2703,11 +2703,11 @@ def hostile_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsm
         # crude log-volatility estimate: log y² is unbiased for x up to E[log χ²₁] ≈ −1.27
         return jnp.clip(jnp.log(y**2 + 1e-2) + 1.27, -8.0, 8.0)
 
-    def run_mgrad_sv(y_obs, n_particles=16, delta=4.0, kappa=1.0, n_iter=700, seed=0):
+    def run_mgrad_sv(y_obs, num_particles=16, delta=4.0, kappa=1.0, n_iter=700, seed=0):
         """Particle-mGRAD (Alg 7) on the SV model — only the emission terms change."""
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _n = _p - 1
         _half = 0.5 * delta
 
@@ -2783,11 +2783,11 @@ def hostile_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsm
         _, _chain = jax.lax.scan(_sweep, _x_init(_y), _keys)
         return np.asarray(_chain)
 
-    def run_agrad_sv(y_obs, n_particles=16, delta=3.0, kappa=1.0, n_iter=700, seed=0):
+    def run_agrad_sv(y_obs, num_particles=16, delta=3.0, kappa=1.0, n_iter=700, seed=0):
         """§11's aGRAD leaf on the SV model — same unpaid reference adaptation."""
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _half = 0.5 * delta
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
 
@@ -2821,7 +2821,7 @@ def hostile_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsm
 
     def run_twisted_sv(
         y_obs,
-        n_particles=16,
+        num_particles=16,
         inflate=3.0,
         n_iter=700,
         seed=0,
@@ -2846,7 +2846,7 @@ def hostile_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsm
         """
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
 
         def _laplace_rts(x_hat):
@@ -2970,27 +2970,27 @@ def hostile_probe_run(
     _configs = (
         (
             "aGRAD leaf, P=16, δ=4 (20k)",
-            lambda: run_agrad_sv(_y, n_particles=16, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_agrad_sv(_y, num_particles=16, delta=4.0, n_iter=20000, seed=11),
         ),
         (
             "aGRAD leaf, P=4, δ=4 (20k)",
-            lambda: run_agrad_sv(_y, n_particles=4, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_agrad_sv(_y, num_particles=4, delta=4.0, n_iter=20000, seed=11),
         ),
         (
             "twisted, P=16 (20k)",
-            lambda: run_twisted_sv(_y, n_particles=16, n_iter=20000, seed=11),
+            lambda: run_twisted_sv(_y, num_particles=16, n_iter=20000, seed=11),
         ),
         (
             "twisted+def, P=16 (20k)",
-            lambda: run_twisted_sv(_y, n_particles=16, eps=0.25, n_iter=20000, seed=11),
+            lambda: run_twisted_sv(_y, num_particles=16, eps=0.25, n_iter=20000, seed=11),
         ),
         (
             "twisted+def, P=4 (20k)",
-            lambda: run_twisted_sv(_y, n_particles=4, eps=0.25, n_iter=20000, seed=11),
+            lambda: run_twisted_sv(_y, num_particles=4, eps=0.25, n_iter=20000, seed=11),
         ),
         (
             "Particle-mGRAD, P=4, δ=4 (60k)",
-            lambda: run_mgrad_sv(_y, n_particles=4, delta=4.0, n_iter=60000, seed=11),
+            lambda: run_mgrad_sv(_y, num_particles=4, delta=4.0, n_iter=60000, seed=11),
         ),
     )
     _lines = [
@@ -3682,11 +3682,11 @@ def multimodal_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tr
             _x_hat = (1.0 - damp) * _x_hat + damp * _mu
         return _rts(_x_hat)
 
-    def run_mgrad_kit(y_obs, n_particles=32, delta=1.0, kappa=1.0, n_iter=2000, seed=0):
+    def run_mgrad_kit(y_obs, num_particles=32, delta=1.0, kappa=1.0, n_iter=2000, seed=0):
         """Particle-mGRAD (Alg 7) on Kitagawa — the local gradient kernel, unchanged."""
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _n = _p - 1
         _half = 0.5 * delta
 
@@ -3760,12 +3760,12 @@ def multimodal_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tr
         return np.asarray(_chain)
 
     def run_twisted_def_kit(
-        y_obs, n_particles=32, inflate=3.0, eps=0.5, wide=100.0, n_iter=2000, seed=0
+        y_obs, num_particles=32, inflate=3.0, eps=0.5, wide=100.0, n_iter=2000, seed=0
     ):
         """Twisted + generic wide-tail defensive mixture (the §13 fix, unchanged)."""
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
         _mu_q, _var_q = _laplace_pilot(_y)
         _q_var = inflate * _var_q
@@ -3795,7 +3795,9 @@ def multimodal_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tr
         _, _chain = jax.lax.scan(_body, _x_init(_y).reshape(_t_len, 1), _keys)
         return np.asarray(_chain)[:, :, 0]
 
-    def run_twisted_root_kit(y_obs, n_particles=32, root_sd=2.5, w_root=0.45, n_iter=2000, seed=0):
+    def run_twisted_root_kit(
+        y_obs, num_particles=32, root_sd=2.5, w_root=0.45, n_iter=2000, seed=0
+    ):
         """Mode-AWARE fixed proposal: components at BOTH emission roots ±√(20 y).
 
         q_t = w_root N(+r_t, s²) + w_root N(-r_t, s²) + (1-2 w_root) N(μ_pilot, var_pilot),
@@ -3806,7 +3808,7 @@ def multimodal_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tr
         """
         _y = jnp.asarray(y_obs).reshape(-1)
         _t_len = int(_y.shape[0])
-        _p = n_particles
+        _p = num_particles
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
         _mu_q, _var_q = _laplace_pilot(_y)
         _root = jnp.sqrt(jnp.clip(20.0 * _y, 0.0, None))
@@ -3871,12 +3873,12 @@ def multimodal_run(
     _n_iter = 2000
     _burn = _n_iter // 2
     _chains = {
-        "mgrad": run_mgrad_kit(_y, n_particles=32, delta=1.0, n_iter=_n_iter, seed=5),
+        "mgrad": run_mgrad_kit(_y, num_particles=32, delta=1.0, n_iter=_n_iter, seed=5),
         "twisted_def": run_twisted_def_kit(
-            _y, n_particles=32, eps=0.5, wide=100.0, n_iter=_n_iter, seed=5
+            _y, num_particles=32, eps=0.5, wide=100.0, n_iter=_n_iter, seed=5
         ),
         "twisted_root": run_twisted_root_kit(
-            _y, n_particles=32, root_sd=2.5, n_iter=_n_iter, seed=5
+            _y, num_particles=32, root_sd=2.5, n_iter=_n_iter, seed=5
         ),
     }
     _metrics = {}
@@ -4447,14 +4449,14 @@ def leaf_grid_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np,
     def _logn(v, mu, var):
         return -0.5 * (jnp.log(2.0 * jnp.pi * var) + (v - mu) ** 2 / var)
 
-    def _lg_amala_z(model, y, n_particles=16, delta=None, n_iter=700, seed=0):
+    def _lg_amala_z(model, y, num_particles=16, delta=None, n_iter=700, seed=0):
         # Reference-local isotropic leaf with the auxiliary PAID: z_t ~ N(x_ref_t, τ) is
         # a Gibbs draw on the extended target π(x)·∏ N(z_t; x_t, τ); the leaf proposes
         # around z's gradient step and ψ pays log N(z_t; x, τ) − log q. Exact at any δ.
         _delta = model["delta_amala"] if delta is None else delta
         _y = jnp.asarray(y)
         _t_len = len(y)
-        _p = n_particles
+        _p = num_particles
         _tau = 0.5 * _delta
         _prior_mean, _prior_var = lg_prior_fns(model)
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
@@ -4486,13 +4488,13 @@ def leaf_grid_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np,
         _, _chain = jax.lax.scan(_body, _x0, _keys)
         return np.asarray(_chain)[:, :, 0]
 
-    def _lg_agrad_unpaid(model, y, n_particles=16, delta=None, n_iter=700, seed=0):
+    def _lg_agrad_unpaid(model, y, num_particles=16, delta=None, n_iter=700, seed=0):
         # NEGATIVE CONTROL: §11's aGRAD leaf — adapts to the reference (gradient at
         # x_ref_t, prior fold at x_ref_{t-1}) WITHOUT paying the auxiliary potential.
         _delta = model["delta_amala"] if delta is None else delta
         _y = jnp.asarray(y)
         _t_len = len(y)
-        _p = n_particles
+        _p = num_particles
         _half = 0.5 * _delta
         _prior_mean, _prior_var = lg_prior_fns(model)
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
@@ -4524,13 +4526,13 @@ def leaf_grid_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np,
         _, _chain = jax.lax.scan(_body, _x0, _keys)
         return np.asarray(_chain)[:, :, 0]
 
-    def _lg_fixed_mixture(model, y, centers, variances, weights, n_particles, n_iter, seed):
+    def _lg_fixed_mixture(model, y, centers, variances, weights, num_particles, n_iter, seed):
         # Shared engine for the whole twisted family: a per-t mixture proposal, FIXED
         # for the chain (independent of the reference ⇒ exactly invariant with
         # ψ = log G − log q). centers/variances are (C, T); weights (C,).
         _y = jnp.asarray(y)
         _t_len = len(y)
-        _p = n_particles
+        _p = num_particles
         _prior_mean, _prior_var = lg_prior_fns(model)
         _smooth = make_dsmc_tree(_t_len, _p, _prior_mean, _prior_var)
         _init_var = model["init_sd"] ** 2
@@ -4565,35 +4567,35 @@ def leaf_grid_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np,
         _, _chain = jax.lax.scan(_body, _x0, _keys)
         return np.asarray(_chain)[:, :, 0]
 
-    def _lg_twisted(model, y, n_particles=16, n_iter=700, seed=0):
+    def _lg_twisted(model, y, num_particles=16, n_iter=700, seed=0):
         _mu_q, _var_q = lg_make_pilot(model, y)
         _c = np.asarray(_mu_q)[None, :]
         _v = np.asarray(model["inflate"] * _var_q)[None, :]
-        return _lg_fixed_mixture(model, y, _c, _v, np.ones(1), n_particles, n_iter, seed)
+        return _lg_fixed_mixture(model, y, _c, _v, np.ones(1), num_particles, n_iter, seed)
 
-    def _lg_twisted_def(model, y, n_particles=16, n_iter=700, seed=0):
+    def _lg_twisted_def(model, y, num_particles=16, n_iter=700, seed=0):
         _mu_q, _var_q = lg_make_pilot(model, y)
         _mu = np.asarray(_mu_q)
         _c = np.stack([_mu, _mu])
         _v = np.stack([np.asarray(model["inflate"] * _var_q), np.full(len(y), model["wide"])])
         _w = np.array([1.0 - model["eps"], model["eps"]])
-        return _lg_fixed_mixture(model, y, _c, _v, _w, n_particles, n_iter, seed)
+        return _lg_fixed_mixture(model, y, _c, _v, _w, num_particles, n_iter, seed)
 
-    def _lg_twisted_root(model, y, n_particles=16, n_iter=700, seed=0):
+    def _lg_twisted_root(model, y, num_particles=16, n_iter=700, seed=0):
         _mu_q, _var_q = lg_make_pilot(model, y)
         _pre = model["preimages"](y)
         _c = np.stack([*_pre, np.asarray(_mu_q)])
         _v = np.stack([*(np.full(len(y), model["root_sd"] ** 2) for _ in _pre), np.asarray(_var_q)])
         _w = np.array([*([model["w_root"]] * len(_pre)), 1.0 - len(_pre) * model["w_root"]])
-        return _lg_fixed_mixture(model, y, _c, _v, _w, n_particles, n_iter, seed)
+        return _lg_fixed_mixture(model, y, _c, _v, _w, num_particles, n_iter, seed)
 
-    def _lg_mgrad(model, y, n_particles=16, delta=None, n_iter=700, seed=0):
+    def _lg_mgrad(model, y, num_particles=16, delta=None, n_iter=700, seed=0):
         # Published Particle-mGRAD (Alg 7), scalar case — the sequential local-gradient
         # baseline; identical to §13/§14's per-model implementations, now generic.
         _delta = model["delta_mgrad"] if delta is None else delta
         _y = jnp.asarray(y)
         _t_len = len(y)
-        _p = n_particles
+        _p = num_particles
         _n = _p - 1
         _half = 0.5 * _delta
         _prior_mean, _prior_var = lg_prior_fns(model)
@@ -4752,9 +4754,9 @@ def leaf_grid_probe_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models):
         _cell = {}
         for _kname, _kfn in lg_kernels.items():
             if _kname in ("amala_z", "agrad_unpaid"):
-                _chain = _kfn(_model, _y, n_particles=8, n_iter=20000, seed=0, delta=4.0)
+                _chain = _kfn(_model, _y, num_particles=8, n_iter=20000, seed=0, delta=4.0)
             else:
-                _chain = _kfn(_model, _y, n_particles=8, n_iter=20000, seed=0)
+                _chain = _kfn(_model, _y, num_particles=8, n_iter=20000, seed=0)
             _cell[_kname] = lg_eval(_chain, _gold, _model["sign_split"])
         lg_probe[_mname] = _cell
     return (lg_probe,)
@@ -4842,7 +4844,7 @@ def leaf_grid_budget_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models, np):
         for _kname, _kfn in lg_kernels.items():
             _runs = [
                 lg_eval(
-                    _kfn(_model, _y, n_particles=32, n_iter=1500, seed=_s),
+                    _kfn(_model, _y, num_particles=32, n_iter=1500, seed=_s),
                     _gold,
                     _model["sign_split"],
                 )

@@ -7,11 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.artifacts.posterior import InferenceEvidence, InferenceMetadata
-from nof1_causal_lab.utils.arrays import decode_array, encode_array
 from nof1_causal_lab.study.result_codec import pack_result, unpack_result
+from nof1_causal_lab.utils.arrays import decode_array, encode_array
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,11 +31,11 @@ if TYPE_CHECKING:
 class FitComputeInput:
     """Pinned, self-contained inputs; no remote workspace or storage credentials."""
 
-    model: bytes
+    dynamical_model_spec_bytes: bytes
     outcome: ConstructId | None
     panel_parquet: bytes
     variables: tuple[ResolvedObservationSpec, ...]
-    time_origin: datetime | None
+    time_origin: datetime
     sampler: SamplerSpec
     compute_loo_diagnostics: bool
 
@@ -44,7 +44,7 @@ class FitComputeInput:
 class FitComputeResult:
     """Complete fitted output to validate and persist through the caller's store."""
 
-    model: bytes
+    dynamical_model_spec_bytes: bytes
     evidence: bytes
     metadata_json: str
 
@@ -64,9 +64,11 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
 
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
-    model = ModelSpec.model_validate(unpack_result(payload.model)).materialized()
+    dynamical_model_spec = DynamicalModelSpec.model_validate(
+        unpack_result(payload.dynamical_model_spec_bytes)
+    ).materialized()
     result = fit(
-        selection=StructuralSelection(model, payload.outcome),
+        selection=StructuralSelection(dynamical_model_spec, payload.outcome),
         data_for_model=ObservationDataset.from_frame(
             pl.read_parquet(io.BytesIO(payload.panel_parquet)),
             payload.variables,
@@ -78,10 +80,10 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
         array_loader=arrays.__getitem__,
         compute_loo_diagnostics=payload.compute_loo_diagnostics,
     )
-    conditioned = result["_model"]
+    conditioned = result["_dynamical_model_spec"]
     evidence = result["evidence"]
     return FitComputeResult(
-        model=pack_result(conditioned),
+        dynamical_model_spec_bytes=pack_result(conditioned),
         evidence=pack_result(evidence),
         metadata_json=result["metadata"].model_dump_json(round_trip=True),
     )
@@ -135,7 +137,7 @@ def fit_on_modal(
     *,
     selection: StructuralSelection,
     data_for_model: ObservationDataset,
-    time_origin: datetime | None,
+    time_origin: datetime,
     sampler: SamplerSpec,
     array_writer: Callable[[np.ndarray], str],
     array_loader: ArrayLoader,
@@ -146,7 +148,9 @@ def fit_on_modal(
     data_for_model.recorded.frame.write_parquet(panel)
     result = _dispatch_fit(
         FitComputeInput(
-            model=pack_result(selection.model, array_loader=array_loader),
+            dynamical_model_spec_bytes=pack_result(
+                selection.dynamical_model_spec, array_loader=array_loader
+            ),
             outcome=selection.outcome,
             panel_parquet=panel.getvalue(),
             variables=data_for_model.variables,
@@ -161,9 +165,9 @@ def fit_on_modal(
 
     evidence = InferenceEvidence.model_validate(unpack_result(result.evidence))
     metadata = InferenceMetadata.model_validate_json(result.metadata_json)
-    payload = unpack_result(result.model)
-    conditioned = ModelSpec.model_validate(payload).materialized()
+    payload = unpack_result(result.dynamical_model_spec_bytes)
+    conditioned = DynamicalModelSpec.model_validate(payload).materialized()
     for identity, value in owned_arrays(payload).items():
         if array_writer(value.values) != identity:
             raise ValueError("Fit output array does not match its content identity")
-    return {"evidence": evidence, "metadata": metadata, "_model": conditioned}
+    return {"evidence": evidence, "metadata": metadata, "_dynamical_model_spec": conditioned}

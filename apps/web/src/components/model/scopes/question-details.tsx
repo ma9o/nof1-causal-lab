@@ -48,16 +48,19 @@ export function QuestionDetails({
 
 /** Every check of the question against the model and record, passing or not. */
 export function QuestionChecks({ context }: { context: ScopeContext }) {
-  const checks = context.model.question_checks;
+  const checks = context.modelSnapshot.question_checks;
   if (!checks) return null;
   return (
     <Section title="Question checks" wide>
       {checks.findings.map((finding) => {
         const subject = finding.subject;
         const label =
-          subject.check === "outcome" ? "Outcome" : `${subject.query} · ${humanize(subject.check)}`;
+          "outcome" in subject ? "Outcome" : `${subject.query} · ${humanize(finding.code)}`;
         return (
-          <p key={JSON.stringify(subject)} className="m-0 flex items-start gap-1.5">
+          <p
+            key={`${finding.code}:${JSON.stringify(subject)}`}
+            className="m-0 flex items-start gap-1.5"
+          >
             <StatusIcon status={finding.kind === "evaluated" ? finding.outcome : "not_evaluated"} />
             <span>
               <span className="font-medium">{label}</span>:{" "}

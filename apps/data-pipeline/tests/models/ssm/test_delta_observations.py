@@ -11,6 +11,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import (
@@ -20,7 +21,6 @@ from nof1_causal_lab.artifacts.likelihood import (
     NormalLawSpec,
     ObservationLawSpec,
 )
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
 from nof1_causal_lab.models.model_structure import (
     StructuralSelection,
@@ -49,7 +49,9 @@ from tests.model_fixtures import _exact_model_model, load_model_fixture
 from tests.observation_fixtures import observation_laws
 
 
-def _authored_affine_delta_keeps_its_calibration_coefficients_complete_model() -> ModelSpec:
+def _authored_affine_delta_keeps_its_calibration_coefficients_complete_model() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json"
     )
@@ -62,8 +64,10 @@ def exact_model():
 
 @pytest.mark.contract
 def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_model):
-    model = ModelSpec.model_validate_json(exact_model.model_dump_json()).materialized()
-    owner = model.constructs[0]
+    dynamical_model_spec = DynamicalModelSpec.model_validate_json(
+        exact_model.model_dump_json()
+    ).materialized()
+    owner = dynamical_model_spec.constructs[0]
     indicator = owner.indicators[0]
     likelihood = indicator.likelihood
     assert likelihood is not None
@@ -74,18 +78,20 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     assert not likelihood.parsed.auxiliary
     assert all(
         isinstance(use.value, (int, float))
-        for use in iter_coefficient_uses(model)
+        for use in iter_coefficient_uses(dynamical_model_spec)
         if any(ref.id == indicator.observation.id for ref in use.owners)
     )
-    np.testing.assert_array_equal(compile_model_fixture(model).loading_block.template, np.eye(2))
-    assert compile_model_fixture(model).observation_mean_block.template[0] == 0
-    assert not compile_model_fixture(model).observation_noise_block.diag_support[0]
     np.testing.assert_array_equal(
-        compile_model_fixture(model).observation_noise_block.template[0], [0, 0]
+        compile_model_fixture(dynamical_model_spec).loading_block.template, np.eye(2)
     )
-    assert owner.id in selected_state_ids(StructuralSelection(model, None))
+    assert compile_model_fixture(dynamical_model_spec).observation_mean_block.template[0] == 0
+    assert not compile_model_fixture(dynamical_model_spec).observation_noise_block.diag_support[0]
+    np.testing.assert_array_equal(
+        compile_model_fixture(dynamical_model_spec).observation_noise_block.template[0], [0, 0]
+    )
+    assert owner.id in selected_state_ids(StructuralSelection(dynamical_model_spec, None))
     assert "usage" not in type(owner).model_fields
-    compile_model_fixture(model)
+    compile_model_fixture(dynamical_model_spec)
 
 
 @pytest.mark.contract
@@ -118,12 +124,14 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
         reasoning="Exact measurement with an unknown calibration offset.",
     )
     indicator = owner.indicators[0].revised(likelihood=likelihood)
-    model = _authored_affine_delta_keeps_its_calibration_coefficients_complete_model()
-    completed = model.indicator(indicator.observation.id).likelihood
+    dynamical_model_spec = (
+        _authored_affine_delta_keeps_its_calibration_coefficients_complete_model()
+    )
+    completed = dynamical_model_spec.indicator(indicator.observation.id).likelihood
     assert completed is not None
     assert isinstance(completed.parsed.intercept.value, str)
     assert not completed.parsed.auxiliary
-    compile_model_fixture(model)
+    compile_model_fixture(dynamical_model_spec)
 
 
 @pytest.mark.contract
@@ -165,17 +173,17 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
 def test_exact_measurement_is_available_but_never_selected_by_default(
     dtype, default_family, observation_law_payload
 ):
-    model = make_model(["setting", "response"], [("setting", "response")])
-    owner = model.constructs[0]
+    dynamical_model_spec = make_model(["setting", "response"], [("setting", "response")])
+    owner = dynamical_model_spec.constructs[0]
     updates = {"measurement_dtype": dtype, "aggregation": "last"}
     if dtype in {"ordinal", "categorical"}:
         updates[f"{dtype}_levels"] = ("low", "high")
     indicator = owner.indicators[0].revised(
         observation=owner.indicators[0].observation.revised(**updates)
     )
-    model = model.with_entities(
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (owner.revised(indicators=(indicator,)),),
         )
     )
@@ -190,9 +198,9 @@ def test_exact_measurement_is_available_but_never_selected_by_default(
         ),
         reasoning="Explicit exact measurement",
     )
-    model.with_entities(
+    dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (owner.revised(indicators=(indicator.revised(likelihood=exact),)),),
         )
     )
@@ -420,7 +428,7 @@ def point_problem(exact_model):
     return problem_module.build_particle_problem(
         inputs.prior_runtime_bundle,
         bind_panel_fixture(
-            inputs.compiled,
+            inputs.compiled_dynamical_model,
             jnp.array([[1.0, jnp.nan], [jnp.nan, jnp.nan], [2.0, jnp.nan]]),
             jnp.array([0.0, 0.4, 1.0]),
         ),
@@ -453,7 +461,7 @@ def test_conditioned_target_preserves_initial_and_transition_evidence(point_prob
     state = _conditioned_initial_state(point_problem)
     path = state.latent_trajectory
     np.testing.assert_array_equal(path[:, 0], [1.0, 0.25, 2.0])
-    dynamics = runtime.model(state.latent_context)
+    dynamics = runtime.dynamical_model(state.latent_context)
     expected = dynamics.initial_condition.log_prob(path[0])
     for index in (1, 2):
         expected += dynamics.state_evolution(
@@ -472,15 +480,15 @@ def test_conditioned_target_preserves_initial_and_transition_evidence(point_prob
 
 @pytest.mark.contract
 def test_gaussian_view_is_confined_to_warmup(exact_model):
-    compiled = compile_model_fixture(exact_model)
-    laws = tuple(observation.law for observation in compiled.observations)
+    compiled_dynamical_model = compile_model_fixture(exact_model)
+    laws = tuple(observation.law for observation in compiled_dynamical_model.observations)
     warmup_laws = initialization_observation_laws(laws)
     assert all(isinstance(law, NormalLawSpec) for law in warmup_laws)
     delta, gaussian = laws[0], warmup_laws[0]
     assert isinstance(delta, DeltaLawSpec)
     assert isinstance(gaussian, NormalLawSpec)
     assert gaussian.loc is delta.v
-    assert numeric.observation_families(compiled) == ("delta", "gaussian")
+    assert numeric.observation_families(compiled_dynamical_model) == ("delta", "gaussian")
 
 
 @pytest.mark.inference(concern="sampling")
@@ -545,9 +553,11 @@ def test_exact_observations_pass_through_full_construct_diagnostics(exact_model)
     from tests.inference_fixtures import compile_model_fixture, parameter_draws
 
     draws, ticks = 2, 6
-    compiled = compile_model_fixture(exact_model)
+    compiled_dynamical_model = compile_model_fixture(exact_model)
     parameters = parameter_draws(exact_model, draws)
-    parameters.update(assemble_deterministics_from_registry(parameters, compiled, n_draws=draws))
+    parameters.update(
+        assemble_deterministics_from_registry(parameters, compiled_dynamical_model, n_draws=draws)
+    )
     paths = jnp.broadcast_to(jnp.linspace(-1.0, 1.0, ticks)[None, :, None], (draws, ticks, 2))
     prediction = PredictiveDraws(
         parameters=parameters,
@@ -558,16 +568,16 @@ def test_exact_observations_pass_through_full_construct_diagnostics(exact_model)
     target = exact_model.constructs[0]
     indicator_id = target.indicators[0].observation.id
     results, _ = measure_construct_simulation(
-        compiled,
+        compiled_dynamical_model,
         prediction,
         DesignInfo(
             t_grid=jnp.arange(ticks, dtype=float),
-            manifest_ids=tuple(numeric.observation_ids(compiled)),
+            manifest_ids=tuple(numeric.observation_ids(compiled_dynamical_model)),
             obs_index_by_indicator={indicator_id: np.arange(ticks)},
             values_by_indicator={indicator_id: np.asarray(paths[0, :, 0])},
         ),
         ConstructSimulationTarget(
-            next(state for state in compiled.states if state.id == target.id)
+            next(state for state in compiled_dynamical_model.states if state.id == target.id)
         ),
         clock=time.monotonic,
     )

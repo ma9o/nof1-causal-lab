@@ -33,13 +33,13 @@ from nof1_causal_lab.actions.temporal.messages import (
     ProgressEventInput,
     ToolCallSummary,
 )
-from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult, PreparedDataMetadata
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.study.records import Applied, DataPreparationResult
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -83,7 +83,7 @@ async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) 
     store.read_meta("raw_data", activity_input.raw_data_revision)
     pins: dict[ArtifactId, GitOid] = {
         "raw_data": activity_input.raw_data_revision,
-        "model": activity_input.preparation.model_ref,
+        "model": activity_input.preparation.dynamical_model_spec_ref,
     }
     run_id = f"seq-{activity_input.seq:06d}"
     root = _run_root(activity_input.workspace_id, run_id)
@@ -380,7 +380,6 @@ async def finalize_measurements_activity(
             raise ValueError("Extraction produced no observations")
         panel = validate_observation_rows(panel, variables)
         metadata = PreparedDataMetadata(
-            source=preparation.source,
             preparation=preparation.definition,
             time_origin=prepared_time_origin(panel, preparation.source.start),
         )

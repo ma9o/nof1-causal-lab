@@ -279,11 +279,15 @@ function schemaBody(name: string): ts.TypeNode {
   if (!body) throw new Error(`Compiler omitted schema ${name}`);
   return body;
 }
-// JSON transport aliases are recursive in both modes. Direct named bodies break
+// Transport aliases are recursive in both modes. Direct named bodies break
 // the indexed component/property recursion that TypeScript rejects (TS2502).
-const jsonAliases = new Map(
+const transportAliases = new Map(
   Object.entries(definitions)
-    .filter(([, value]) => value["x-python-module"] === "nof1_causal_lab.json_types")
+    .filter(([, value]) =>
+      ["nof1_causal_lab.json_types", "nof1_causal_lab.numpyro_json"].includes(
+        value["x-python-module"],
+      ),
+    )
     .map(([name]) => [name, name.replace(/-(Input|Output)$/, "")]),
 );
 const named = [...outputs].map(([name, canonical]) =>
@@ -291,10 +295,10 @@ const named = [...outputs].map(([name, canonical]) =>
     [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
     canonical,
     undefined,
-    jsonAliases.has(name)
+    transportAliases.has(name)
       ? rewrite(schemaBody(name), (node) => {
           const ref = referenceName(node);
-          const alias = ref && jsonAliases.get(ref);
+          const alias = ref && transportAliases.get(ref);
           return alias ? ts.factory.createTypeReferenceNode(alias) : node;
         })
       : component(name),
@@ -356,7 +360,7 @@ const operations = ast.map((node) =>
       );
     }
     const name = referenceName(child);
-    if (name && jsonAliases.has(name)) return operand(`Domain.${jsonAliases.get(name)}`);
+    if (name && transportAliases.has(name)) return operand(`Domain.${transportAliases.get(name)}`);
     const application =
       name &&
       definitions[name]["x-typescript-mode"] === "serialization" &&

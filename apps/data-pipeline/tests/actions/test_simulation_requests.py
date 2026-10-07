@@ -2,11 +2,13 @@
 
 from datetime import UTC, date, datetime
 
+import numpy as np
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from nof1_causal_lab.actions.contracts import SimulateRequest
-from nof1_causal_lab.actions.io import SimulateInput, SimulateOutput
+from nof1_causal_lab.actions.io import SimulateInput
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
@@ -14,6 +16,7 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,
 )
+from nof1_causal_lab.study.result_codec import pack_result, unpack_result
 from tests.action_fixtures import empty_simulation_summary
 from tests.inference_fixtures import compile_model_fixture, particle_posterior
 from tests.model_fixtures import x_y_model
@@ -25,12 +28,12 @@ def test_simulation_request_is_a_dated_window_with_optional_interventions():
     request = SimulateRequest[GitOid](
         input=SimulateInput[GitOid](
             simulation=SimulationSpec(start=date(2026, 1, 1), horizon="12d"),
-            model_ref="a" * 40,
+            dynamical_model_spec_ref="a" * 40,
         )
     )
     assert request.input.simulation.interventions == ()
     assert set(request.model_dump()) == {"action", "input", "reasoning"}
-    assert set(request.input.model_dump()) == {"model_ref", "simulation"}
+    assert set(request.input.model_dump()) == {"dynamical_model_spec_ref", "simulation"}
     with pytest.raises(ValidationError, match="panel_ref"):
         request.input.revised(panel_ref="b" * 40)
     with pytest.raises(ValidationError, match="Extra inputs"):
@@ -87,7 +90,7 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
     result = {
         "outcome": "construct:y",
         "labels": {"construct:x": "Treatment", "construct:y": "Outcome"},
-        "differences": "differences",
+        "differences": NumericalArray.from_numpy(np.ones((100, 3))),
         "frame": [0, 2],
         "summary": {"mean": 1, "median": 1, "lower_95": 0, "upper_95": 2, "prob_positive": 0.9},
         "reference_mean": 3,
@@ -96,17 +99,11 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
     }
 
     evidence = {
-        "design": {
-            "start": "2026-01-01",
-            "horizon": "2d",
-            "interventions": [{"target": "construct:x", "value": 1}],
-        },
         "time_origin": origin.isoformat(),
         "assignments": [{"target": "construct:x", "time": start, "value": 1}],
         "times": days,
         "draws": 100,
         "seed": 0,
-        "model": {"workspace_id": "QUERY", "revision": "a" * 40, "path": "model.json"},
         "state_ids": ["construct:x", "construct:y"],
         "observation_layout": {
             "variables": [
@@ -118,17 +115,21 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
                     "observation_window": "1d",
                 }
             ],
-            "support_start_times": "starts",
-            "support_end_times": "ends",
-            "mask": "mask",
+            "support_start_times": NumericalArray.from_numpy(np.asarray(days)[:, None] - 1),
+            "support_end_times": NumericalArray.from_numpy(np.asarray(days)[:, None]),
+            "mask": NumericalArray.from_numpy(np.ones((3, 1), dtype=bool)),
         },
         "parameter_draws": {},
         "arms": {
             "kind": "paired",
-            "action": {"latent_paths": "paths", "observations": "observations"},
+            "causal": result,
+            "action": {
+                "latent_paths": NumericalArray.from_numpy(np.ones((100, 3, 2))),
+                "observations": NumericalArray.from_numpy(np.ones((100, 3, 1))),
+            },
             "reference": {
-                "latent_paths": "reference-paths",
-                "observations": "reference-observations",
+                "latent_paths": NumericalArray.from_numpy(np.zeros((100, 3, 2))),
+                "observations": NumericalArray.from_numpy(np.zeros((100, 3, 1))),
             },
         },
     }
@@ -137,67 +138,35 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
         "summary": empty_simulation_summary().model_dump(mode="json"),
         "law": AuthoredLawProvenance().model_dump(mode="json"),
         "fit_reliability": "converged",
-        "causal": {"kind": "available", "value": result},
     }
 
 
-def test_one_request_can_produce_independently_pinned_responses():
-    value = _response()
-    first = SimulationReport.model_validate(value)
-    value["evidence"]["model"]["revision"] = "b" * 40
-    second = SimulationReport.model_validate(value)
-    assert first.evidence.design == second.evidence.design
-    assert first.evidence.model.revision == "a" * 40
-    assert second.evidence.model.revision == "b" * 40
-    assert SimulationReport.model_validate_json(first.model_dump_json()) == first
+def test_simulation_report_keeps_computed_coordinates_without_copying_inputs():
+    report = SimulationReport.model_validate(_response())
+    assert "design" not in report.evidence.model_dump()
+    assert "dynamical_model_spec_ref" not in report.evidence.model_dump()
+    assert "causal" not in report.model_dump()
+    assert report.evidence.arms.kind == "paired"
+    assert SimulationReport.model_validate(unpack_result(pack_result(report))) == report
 
 
-@pytest.mark.parametrize("missing", ["construct:x", "construct:y"])
-def test_causal_layout_includes_the_outcome_and_interventions(missing):
-    value = _response()
-    value["evidence"]["state_ids"].remove(missing)
-    with pytest.raises(ValidationError, match="include the outcome and interventions"):
-        SimulationReport.model_validate(value)
-
-
-@pytest.mark.parametrize("missing", ["latent_paths", "observations"])
-def test_causal_reports_require_their_effects_and_paired_draws(missing):
+def test_causal_absence_is_structural_and_paired_results_are_required():
     payload = _response()
-    del payload["evidence"]["arms"]["reference"][missing]
-    with pytest.raises(ValidationError, match="Field required"):
-        TypeAdapter(SimulationReport).validate_python(payload)
-
-
-def test_success_has_one_required_report_and_no_duplicate_paths():
-    output = SimulateOutput(
-        data=({},), report=SimulationReport.model_validate(_response()), arrays={}
-    )
-    payload = output.model_dump(mode="json")
-    assert set(payload) == {"data", "report", "arrays"}
-    for field in payload:
-        with pytest.raises(ValidationError):
-            SimulateOutput.model_validate({**payload, field: None})
-        with pytest.raises(ValidationError):
-            SimulateOutput.model_validate(
-                {key: value for key, value in payload.items() if key != field}
-            )
-    with pytest.raises(ValidationError):
-        output.revised(paths={})
-    with pytest.raises(ValidationError):
-        output.revised(data=())
-
-
-def test_intervention_scope_requires_the_matching_arm_variant():
-    payload = _response()
-    payload["evidence"]["design"]["interventions"] = []
-    with pytest.raises(ValidationError, match="paired reference"):
+    arms = payload["evidence"]["arms"]
+    del arms["causal"]
+    with pytest.raises(ValidationError, match="causal"):
         SimulationReport.model_validate(payload)
-    payload["evidence"]["design"]["interventions"] = [{"target": "construct:x", "value": 1}]
-    payload["evidence"]["arms"] = {
-        "kind": "single",
-        "action": payload["evidence"]["arms"]["action"],
+    arms["kind"] = "single"
+    del arms["reference"]
+    SimulationReport.model_validate(payload)
+    arms["causal"] = {
+        "kind": "not_evaluated",
+        "code": "causal_effect",
+        "subject": "causal_effect",
+        "reason": "CAUSAL_EVALUATION_FAILED",
+        "detail": "No retained fit.",
     }
-    with pytest.raises(ValidationError, match="paired reference"):
+    with pytest.raises(ValidationError):
         SimulationReport.model_validate(payload)
 
 
@@ -225,14 +194,14 @@ def test_runner_uses_model_time_binding_without_reading_panels(
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("ORIGIN")
-    model = x_y_model()
+    dynamical_model_spec = x_y_model()
     fit_origin = datetime(2024, 1, 2, tzinfo=UTC)
     if conditioned:
-        model, _ = condition_model(
-            model,
-            compile_model_fixture(model),
+        dynamical_model_spec, _ = condition_model(
+            dynamical_model_spec,
+            compile_model_fixture(dynamical_model_spec),
             particle_posterior(
-                JointPosteriorDraws(parameter_draws(model, 2), jnp.zeros((2, 2, 2)))
+                JointPosteriorDraws(parameter_draws(dynamical_model_spec, 2), jnp.zeros((2, 2, 2)))
             ),
             times=jnp.array([0.0, 1.0]),
             time_origin=fit_origin,
@@ -242,7 +211,7 @@ def test_runner_uses_model_time_binding_without_reading_panels(
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": model.model_dump(mode="json")},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json")},
     )
     panel = store.write_artifact(
         "panel",
@@ -254,7 +223,8 @@ def test_runner_uses_model_time_binding_without_reading_panels(
     state = StudyState().with_artifacts(
         [
             write_question(
-                store, QuestionSpec(text="Effect on sleep", outcome=model.constructs[1].id)
+                store,
+                QuestionSpec(text="Effect on sleep", outcome=dynamical_model_spec.constructs[1].id),
             ),
             record,
             *([panel] if current_panel else []),
@@ -283,7 +253,9 @@ def test_runner_uses_model_time_binding_without_reading_panels(
             run_action(
                 "ORIGIN",
                 SimulateRequest[GitOid](
-                    input=SimulateInput[GitOid](model_ref=record.revision, simulation=design)
+                    input=SimulateInput[GitOid](
+                        dynamical_model_spec_ref=record.revision, simulation=design
+                    )
                 ),
                 state,
             )

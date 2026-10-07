@@ -16,13 +16,13 @@ import { formatNumber } from "@/lib/utils/format";
 
 // ── Row type (one per variable) ──────────────────────────
 
-type PPCWarning = PosteriorPredictiveChecks["per_variable_warnings"][number];
-type CheckType = PPCWarning["subject"]["check"];
+type PPCWarning = PosteriorPredictiveChecks["findings"][number];
+type CheckType = "calibration" | "autocorrelation" | "variance";
 type StatName = PPCTestStat["stat_name"];
 
 interface PPCVariableRow {
   variable: string;
-  checks: Partial<Record<CheckType, PPCWarning>>;
+  checks: Partial<Record<string, PPCWarning>>;
   testStats: Partial<Record<StatName, PPCTestStat>>;
   overlay?: PPCOverlay;
 }
@@ -44,7 +44,7 @@ function buildRows(
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
-    getOrCreate(map, w.subject.target.id).checks[w.subject.check] = w;
+    getOrCreate(map, w.subject.target.id).checks[w.code] = w;
   }
   for (const ts of testStats) {
     getOrCreate(map, ts.indicator_id).testStats[ts.stat_name] = ts;

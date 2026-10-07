@@ -34,9 +34,9 @@ def validate_observation_support_for_fit(panel: BoundPanel) -> ObservationPrefli
     """Reject observation semantics the particle target cannot represent."""
     intervals = [
         indicator.name
-        for indicator in panel.model.observations
+        for indicator in panel.compiled_dynamical_model.observations
         if indicator.support.support_kind == "interval"
-        and not panel.model.states[indicator.state_index].is_input
+        and not panel.compiled_dynamical_model.states[indicator.state_index].is_input
     ]
     if intervals:
         names = ", ".join(intervals)
@@ -75,18 +75,18 @@ def validate_observations_for_fit(
     failure = validate_observation_support_for_fit(panel)
     if failure is not None:
         return failure
-    spec = panel.model
+    compiled_dynamical_model = panel.compiled_dynamical_model
     obs = np.asarray(panel.observations, dtype=np.float64)
-    standardized = numeric.observation_standardized(spec)
-    names = numeric.observation_names(spec)
+    standardized = numeric.observation_standardized(compiled_dynamical_model)
+    names = numeric.observation_names(compiled_dynamical_model)
 
-    means_block = spec.observation_mean_block
+    means_block = compiled_dynamical_model.observation_mean_block
     free_support = np.asarray(means_block.free_support, dtype=bool)
     n_free = int(free_support.sum())
     free_prior = priors.priors[means_block.free_site_name] if n_free else None
 
     problems: list[str] = []
-    for j in range(numeric.n_observations(spec)):
+    for j in range(numeric.n_observations(compiled_dynamical_model)):
         finite = obs[:, j][np.isfinite(obs[:, j])]
         if finite.size == 0:
             continue
@@ -95,7 +95,9 @@ def validate_observations_for_fit(
         if bool(standardized[j]):
             continue
 
-        if not isinstance(spec.observations[j].law, (NormalLawSpec, StudentTLawSpec)):
+        if not isinstance(
+            compiled_dynamical_model.observations[j].law, (NormalLawSpec, StudentTLawSpec)
+        ):
             continue
         if not bool(free_support[j]):
             continue

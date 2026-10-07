@@ -40,7 +40,7 @@ from tests.model_fixtures import (
 
 
 def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0_false_1_0001e_08() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     _LATENT_0_DRIFT_MECHANISM_ID = MechanismId("mechanism:5ced39cf0fae44636f2b")
     _LATENT_0_DIFFUSION_DIAG_DISTRIBUTION_ID = DistributionId(
@@ -55,14 +55,18 @@ def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_familie
     _LATENT_0_MANIFEST_0_MANIFEST_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
         "distribution:e00bc5d0d99932524d21f2db2e76aa813087b7b29e2a3195d42f8b28199798d8"
     )
-    model = one_state_gaussian_model()
-    latent_0 = construct_named(model, "latent_0")
-    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
-    latent_0_diffusion_diag = parameter_for(model, SiteKind.DIFFUSION_DIAG, "latent_0")
-    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
-    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
+    dynamical_model_spec = one_state_gaussian_model()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
+    latent_0_dynamics_decay = parameter_for(
+        dynamical_model_spec, SiteKind.DYNAMICS_DECAY, "latent_0"
+    )
+    latent_0_diffusion_diag = parameter_for(
+        dynamical_model_spec, SiteKind.DIFFUSION_DIAG, "latent_0"
+    )
+    latent_0_t0_means = parameter_for(dynamical_model_spec, SiteKind.T0_MEANS, "latent_0")
+    latent_0_t0_var_diag = parameter_for(dynamical_model_spec, SiteKind.T0_VAR_DIAG, "latent_0")
     latent_0_manifest_0_manifest_var_diag = parameter_for(
-        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+        dynamical_model_spec, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
     )
     latent_0_revised = latent_0.revised(
         dynamics=(
@@ -72,7 +76,7 @@ def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_familie
             ),
         )
     )
-    parameters, distributions = without_parameters(model, latent_0_dynamics_decay)
+    parameters, distributions = without_parameters(dynamical_model_spec, latent_0_dynamics_decay)
     distributions = {
         identity: law
         for identity, law in distributions.items()
@@ -84,8 +88,8 @@ def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_familie
             latent_0_manifest_0_manifest_var_diag.distribution,
         )
     }
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=replace_parameters(
             parameters,
             latent_0_diffusion_diag.revised(distribution=_LATENT_0_DIFFUSION_DIAG_DISTRIBUTION_ID),
@@ -111,19 +115,19 @@ def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_familie
     )
 
 
-def _student_t_model() -> ModelSpec:
+def _student_t_model() -> DynamicalModelSpec:
     _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_PARAMETER_ID = ParameterId(
         "parameter:5d755d2d8d1fafa18d1718ae376e47cb39c4fa4db501e16c8a098eff75cb51b3"
     )
     _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_DISTRIBUTION_ID = DistributionId(
         "distribution:f183bae941d1033fb3c0fcbfa1f5898921d81e1789273b58f0f526eff9629fe8"
     )
-    model = _diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0_false_1_0001e_08()
-    latent_0 = construct_named(model, "latent_0")
-    manifest_0 = indicator_named(model, "manifest_0")
-    manifest_0_likelihood = likelihood_named(model, "manifest_0")
+    dynamical_model_spec = _diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0_false_1_0001e_08()
+    latent_0 = construct_named(dynamical_model_spec, "latent_0")
+    manifest_0 = indicator_named(dynamical_model_spec, "manifest_0")
+    manifest_0_likelihood = likelihood_named(dynamical_model_spec, "manifest_0")
     latent_0_manifest_0_manifest_var_diag = parameter_for(
-        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+        dynamical_model_spec, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
     )
     manifest_0_revised = manifest_0.revised(
         likelihood=manifest_0_likelihood.revised(
@@ -141,10 +145,10 @@ def _student_t_model() -> ModelSpec:
         )
     )
     latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
-    return model.with_entities(
-        edges=replace_constructs(model.edges, (latent_0_revised,)),
+    return dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (latent_0_revised,)),
         parameters=(
-            *model.parameters,
+            *dynamical_model_spec.parameters,
             ParameterSpec(
                 id=_INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_PARAMETER_ID,
                 name="indicator:a6c99a629d09c47f8b69/degrees_of_freedom",
@@ -153,7 +157,7 @@ def _student_t_model() -> ModelSpec:
             ),
         ),
         distributions={
-            **model.distributions,
+            **dynamical_model_spec.distributions,
             _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_DISTRIBUTION_ID: dist.HalfNormal(
                 scale=1.0, validate_args=False
             ),
@@ -161,24 +165,26 @@ def _student_t_model() -> ModelSpec:
     )
 
 
-def _scalar_diagnostics_use_projected_means_at_supported_times_model_fixture() -> ModelSpec:
+def _scalar_diagnostics_use_projected_means_at_supported_times_model_fixture() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "predictive_batches/scalar_diagnostics_use_projected_means_at_supported_times_model_fixture.json"
     )
 
 
-def _gaussian_poisson_model() -> ModelSpec:
+def _gaussian_poisson_model() -> DynamicalModelSpec:
     return load_model_fixture("predictive_batches/gaussian_poisson_model.json")
 
 
-def _undefined_student_moments_produce_an_explicit_diagnostic_model_fixture() -> ModelSpec:
+def _undefined_student_moments_produce_an_explicit_diagnostic_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "predictive_batches/undefined_student_moments_produce_an_explicit_diagnostic_model_fixture.json"
     )
 
 
 def _discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "predictive_batches/discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture.json"
@@ -186,7 +192,7 @@ def _discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 def _trajectory():
@@ -234,7 +240,9 @@ def test_predictive_batch_preserves_pairing_and_rejects_misaligned_parameters():
 
 @pytest.mark.inference(concern="predictive")
 def test_discrete_diagnostics_share_cutpoints_anchors_and_declared_probabilities():
-    spec = _discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture()
+    dynamical_model_spec = (
+        _discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture()
+    )
     raw = {
         "obs_ordered_base": jnp.array([[0.0, 0.0], [1.0, 0.0]]),
         "obs_ordered_gaps": jnp.ones((2, 2, 2)),
@@ -242,7 +250,7 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_declared_probabilities
         # The categorical anchor must replace 99 by +1, and padded entries vanish.
         "obs_cat_slopes": jnp.full((2, 2, 3), 99.0),
     }
-    assert numeric.categorical_anchors(compile_model_fixture(spec))[1]
+    assert numeric.categorical_anchors(compile_model_fixture(dynamical_model_spec))[1]
     predictors = jnp.broadcast_to(jnp.array([-100.0, 0.0, 100.0])[None, :, None], (2, 3, 2))
     batch = PredictiveDraws(
         parameters={**raw, "manifest_cov": jnp.broadcast_to(jnp.eye(2), (2, 2, 2))},
@@ -250,7 +258,7 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_declared_probabilities
     )
     indices = np.arange(3)
     ordered, variance = observation_signal_and_variance(
-        compile_model_fixture(spec), batch, 0, indices
+        compile_model_fixture(dynamical_model_spec), batch, 0, indices
     )
     assert variance is None
     np.testing.assert_allclose(ordered.sum(axis=2), 1.0, atol=1e-7)
@@ -259,7 +267,7 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_declared_probabilities
     np.testing.assert_allclose(ordered[:, 1, 0], jax.nn.sigmoid(jnp.array([0.0, 1.0])))
 
     categorical, variance = observation_signal_and_variance(
-        compile_model_fixture(spec), batch, 1, indices
+        compile_model_fixture(dynamical_model_spec), batch, 1, indices
     )
     assert variance is None
     assert categorical.shape == (2, 3, 2)

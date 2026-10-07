@@ -19,10 +19,7 @@ from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 class DataSeries(Value):
     """One variable's recorded measurements in one history; no pooling across replicas."""
 
-    variable: ResolvedObservationSpec | None
-    time_origin: AwareDatetime | None = Field(
-        description="Recorded calendar binding; null means the point dates are serialization coordinates, not real dates."
-    )
+    variable: ResolvedObservationSpec
     points: tuple[DataPoint, ...]
 
 
@@ -30,4 +27,5 @@ class Dataset(Value):
     """One parsed observation history, identified by its immutable source."""
 
     source: DataRef[GitOid, int]
+    time_origin: AwareDatetime = Field(description="Calendar instant of model day zero.")
     series: Mapping[IndicatorId, DataSeries]

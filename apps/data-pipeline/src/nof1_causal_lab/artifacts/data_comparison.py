@@ -6,11 +6,12 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat
 
-from nof1_causal_lab.artifacts.availability import Evaluation, NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.checks import NotEvaluated
 from nof1_causal_lab.artifacts.data_ref import DataRef
-from nof1_causal_lab.artifacts.identity import GitOid, IndicatorId
+from nof1_causal_lab.artifacts.identity import GitOid, IndicatorId, IndicatorRef
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+from nof1_causal_lab.artifacts.validation_report import DataFinding
 
 
 class Added[PayloadT](Value):
@@ -43,8 +44,7 @@ type Change[PayloadT] = Annotated[
 class DataPoint(Value):
     """One recorded anchor, support and value; a null value is a present but missing observation.
 
-    Dates are serialization coordinates for calendar-free histories. Row absence,
-    represented by Added or Removed, is distinct from a present point's null value.
+    Row absence, represented by Added or Removed, is distinct from a present point's null value.
     """
 
     anchor_time: AwareDatetime
@@ -58,7 +58,7 @@ type DataStatistic = Literal[
 ]
 
 
-class DataStatisticComparison(Value):
+class ScalarStatisticComparison(Value):
     """One statistic per whole selected history, in the report's source order.
 
     Histories are never pooled or paired across sides. Null denotes an undefined
@@ -67,10 +67,23 @@ class DataStatisticComparison(Value):
     predictive checks separately use the reference history's observed-value mask.
     """
 
-    statistic: DataStatistic
-    level: str | None = None
+    statistic: Literal["observed_count", "missing_count", "mean", "sd", "min", "max"]
     left: tuple[FiniteFloat | None, ...]
     right: tuple[FiniteFloat | None, ...]
+
+
+class ProportionComparison(Value):
+    """The fraction of observed values at one declared level, separately for each history."""
+
+    statistic: Literal["proportion"] = "proportion"
+    level: str
+    left: tuple[FiniteFloat | None, ...]
+    right: tuple[FiniteFloat | None, ...]
+
+
+type DataStatisticComparison = Annotated[
+    ScalarStatisticComparison | ProportionComparison, Field(discriminator="statistic")
+]
 
 
 class PredictiveComparison(Value):
@@ -85,39 +98,45 @@ class PredictiveComparison(Value):
     the side names and number of selected histories do not establish that provenance.
     """
 
-    kind: Literal["comparison"] = "comparison"
     reference_side: Literal["left", "right"]
-    evaluation: Evaluation[PosteriorPredictiveChecks]
+    evaluation: PosteriorPredictiveChecks | NotEvaluated[IndicatorRef]
 
 
-type PredictiveComparisonResult = Annotated[
-    PredictiveComparison | Unavailable | NotApplicable, Field(discriminator="kind")
-]
-
-
-class DataVariableComparison(Value):
+class DescriptiveIndicatorComparison(Value):
     """Computed evidence for one persistent indicator identity, without copying its histories.
 
     Point changes are directional, from left to right, and only computed for one
-    history on each side with compatible calendar binding. Match by anchor instant:
+    history on each side. Match by calendar instant:
     a new anchor is Added, a lost anchor Removed, and an exact value or support change
     at a retained anchor Revised. Omit unchanged points and order changes by anchor.
     Renames and measurement-definition changes are not point revisions; definition
-    mismatches are comparison issues. No tolerance, interpolation, or imputation is
+    mismatches are findings. No tolerance, interpolation, or imputation is
     used. Reversing sides exchanges additions/removals and before/after payloads.
 
     An empty changes tuple can mean identical points or an inapplicable point diff
-    (replicated selections or mixed calendar binding); it never asserts that whole
+    (replicated selections); it never asserts that whole
     datasets are equal. Missing variables and differing schedules remain explicit
-    issues. Predictive evaluation owns its own applicability, so extra replicate
-    anchors can produce a schedule issue without preventing checks at observed anchors.
+    findings. Predictive evaluation owns its own applicability, so extra replicate
+    anchors can produce a schedule finding without preventing checks at observed anchors.
     """
 
     indicator_id: IndicatorId
     changes: tuple[Change[DataPoint], ...]
     statistics: tuple[DataStatisticComparison, ...]
-    comparison_issues: tuple[str, ...]
-    predictive: PredictiveComparisonResult
+    findings: tuple[DataFinding, ...]
+
+
+class PredictiveIndicatorComparison(Value):
+    """Compatible reference and replicate histories with their evaluated predictive comparison."""
+
+    indicator_id: IndicatorId
+    changes: tuple[Change[DataPoint], ...]
+    statistics: tuple[DataStatisticComparison, ...]
+    findings: tuple[DataFinding, ...]
+    predictive: PredictiveComparison
+
+
+type IndicatorComparison = DescriptiveIndicatorComparison | PredictiveIndicatorComparison
 
 
 class DataComparisonReport(Value):
@@ -131,11 +150,11 @@ class DataComparisonReport(Value):
     One-versus-one comparisons expose point changes. One-versus-many comparisons
     evaluate predictive checks against the singleton reference. Many-versus-many
     comparisons retain per-history statistics without pairing draws or evaluating
-    reference-based checks. DataVariableComparison owns the exact change semantics.
+    reference-based checks. IndicatorComparison owns the exact change semantics.
     Source definitions and complete observations belong to prepare_data/simulate
     results; this report owns only selection identity and newly computed evidence.
     """
 
     left: tuple[DataRef[GitOid, int], ...]
     right: tuple[DataRef[GitOid, int], ...]
-    variables: tuple[DataVariableComparison, ...]
+    variables: tuple[IndicatorComparison, ...]

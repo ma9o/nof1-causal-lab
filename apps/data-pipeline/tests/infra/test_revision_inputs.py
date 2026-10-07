@@ -12,24 +12,28 @@ from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab import study_api, tool_server
-from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.call_state import PendingCall
 from nof1_causal_lab.actions.contracts import (
     DataDiffRequest,
     FitRequest,
     ModelDiffRequest,
     ScientificActionRequest,
+    SimulateRequest,
     call_identity,
 )
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.actions.io import FitInput
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.actions.io import FitInput, SimulateInput
+from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
     SimulationArm,
     SimulationEvidence,
     SimulationObservationLayout,
+    SimulationReport,
     SimulationSpec,
     SingleArmSimulation,
 )
@@ -44,7 +48,7 @@ from nof1_causal_lab.study.records import (
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
-from tests.action_fixtures import applied_record, question_root
+from tests.action_fixtures import applied_record, empty_simulation_summary, question_root
 from tests.git_fixtures import git_oid
 
 pytestmark = pytest.mark.contract
@@ -74,7 +78,9 @@ def study(tmp_path, monkeypatch):
             "model",
             produced_by="edit_model",
             derived_from={"question": repository.question().revision},
-            json_files={"model.json": ModelSpec(measurement_clock=clock).model_dump(mode="json")},
+            json_files={
+                "model.json": DynamicalModelSpec(measurement_clock=clock).model_dump(mode="json")
+            },
         )
         for clock in ("1d", "2d")
     )
@@ -94,8 +100,6 @@ def study(tmp_path, monkeypatch):
     )
     _publish(repository, raw, panel)
     evidence = SimulationEvidence(
-        model=GitRef(workspace_id="LATEST", revision=models[-1].revision, path="model.json"),
-        design=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
         times=(0, 1),
         draws=2,
@@ -114,6 +118,9 @@ def study(tmp_path, monkeypatch):
             support_end_times=NumericalArray.from_numpy(np.zeros((2, 0))),
             mask=NumericalArray.from_numpy(np.zeros((2, 2, 0), dtype=bool)),
         ),
+        assignments=SimulationSpec(start=date(2026, 1, 1), horizon="1d").assignments(
+            datetime(2026, 1, 1, tzinfo=UTC)
+        ),
     )
     for seed in (0, 1):
         simulation = repository.append(
@@ -121,7 +128,24 @@ def study(tmp_path, monkeypatch):
                 repository.workspace_id,
                 Applied(
                     result=ModelSimulationResult(evidence=evidence.revised(seed=seed)),
-                    effects=ActionEffects(),
+                    effects=ActionEffects(
+                        reports={
+                            "simulation": store.write_report(
+                                SimulationReport(
+                                    evidence=evidence.revised(seed=seed),
+                                    summary=empty_simulation_summary(),
+                                    law=AuthoredLawProvenance(),
+                                    fit_reliability="not_fitted",
+                                )
+                            )
+                        }
+                    ),
+                ),
+                request=SimulateRequest(
+                    input=SimulateInput(
+                        dynamical_model_spec_ref=models[-1].revision,
+                        simulation=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
+                    )
                 ),
                 seq=repository.latest_seq() + 1,
             )
@@ -179,21 +203,27 @@ def client(monkeypatch):
             "edit_model",
             {
                 "parent_ref": "latest",
-                "model": {},
+                "dynamical_model_spec": {},
             },
         ),
-        ("fit", {"model_ref": "latest", "data_ref": "latest", "replicate_index": 0}),
+        (
+            "fit",
+            {
+                "dynamical_model_spec_ref": "latest",
+                "data_ref": {"revision": "latest", "replicate_index": 0},
+            },
+        ),
         (
             "simulate",
             {
-                "model_ref": "latest",
-                "simulation": {"start": "2026-01-01", "horizon": "1d"},
+                "dynamical_model_spec_ref": "latest",
+                "simulation": {"start": "2026-01-01", "horizon": "2d"},
             },
         ),
         (
             "prepare_data",
             {
-                "model_ref": "latest",
+                "dynamical_model_spec_ref": "latest",
                 "source": "input",
                 "extraction": {
                     "indicator:00000000000000000000": {
@@ -208,7 +238,7 @@ def client(monkeypatch):
             "data_diff",
             {
                 "left_ref": [{"revision": "latest", "replicate_index": 0}],
-                "right_ref": {"revision": str(git_oid(2)), "replicate_index": None},
+                "right_ref": [{"revision": str(git_oid(2)), "replicate_index": None}],
             },
         ),
     ],
@@ -235,16 +265,17 @@ def test_latest_is_pinned_by_input_type_before_running_call_deduplication(
     inputs = pinned["input"]
     if action in {"fit", "simulate", "edit_model", "prepare_data"}:
         assert (
-            inputs["parent_ref" if action == "edit_model" else "model_ref"] == models[-1].revision
+            inputs["parent_ref" if action == "edit_model" else "dynamical_model_spec_ref"]
+            == models[-1].revision
         )
         if action == "fit":
-            assert inputs["data_ref"] == panel.revision
+            assert inputs["data_ref"] == {"revision": panel.revision, "replicate_index": 0}
     elif action == "model_diff":
         assert inputs["before_ref"] == git_oid(1)
         assert inputs["after_ref"] == models[-1].revision
     else:
         assert inputs["left_ref"] == [{"revision": panel.revision, "replicate_index": 0}]
-        assert inputs["right_ref"] == {"revision": git_oid(2), "replicate_index": None}
+        assert inputs["right_ref"] == [{"revision": git_oid(2), "replicate_index": None}]
     assert len(dispatched) == 1
     if action == "prepare_data":
         inputs["source"] = arguments["source"]
@@ -264,7 +295,7 @@ def _prepare_folder(http, source):
         json={
             "action": "prepare_data",
             "input": {
-                "model_ref": "latest",
+                "dynamical_model_spec_ref": "latest",
                 "source": source,
                 "extraction": {
                     "indicator:score": {"kind": "semantic", "how_to_measure": "Read the score"}
@@ -354,7 +385,8 @@ def test_latest_reuses_explicit_saved_call_and_pinned_poll_survives_newer_model(
     http, dispatched = client
     request = FitRequest[GitOid](
         input=FitInput[GitOid](
-            replicate_index=0, model_ref=models[-1].revision, data_ref=panel.revision
+            dynamical_model_spec_ref=models[-1].revision,
+            data_ref=DataRef(revision=panel.revision, replicate_index=0),
         )
     )
     saved = repository.append(
@@ -376,7 +408,10 @@ def test_latest_reuses_explicit_saved_call_and_pinned_poll_survives_newer_model(
     path = "/api/studies/LATEST/fit"
     arguments = {
         "action": "fit",
-        "input": {"model_ref": "latest", "data_ref": "latest", "replicate_index": 0},
+        "input": {
+            "dynamical_model_spec_ref": "latest",
+            "data_ref": {"revision": "latest", "replicate_index": 0},
+        },
     }
     assert http.post(path, json=arguments).text == saved.commit_id
     assert not dispatched
@@ -385,23 +420,29 @@ def test_latest_reuses_explicit_saved_call_and_pinned_poll_survives_newer_model(
     assert http.post(path, json=request.model_dump(mode="json")).text == saved.commit_id
     response = http.post(path, json=arguments)
     assert response.status_code == 200
-    assert dispatched[0].input.model_ref == models[0].revision
+    assert dispatched[0].input.dynamical_model_spec_ref == models[0].revision
     assert len(dispatched) == 1
 
 
 @pytest.mark.parametrize(
     ("action", "kind", "arguments"),
     [
-        ("edit_model", "question", {"parent_ref": "latest", "model": {}}),
+        ("edit_model", "question", {"parent_ref": "latest", "dynamical_model_spec": {}}),
         (
             "fit",
             "model",
-            {"model_ref": "latest", "data_ref": str(git_oid(1)), "replicate_index": 0},
+            {
+                "dynamical_model_spec_ref": "latest",
+                "data_ref": {"revision": str(git_oid(1)), "replicate_index": 0},
+            },
         ),
         (
             "fit",
             "panel",
-            {"model_ref": str(git_oid(1)), "data_ref": "latest", "replicate_index": 0},
+            {
+                "dynamical_model_spec_ref": str(git_oid(1)),
+                "data_ref": {"revision": "latest", "replicate_index": 0},
+            },
         ),
     ],
 )
@@ -443,9 +484,8 @@ def test_latest_does_not_resurrect_retracted_or_stale_panel(study, client, inval
             json={
                 "action": "fit",
                 "input": {
-                    "model_ref": "latest",
-                    "data_ref": "latest",
-                    "replicate_index": 0,
+                    "dynamical_model_spec_ref": "latest",
+                    "data_ref": {"revision": "latest", "replicate_index": 0},
                 },
             },
         ).status_code
@@ -459,9 +499,8 @@ def test_latest_does_not_resurrect_retracted_or_stale_panel(study, client, inval
             json={
                 "action": "fit",
                 "input": {
-                    "model_ref": models[-1].revision,
-                    "data_ref": panel.revision,
-                    "replicate_index": 0,
+                    "dynamical_model_spec_ref": models[-1].revision,
+                    "data_ref": {"revision": panel.revision, "replicate_index": 0},
                 },
             },
         ).status_code
@@ -482,7 +521,7 @@ def test_edit_model_parent_pins_question_for_identity_checks_and_provenance(
     repository, store, models, _, _ = study
     http, dispatched = client
     path = "/api/studies/LATEST/edit_model"
-    model = make_model(["X"])
+    dynamical_model_spec = make_model(["X"])
     original_question = repository.question()
     parent = original_question if parent_kind == "question" else models[-1]
     parent_call = next(
@@ -495,14 +534,15 @@ def test_edit_model_parent_pins_question_for_identity_checks_and_provenance(
         "action": "edit_model",
         "input": {
             "parent_ref": parent.revision,
-            "model": model.model_dump(mode="json"),
+            "dynamical_model_spec": dynamical_model_spec.model_dump(mode="json"),
         },
     }
     response = http.post(path, json=arguments)
     assert response.status_code == 200, response.text
     original = dispatched[0]
     question = write_question(
-        store, QuestionSpec(text="A different question", outcome=model.edges[0].effect.id)
+        store,
+        QuestionSpec(text="A different question", outcome=dynamical_model_spec.edges[0].effect.id),
     )
     _publish(repository, question)
     assert (
@@ -532,9 +572,9 @@ def test_edit_model_parent_pins_question_for_identity_checks_and_provenance(
         "question": original_question.revision,
         **({"model": parent.revision} if parent_kind == "model" else {}),
     }
-    checks, _, _ = evaluate_model_checks(store.workspace_id, state, outcome, action="edit_model")
+    checks, _ = evaluate_model_checks(store.workspace_id, state, outcome, action="edit_model")
     assert checks.question is not None
-    assert checks.question.question_revision == original_question.revision
+    assert all(item.code not in {"window", "range"} for item in checks.question.findings)
     saved = repository.append(
         applied_record(
             repository.workspace_id, outcome, request=original, seq=repository.latest_seq() + 1
@@ -554,7 +594,7 @@ def test_edit_model_requires_a_parent_selector(client, parent):
     http, dispatched = client
     response = http.post(
         "/api/studies/LATEST/edit_model",
-        json={"action": "edit_model", "input": {**parent, "model": {}}},
+        json={"action": "edit_model", "input": {**parent, "dynamical_model_spec": {}}},
     )
     assert response.status_code == 422
     assert all("parent_ref" in item["loc"] for item in response.json()["detail"])
@@ -575,7 +615,10 @@ def test_latest_model_parent_selects_question_when_no_current_model(study, clien
     http, dispatched = client
     response = http.post(
         f"/api/studies/{repository.workspace_id}/edit_model",
-        json={"action": "edit_model", "input": {"parent_ref": "latest", "model": {}}},
+        json={
+            "action": "edit_model",
+            "input": {"parent_ref": "latest", "dynamical_model_spec": {}},
+        },
     )
     assert response.status_code == 200, response.text
     assert dispatched[0].input.parent_ref == repository.question().revision
@@ -588,7 +631,9 @@ def test_edit_model_parent_rejects_an_unrelated_artifact(study):
 
     repository, _, _, panel, _ = study
     request = EditModelRequest[GitOid](
-        input=EditModelInput[GitOid](parent_ref=panel.revision, model=ModelSpec())
+        input=EditModelInput[GitOid](
+            parent_ref=panel.revision, dynamical_model_spec=DynamicalModelSpec()
+        )
     )
     with pytest.raises(StudyLookupError, match="question or model parent"):
         repository.input_state(request)
@@ -603,9 +648,8 @@ def test_only_http_inputs_accept_latest():
             {
                 "action": "fit",
                 "input": {
-                    "model_ref": "latest",
-                    "data_ref": git_oid(1),
-                    "replicate_index": 0,
+                    "dynamical_model_spec_ref": "latest",
+                    "data_ref": {"revision": git_oid(1), "replicate_index": 0},
                 },
             }
         )

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SimulationReport } from "@nof1-causal-lab/api-types";
 import { treatment as dose, outcome as symptoms } from "@/lib/__fixtures__/model";
-import { fittedSnapshot, modelRef } from "@/lib/__fixtures__/snapshot";
+import { fittedSnapshot } from "@/lib/__fixtures__/snapshot";
 import type { SimulationPathsView } from "@/lib/model-asset/result-values";
 import { indexModel } from "@/lib/model-asset/entities";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
@@ -29,19 +29,25 @@ vi.mock("@/lib/hooks/use-dag-layout", () => ({
 }));
 
 const base = fittedSnapshot;
-const indexed = indexModel(base.model);
-const model = base;
+const indexed = indexModel(base.dynamical_model_spec);
+const modelSnapshot = base;
 const buffer = { npy: new Uint8Array(dump([], [0], { dtype: "f8" })) };
 
 const report: SimulationReport = {
   evidence: {
-    model: modelRef,
     draws: 1,
     seed: 0,
     state_ids: [dose.id, symptoms.id],
     parameter_draws: {},
     arms: {
       kind: "paired",
+      causal: {
+        kind: "not_evaluated",
+        code: "causal_effect",
+        subject: "causal_effect",
+        reason: "CAUSAL_EVALUATION_FAILED",
+        detail: "This fixture covers intervention rendering.",
+      },
       action: { latent_paths: buffer, observations: buffer },
       reference: { latent_paths: buffer, observations: buffer },
     },
@@ -53,15 +59,6 @@ const report: SimulationReport = {
     },
     time_origin: "2026-01-01T00:00:00Z",
     times: [0, 1, 2, 3, 4, 5, 6, 7],
-    design: {
-      start: "2026-01-01",
-      horizon: "7d",
-      interventions: [
-        { target: dose.id, after: "1d", value: 10 },
-        { target: dose.id, after: "3d", value: 5 },
-        { target: dose.id, after: "6d", value: 0 },
-      ],
-    },
     assignments: [
       { target: dose.id, time: 1, value: 10 },
       { target: dose.id, time: 3, value: 5 },
@@ -77,7 +74,6 @@ const report: SimulationReport = {
   law: { kind: "authored", interpretation: "prior_predictive" },
   findings: [],
   fit_reliability: "not_fitted",
-  causal: { kind: "unavailable", reason: "This fixture covers intervention rendering." },
 };
 const paths: SimulationPathsView = {
   action_category_probabilities: {},
@@ -103,7 +99,7 @@ const paths: SimulationPathsView = {
 function render(variant: LayeredCausalGraphVariant, simulation: SimulationReport | null) {
   return renderToStaticMarkup(
     createElement(LayeredCausalGraph, {
-      model,
+      modelSnapshot,
       entities: indexed,
       simulation,
       simulationPaths: simulation ? paths : null,
@@ -121,7 +117,7 @@ describe("dated intervention overlay", () => {
   ] as const)("preserves the model's arrows and their styling in the %s view", (variant) => {
     const arrows = (markup: string) => markup.match(/<path\b[^>]*marker-end=[^>]*>/g) ?? [];
     const baseline = arrows(render(variant, null));
-    expect(baseline).toHaveLength(5);
+    expect(baseline).toHaveLength(4);
     expect(arrows(render(variant, report))).toEqual(baseline);
   });
 

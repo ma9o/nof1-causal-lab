@@ -11,9 +11,9 @@ import type {
   ConstructId,
   ConstructSpec,
   DistributionId,
+  DynamicalModelSpec,
   EdgeId,
   EditModelRequest,
-  Evaluation,
   FitOutput,
   GitOid,
   IndicatorId,
@@ -21,7 +21,6 @@ import type {
   InferenceReportCore,
   ModelDiffOutput,
   ModelSnapshot,
-  ModelSpec,
   NumPyroDistribution,
   ObservationData,
   ObservationHistory,
@@ -46,19 +45,16 @@ export type GenericAssessmentRetainsSubject = Expect<
   Equal<Assessment<string, number>["subject"], string>
 >;
 export type GenericChangeRetainsPayload = Expect<
-  Equal<Extract<Change<ModelSpec>, { kind: "added" }>["after"], ModelSpec>
->;
-export type GenericAvailabilityRetainsPayload = Expect<
-  Equal<Extract<Evaluation<ModelSpec>, { kind: "available" }>["value"], ModelSpec>
+  Equal<Extract<Change<DynamicalModelSpec>, { kind: "added" }>["after"], DynamicalModelSpec>
 >;
 export type GenericObservationRetainsWindow = Expect<
   Equal<ObservationSpec<"1d">["observation_window"], "1d">
 >;
-// @ts-expect-error Rejection reasons are the closed domain reason type.
+// @ts-expect-error Rejections use the common finding subject vocabulary.
 export type RejectionHasNoUnrelatedReason = Rejected<number>;
 
 export type ModelComparisonUsesTheEditDocument = Expect<
-  Equal<ModelDiffOutput["changes"], EditModelRequest<GitOid>["input"]["model"]>
+  Equal<ModelDiffOutput["changes"], EditModelRequest<GitOid>["input"]["dynamical_model_spec"]>
 >;
 export type EmptyModelDiffIsValid = Expect<
   Extends<Record<string, never>, ModelDiffOutput["changes"]>
@@ -67,15 +63,17 @@ export type ModelDiffKeepsDeletionEntries = Expect<
   Extends<null, NonNullable<ModelDiffOutput["changes"]["constructs"]>[ConstructId]>
 >;
 
-export type CanonicalDefinition = Expect<Equal<NonNullable<ModelSnapshot["model"]>, ModelSpec>>;
+export type CanonicalDefinition = Expect<
+  Equal<NonNullable<ModelSnapshot["dynamical_model_spec"]>, DynamicalModelSpec>
+>;
 export type CanonicalInferenceCore = Expect<
   Equal<NonNullable<ModelSnapshot["fit"]>, InferenceReportCore>
 >;
 export type CanonicalParameter = Expect<
-  Equal<NonNullable<ModelSpec["parameters"][ParameterId]>, Omit<ParameterSpec, "id">>
+  Equal<NonNullable<DynamicalModelSpec["parameters"][ParameterId]>, Omit<ParameterSpec, "id">>
 >;
 export type CanonicalConstruct = Expect<
-  Equal<NonNullable<ModelSpec["edges"][EdgeId]>["cause"], ConstructId>
+  Equal<NonNullable<DynamicalModelSpec["edges"][EdgeId]>["cause"], ConstructId>
 >;
 export type OwnedIndicator = Expect<Equal<ConstructSpec["indicators"][number], IndicatorSpec>>;
 // @ts-expect-error Indicator ownership is declared by containment.
@@ -93,14 +91,17 @@ export type GeneratedCallRetainsOwnedFitResult = Expect<
 export type GeneratedCallRetainsCanonicalOutcome = Expect<Equal<FetchedCall, ActionPoll>>;
 
 export type SparseLawLookup = Expect<
-  Equal<ModelSpec["distributions"][DistributionId], NumPyroDistribution | undefined>
+  Equal<DynamicalModelSpec["distributions"][DistributionId], NumPyroDistribution | undefined>
 >;
 export type SparseObservationLookup = Expect<
   Equal<ObservationData[IndicatorId], ObservationHistory | undefined>
 >;
 export type DistinctScientificIds = Expect<Equal<Extends<IndicatorId, ConstructId>, false>>;
 export type RequiredNullableResponse = Expect<
-  Equal<Record<string, never> extends Pick<ModelSnapshot, "model"> ? true : false, false>
+  Equal<
+    Record<string, never> extends Pick<ModelSnapshot, "dynamical_model_spec"> ? true : false,
+    false
+  >
 >;
 
 // Coverage follows the exported schema; adding an endpoint cannot silently leave it out of the client.
@@ -143,7 +144,10 @@ export type RequestDefaultsMayBeOmitted = Expect<
   Extends<
     {
       action: "fit";
-      input: { model_ref: string; data_ref: string; replicate_index: number };
+      input: {
+        dynamical_model_spec_ref: string;
+        data_ref: { revision: string; replicate_index: number };
+      };
     },
     FitInput
   >
@@ -156,7 +160,7 @@ export type PartialModelEditsKeepNestedFieldsOptional = Expect<
       action: "edit_model";
       input: {
         parent_ref: string;
-        model: {
+        dynamical_model_spec: {
           edges: {
             "edge:remove": null;
             "edge:revise": {
@@ -177,7 +181,7 @@ export type DefaultsAreAbsent = Expect<
       {
         action: "fit";
         input: {
-          model_ref: string;
+          dynamical_model_spec_ref: string;
           data_ref: string;
           replicate_index: number;
           settings: undefined;
@@ -189,8 +193,8 @@ export type DefaultsAreAbsent = Expect<
   >
 >;
 
-declare const definition: ModelSpec;
-declare const edge: NonNullable<ModelSpec["edges"][EdgeId]>;
+declare const definition: DynamicalModelSpec;
+declare const edge: NonNullable<DynamicalModelSpec["edges"][EdgeId]>;
 // @ts-expect-error Published entity maps are read-only.
 definition.parameters["parameter:new"] = {};
 // @ts-expect-error Read-only guarantees extend to nested values.
@@ -198,4 +202,4 @@ edge.description = "changed";
 // @ts-expect-error Published maps are read-only.
 definition.distributions["distribution:changed"] = {};
 // @ts-expect-error A map retains its scientific key kind.
-export type WrongMapKey = ModelSpec["distributions"][IndicatorId];
+export type WrongMapKey = DynamicalModelSpec["distributions"][IndicatorId];

@@ -1,5 +1,7 @@
 "use client";
 
+import { modelReference } from "./call-dependencies";
+
 import type { ActionSuccess, ModelSnapshot, TimelineRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -29,7 +31,7 @@ export function useWorkbenchSnapshots(
   const commitId = record
     ? record.record.attempt.outcome.status === "applied" && record.record.attempt.request !== null
       ? record.commit_id
-      : record.parent_ids[0]
+      : modelReference(record, attempts)
     : attempts.find((entry) => entry.record.seq === latest)?.commit_id;
   const selected = useSnapshot(commitId);
   const hasSelectedState = attempts.some(
@@ -54,7 +56,7 @@ interface WorkbenchOptions {
   workspaceId: string;
   question: string | undefined;
   attempts: readonly TimelineRevision[];
-  model: ModelSnapshot;
+  modelSnapshot: ModelSnapshot;
   focusSeq: number;
   result: ActionSuccess | undefined;
   viewAt: (seq: number | null) => void;
@@ -66,7 +68,7 @@ export function useWorkbench({
   workspaceId,
   question: initialQuestion,
   attempts,
-  model,
+  modelSnapshot,
   focusSeq,
   result,
   viewAt,
@@ -84,24 +86,15 @@ export function useWorkbench({
     },
     [],
   );
-  const entities = useMemo(() => indexModel(model.model), [model]);
+  const entities = useMemo(() => indexModel(modelSnapshot.dynamical_model_spec), [modelSnapshot]);
   const ticks = attempts;
   const latest = latestSeq(attempts);
   const playhead = focusSeq;
-  const modelRevision = model.state.current.model?.revision;
   const activeComparison = comparison?.before === playhead ? comparison : null;
   const comparedCall = attempts.find((record) => record.record.seq === activeComparison?.after);
-  const comparedCommit =
-    comparedCall?.record.attempt.outcome.status === "applied" &&
-    comparedCall.record.attempt.request !== null
-      ? comparedCall.commit_id
-      : comparedCall?.parent_ids[0];
+  const comparedCommit = modelReference(comparedCall, attempts);
   const selectedCall = attempts.find((record) => record.record.seq === playhead);
-  const selectedCommit =
-    selectedCall?.record.attempt.outcome.status === "applied" &&
-    selectedCall.record.attempt.request !== null
-      ? selectedCall.commit_id
-      : selectedCall?.parent_ids[0];
+  const selectedCommit = modelReference(selectedCall, attempts);
   const compared = useModelDiff(
     workspaceId,
     selectedCommit ?? null,
@@ -114,15 +107,19 @@ export function useWorkbench({
       ? { input: request.input, report: result.body }
       : null;
   const beforeView = useSnapshot(
-    activeComparison ? selectedCommit : (recorded?.input.before_ref ?? model.commit_id),
+    activeComparison ? selectedCommit : (recorded?.input.before_ref ?? modelSnapshot.commit_id),
   );
   const afterView = useSnapshot(
-    activeComparison ? comparedCommit : (recorded?.input.after_ref ?? model.commit_id),
+    activeComparison ? comparedCommit : (recorded?.input.after_ref ?? modelSnapshot.commit_id),
   );
   const report = activeComparison ? compared.data : recorded?.report;
   const modelComparison: ModelComparison | null =
     report && beforeView.data && afterView.data
-      ? { ...report, beforeModel: beforeView.data.model, afterModel: afterView.data.model }
+      ? {
+          ...report,
+          beforeDynamicalModelSpec: beforeView.data.dynamical_model_spec,
+          afterDynamicalModelSpec: afterView.data.dynamical_model_spec,
+        }
       : null;
   const comparisonError = beforeView.error ?? afterView.error;
   const retainPreview = () => {
@@ -151,13 +148,10 @@ export function useWorkbench({
     dismissComparison();
     viewAt(seq === latest ? null : seq);
   };
-  const question = model.question?.text ?? initialQuestion;
-  const simulation = model.simulation;
-  // Node histories need a simulation of the viewed model revision, certified or not.
-  const simulationResult =
-    simulation?.evidence.model.revision === modelRevision ? simulation : null;
+  const question = modelSnapshot.question?.text ?? initialQuestion;
+  const simulationResult = modelSnapshot.simulation;
   const context: ScopeContext = {
-    model,
+    modelSnapshot,
     entities,
     select,
     ticks,

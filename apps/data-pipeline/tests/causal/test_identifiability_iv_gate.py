@@ -94,27 +94,29 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
     from nof1_causal_lab.models.identification import identify_model
     from tests.helpers import make_model
 
-    model = make_model(["X", "Y", "Z", "U"], [("Z", "X"), ("X", "Y"), ("U", "X"), ("U", "Y")])
-    identities = {construct.name: construct.id for construct in model.constructs}
+    dynamical_model_spec = make_model(
+        ["X", "Y", "Z", "U"], [("Z", "X"), ("X", "Y"), ("U", "X"), ("U", "Y")]
+    )
+    identities = {construct.name: construct.id for construct in dynamical_model_spec.constructs}
     x_id, y_id, u_id = (identities[name] for name in ("X", "Y", "U"))
-    model = model.with_entities(
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             tuple(
                 construct.revised(
                     temporal_status=TemporalStatus.TIME_INVARIANT,
                     indicators=() if construct.id == u_id else construct.indicators,
                 )
-                for construct in model.constructs
+                for construct in dynamical_model_spec.constructs
             ),
         ),
     )
-    report = identify_model(StructuralSelection(model, y_id))
+    report = identify_model(StructuralSelection(dynamical_model_spec, y_id))
     assert x_id not in report.estimable_treatments
     assert x_id in report.non_identifiable
 
-    unconfounded = model.with_entities(
-        edges=tuple(edge for edge in model.edges if edge.cause.id != u_id)
+    unconfounded = dynamical_model_spec.with_entities(
+        edges=tuple(edge for edge in dynamical_model_spec.edges if edge.cause.id != u_id)
     )
     identified = identify_model(StructuralSelection(unconfounded, y_id))
     finding = identified.treatments[x_id]

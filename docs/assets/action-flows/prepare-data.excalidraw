@@ -3183,8 +3183,8 @@
           "id": "isCSwlTdYhIF9rph1JyI9"
         },
         {
-          "id": "to-valid",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-valid"
         }
       ],
       "updated": 1791136359183,
@@ -3433,16 +3433,16 @@
           "id": "4-N5FEpvNhLtjeDJHdqmF"
         },
         {
-          "id": "valid-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "valid-no"
         },
         {
-          "id": "to-valid",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-valid"
         },
         {
-          "id": "to-call-saved",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-saved"
         }
       ],
       "updated": 1791136359184,
@@ -3519,8 +3519,8 @@
           "id": "cjFZF6gOez-JAbVHJMkGK"
         },
         {
-          "id": "valid-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "valid-no"
         }
       ],
       "updated": 1791136359183,
@@ -3595,16 +3595,16 @@
           "id": "z8rEFYYg-hGTFPfpu2gXx"
         },
         {
-          "id": "to-call-saved",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-saved"
         },
         {
-          "id": "call-saved-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-saved-yes"
         },
         {
-          "id": "to-writable",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-writable"
         }
       ],
       "updated": 1791136359184,
@@ -3681,8 +3681,8 @@
           "id": "U-tx4G-yoxOZ3aWLylrOF"
         },
         {
-          "id": "call-saved-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-saved-yes"
         }
       ],
       "updated": 1791136359184,
@@ -3757,16 +3757,16 @@
           "id": "irro2NsMZuyKlYRQnpvBC"
         },
         {
-          "id": "writable-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "writable-no"
         },
         {
-          "id": "to-writable",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-writable"
         },
         {
-          "id": "to-call-running",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-running"
         }
       ],
       "updated": 1791136359185,
@@ -3843,8 +3843,8 @@
           "id": "L2Zn0-ctCKWGzLKwu9UJ2"
         },
         {
-          "id": "writable-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "writable-no"
         }
       ],
       "updated": 1791136359184,
@@ -3919,16 +3919,16 @@
           "id": "wNsiY39fMaSWYIn596SNM"
         },
         {
-          "id": "to-call-running",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-call-running"
         },
         {
-          "id": "call-running-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-running-yes"
         },
         {
-          "id": "to-accepted",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-accepted"
         }
       ],
       "updated": 1791136359185,
@@ -4005,8 +4005,8 @@
           "id": "zXQyKQZUSUt89ANexyXQM"
         },
         {
-          "id": "call-running-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "call-running-yes"
         }
       ],
       "updated": 1791136359185,
@@ -4081,16 +4081,16 @@
           "id": "boVRTlj7r4WBGeNgOCg14"
         },
         {
-          "id": "accepted-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "accepted-no"
         },
         {
-          "id": "to-accepted",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-accepted"
         },
         {
-          "id": "to-question",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-question"
         }
       ],
       "updated": 1791136359185,
@@ -4167,8 +4167,8 @@
           "id": "1mnnfvwdx8QeTjQjw5Szl"
         },
         {
-          "id": "accepted-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "accepted-no"
         }
       ],
       "updated": 1791136359185,
@@ -4243,16 +4243,16 @@
           "id": "J070__LHC46IhWX2rIAOQ"
         },
         {
-          "id": "question-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-no"
         },
         {
-          "id": "to-question",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-question"
         },
         {
-          "id": "to-source",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-source"
         }
       ],
       "updated": 1791136359185,
@@ -4329,8 +4329,8 @@
           "id": "t6ERyyZNZoZn0acSV1b75"
         },
         {
-          "id": "question-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "question-no"
         }
       ],
       "updated": 1791136359185,
@@ -4405,16 +4405,16 @@
           "id": "t-dDiXB3IfhmIDPKTW5ex"
         },
         {
-          "id": "to-source",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-source"
         },
         {
-          "id": "to-found",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-found"
         },
         {
-          "id": "source-simulation",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "source-simulation"
         }
       ],
       "updated": 1791136359189,
@@ -4452,16 +4452,16 @@
           "id": "lTPvHxWpLfbKm6Konk2-N"
         },
         {
-          "id": "found-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "found-no"
         },
         {
-          "id": "to-found",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-found"
         },
         {
-          "id": "to-read-sources",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-read-sources"
         }
       ],
       "updated": 1791136359186,
@@ -4538,8 +4538,8 @@
           "id": "5CQ305aFD4E-hNICq6aiU"
         },
         {
-          "id": "found-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "found-no"
         }
       ],
       "updated": 1791136359186,
@@ -4616,8 +4616,8 @@
           "id": "ds7SH0lAsLCH4B7xd34ia"
         },
         {
-          "id": "to-read-sources",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-read-sources"
         }
       ],
       "updated": 1791136359186,
@@ -4694,8 +4694,8 @@
           "id": "aoF2yoPlmqtPr6EpPxXbV"
         },
         {
-          "id": "to-table",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-table"
         }
       ],
       "updated": 1791136359186,
@@ -4733,16 +4733,16 @@
           "id": "fV8xmh3O5zooWYGEPfHg8"
         },
         {
-          "id": "table-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "table-no"
         },
         {
-          "id": "to-table",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-table"
         },
         {
-          "id": "to-select-windows",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-select-windows"
         }
       ],
       "updated": 1791136359186,
@@ -4819,8 +4819,8 @@
           "id": "2F7Q3k_BYvSNN_bG2whdo"
         },
         {
-          "id": "table-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "table-no"
         }
       ],
       "updated": 1791136359186,
@@ -4897,8 +4897,8 @@
           "id": "AHsdoT7K-dT38aG5rOddq"
         },
         {
-          "id": "to-select-windows",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-select-windows"
         }
       ],
       "updated": 1791136359187,
@@ -4975,8 +4975,8 @@
           "id": "V76712-dbBbzLi6mzllYc"
         },
         {
-          "id": "to-rules",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-rules"
         }
       ],
       "updated": 1791136359187,
@@ -5014,16 +5014,16 @@
           "id": "s8LilEVP82a_z7FVMGsSE"
         },
         {
-          "id": "rules-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "rules-no"
         },
         {
-          "id": "to-rules",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-rules"
         },
         {
-          "id": "to-extract",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-extract"
         }
       ],
       "updated": 1791136359187,
@@ -5100,8 +5100,8 @@
           "id": "tRAwYrRDG9LMVqmAM5Lzm"
         },
         {
-          "id": "rules-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "rules-no"
         }
       ],
       "updated": 1791136359187,
@@ -5178,8 +5178,8 @@
           "id": "FJZdfz2r0Ex6kEqPPHme1"
         },
         {
-          "id": "to-extract",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-extract"
         }
       ],
       "updated": 1791136359187,
@@ -5256,8 +5256,8 @@
           "id": "JFDpcXDWrGWaZyhMhImQj"
         },
         {
-          "id": "to-chunk-loop",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-chunk-loop"
         }
       ],
       "updated": 1791136359187,
@@ -5296,16 +5296,16 @@
           "id": "rSxIjF6wGHXyMMeaCeiaW"
         },
         {
-          "id": "to-chunk-loop",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-chunk-loop"
         },
         {
-          "id": "to-source-values",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-source-values"
         },
         {
-          "id": "chunk-back",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "chunk-back"
         }
       ],
       "updated": 1791136359189,
@@ -5343,16 +5343,16 @@
           "id": "MGfPGe2wP5ISMB0j-YFZD"
         },
         {
-          "id": "to-source-values",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-source-values"
         },
         {
-          "id": "empty-window-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "empty-window-no"
         },
         {
-          "id": "to-extraction-cache",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-extraction-cache"
         }
       ],
       "updated": 1791136359187,
@@ -5429,12 +5429,12 @@
           "id": "LzS0hQdr0XZ9-bhDxJkhr"
         },
         {
-          "id": "empty-window-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "empty-window-no"
         },
         {
-          "id": "empty-window-out",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "empty-window-out"
         }
       ],
       "updated": 1791136359189,
@@ -5509,16 +5509,16 @@
           "id": "LmF5ybfNc6FIGH0Bff9Kb"
         },
         {
-          "id": "to-extraction-cache",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-extraction-cache"
         },
         {
-          "id": "extraction-hit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "extraction-hit"
         },
         {
-          "id": "to-score",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-score"
         }
       ],
       "updated": 1791136359188,
@@ -5595,12 +5595,12 @@
           "id": "C9M_7OL5868Yx7OgI0oIX"
         },
         {
-          "id": "extraction-hit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "extraction-hit"
         },
         {
-          "id": "extraction-reuse-out",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "extraction-reuse-out"
         }
       ],
       "updated": 1791136359189,
@@ -5677,8 +5677,8 @@
           "id": "VAFQKSmLzD7yAX-NlPU0r"
         },
         {
-          "id": "to-score",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-score"
         }
       ],
       "updated": 1791136359188,
@@ -5718,8 +5718,8 @@
           "id": "LnOqvFzVpCdzQqdM8t1tk"
         },
         {
-          "id": "retry",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "retry"
         }
       ],
       "updated": 1791136359188,
@@ -5759,8 +5759,8 @@
           "id": "ELf7PsMyWtT_Jezmyp69F"
         },
         {
-          "id": "to-output",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-output"
         }
       ],
       "updated": 1791136359188,
@@ -5798,16 +5798,16 @@
           "id": "hjdQQf644XJnVl85nO6Q0"
         },
         {
-          "id": "to-output",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-output"
         },
         {
-          "id": "output-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "output-no"
         },
         {
-          "id": "output-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "output-yes"
         }
       ],
       "updated": 1791136359189,
@@ -5845,16 +5845,16 @@
           "id": "vPLjBpiAB8-XaPdx3BHqj"
         },
         {
-          "id": "output-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "output-no"
         },
         {
-          "id": "retry",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "retry"
         },
         {
-          "id": "retries-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "retries-no"
         }
       ],
       "updated": 1791136359189,
@@ -5894,8 +5894,8 @@
           "id": "4OTwzJWQfpRWGXm_AhaBo"
         },
         {
-          "id": "retries-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "retries-no"
         }
       ],
       "updated": 1791136359189,
@@ -5972,8 +5972,8 @@
           "id": "SK4O4p92WtI1jkfULiWLb"
         },
         {
-          "id": "failed-chunk-out",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "failed-chunk-out"
         }
       ],
       "updated": 1791136359189,
@@ -6013,8 +6013,8 @@
           "id": "1q8vjzxJUkLz-dN4ELn5A"
         },
         {
-          "id": "output-yes",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "output-yes"
         }
       ],
       "updated": 1791136359189,
@@ -6091,8 +6091,8 @@
           "id": "8dHxZnS9g9NRBH6eM0aCa"
         },
         {
-          "id": "kept-output",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "kept-output"
         }
       ],
       "updated": 1791136359189,
@@ -6187,20 +6187,20 @@
           "id": "paUN9qC3RIFa-g7YZ2nBq"
         },
         {
-          "id": "kept-output",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "kept-output"
         },
         {
-          "id": "failed-chunk-out",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "failed-chunk-out"
         },
         {
-          "id": "chunk-back",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "chunk-back"
         },
         {
-          "id": "to-rows",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-rows"
         }
       ],
       "updated": 1791136359189,
@@ -6238,16 +6238,16 @@
           "id": "iw1sXR2Da0MmrwoRV9AVl"
         },
         {
-          "id": "rows-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "rows-no"
         },
         {
-          "id": "to-rows",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-rows"
         },
         {
-          "id": "files-out",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "files-out"
         }
       ],
       "updated": 1791136359190,
@@ -6324,8 +6324,8 @@
           "id": "fPfICkbqmJ3XXTEvpvuvb"
         },
         {
-          "id": "rows-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "rows-no"
         }
       ],
       "updated": 1791136359189,
@@ -6437,6 +6437,10 @@
         {
           "type": "text",
           "id": "AcpBeqHDLpQPTviSJOgEp"
+        },
+        {
+          "type": "arrow",
+          "id": "source-simulation"
         }
       ],
       "updated": 1791136359189,
@@ -6511,12 +6515,16 @@
           "id": "SsNajbHSDKMdhlbJqmz5e"
         },
         {
-          "id": "structure-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "structure-no"
         },
         {
-          "id": "to-dataset",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "files-out"
+        },
+        {
+          "type": "arrow",
+          "id": "to-dataset"
         }
       ],
       "updated": 1791136359190,
@@ -6593,8 +6601,8 @@
           "id": "qn5OEcp8ijh6q4rOB0Jsm"
         },
         {
-          "id": "structure-no",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "structure-no"
         }
       ],
       "updated": 1791136359190,
@@ -6671,8 +6679,8 @@
           "id": "TY-2Iu-A2iGaHi4hxBY4g"
         },
         {
-          "id": "to-dataset",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-dataset"
         }
       ],
       "updated": 1791136359190,
@@ -6749,8 +6757,8 @@
           "id": "DL07rMo4Rcht-8WDSMY8J"
         },
         {
-          "id": "to-variable-loop",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-variable-loop"
         }
       ],
       "updated": 1791136359190,
@@ -6789,16 +6797,16 @@
           "id": "g01WJH7IPltZnpkzKiGS1"
         },
         {
-          "id": "to-variable-loop",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-variable-loop"
         },
         {
-          "id": "variable-in-trunk",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-in-trunk"
         },
         {
-          "id": "variable-back",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-back"
         }
       ],
       "updated": 1791136359191,
@@ -6838,8 +6846,8 @@
           "id": "6LlWbvEozg-hFA3ietFAf"
         },
         {
-          "id": "variable-in-0",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-in-0"
         }
       ],
       "updated": 1791136359191,
@@ -6916,8 +6924,8 @@
           "id": "cksyVsC0IqymhqxheYuZ9"
         },
         {
-          "id": "variable-out-0",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-out-0"
         }
       ],
       "updated": 1791136359191,
@@ -6957,8 +6965,8 @@
           "id": "dKiwfOPaMo98gZpMMzeQe"
         },
         {
-          "id": "variable-in-1",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-in-1"
         }
       ],
       "updated": 1791136359191,
@@ -7035,8 +7043,8 @@
           "id": "UJLpxZGlZKnBUyy9OcxIj"
         },
         {
-          "id": "variable-out-1",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-out-1"
         }
       ],
       "updated": 1791136359191,
@@ -7076,8 +7084,8 @@
           "id": "qXMCndFASR8VsC4ZPWlUm"
         },
         {
-          "id": "variable-in-2",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-in-2"
         }
       ],
       "updated": 1791136359191,
@@ -7154,8 +7162,8 @@
           "id": "DjsMpLxJPVRkYbSHnvR05"
         },
         {
-          "id": "variable-out-2",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-out-2"
         }
       ],
       "updated": 1791136359191,
@@ -7195,8 +7203,8 @@
           "id": "QbwCqsXgIgWcSLoChZKWQ"
         },
         {
-          "id": "variable-in-3",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-in-3"
         }
       ],
       "updated": 1791136359191,
@@ -7273,8 +7281,8 @@
           "id": "HoVSMdNeUVvcOZOaqDKBi"
         },
         {
-          "id": "variable-out-3",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-out-3"
         }
       ],
       "updated": 1791136359191,
@@ -7313,16 +7321,16 @@
           "id": "baeuW_K7XRjxlRjfu-9En"
         },
         {
-          "id": "variable-out-into",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-out-into"
         },
         {
-          "id": "variable-back",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "variable-back"
         },
         {
-          "id": "to-commit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-commit"
         }
       ],
       "updated": 1791136359191,
@@ -7362,8 +7370,8 @@
           "id": "sLpFTTinZoCTpU-CCCQlj"
         },
         {
-          "id": "to-commit",
-          "type": "arrow"
+          "type": "arrow",
+          "id": "to-commit"
         }
       ],
       "updated": 1791136359191,
@@ -9173,13 +9181,13 @@
       "updated": 1791136359181,
       "link": "../../assumptions.md#time",
       "locked": false,
-      "text": "Time semantics → assumptions",
+      "text": "Time semantics \u2192 assumptions",
       "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "Time semantics → assumptions",
+      "originalText": "Time semantics \u2192 assumptions",
       "autoResize": true,
       "lineHeight": 1.25
     },
@@ -9223,9 +9231,9 @@
     {
       "id": "isCSwlTdYhIF9rph1JyI9",
       "type": "text",
-      "x": 670.58203125,
+      "x": 647.90625,
       "y": 73.2,
-      "width": 298.8359375,
+      "width": 344.1875,
       "height": 145.6,
       "angle": 0,
       "strokeColor": "#172033",
@@ -9247,13 +9255,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "POST {action, input, reasoning}\ninput: model_ref · source folder\nextraction instructions · context\nreasoning optional; excluded from call_id\ncapture folder + subfolders with SHA-256\nresolve latest once before call_id\nGET /{action}/{call_id} reads the same call",
+      "text": "POST {action, input, reasoning}\ninput: dynamical_model_spec_ref \u00b7 source folder\nextraction instructions \u00b7 context\nreasoning optional; excluded from call_id\ncapture folder + subfolders with SHA-256\nresolve latest once before call_id\nGET /{action}/{call_id} reads the same call",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "request-body",
-      "originalText": "POST {action, input, reasoning}\ninput: model_ref · source folder\nextraction instructions · context\nreasoning optional; excluded from call_id\ncapture folder + subfolders with SHA-256\nresolve latest once before call_id\nGET /{action}/{call_id} reads the same call",
+      "originalText": "POST {action, input, reasoning}\ninput: dynamical_model_spec_ref \u00b7 source folder\nextraction instructions \u00b7 context\nreasoning optional; excluded from call_id\ncapture folder + subfolders with SHA-256\nresolve latest once before call_id\nGET /{action}/{call_id} reads the same call",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -9804,13 +9812,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: running · commit_id: null · body: null\nmessages: accumulated log, progress and traces",
+      "text": "status: running \u00b7 commit_id: null \u00b7 body: null\nmessages: accumulated log, progress and traces",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "running-result-body",
-      "originalText": "status: running · commit_id: null · body: null\nmessages: accumulated log, progress and traces",
+      "originalText": "status: running \u00b7 commit_id: null \u00b7 body: null\nmessages: accumulated log, progress and traces",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -9989,13 +9997,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "no attempt · state unchanged",
+      "text": "no attempt \u00b7 state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "accepted-error-outcome",
-      "originalText": "no attempt · state unchanged",
+      "originalText": "no attempt \u00b7 state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10137,13 +10145,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "question-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10322,13 +10330,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "found-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10581,13 +10589,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "table-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10655,13 +10663,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "across the supplied source history\nusing each indicator’s model-owned window",
+      "text": "across the supplied source history\nusing each indicator\u2019s model-owned window",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "select-windows-body",
-      "originalText": "across the supplied source history\nusing each indicator’s model-owned window",
+      "originalText": "across the supplied source history\nusing each indicator\u2019s model-owned window",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10840,13 +10848,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rules-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10914,13 +10922,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "each indicator uses its model window, else the model clock\ncomputed variables: a validated formula or a window aggregation\nsemantic variables: one variable × one support window per request",
+      "text": "each indicator uses its model window, else the model clock\ncomputed variables: a validated formula or a window aggregation\nsemantic variables: one variable \u00d7 one support window per request",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "extract-body",
-      "originalText": "each indicator uses its model window, else the model clock\ncomputed variables: a validated formula or a window aggregation\nsemantic variables: one variable × one support window per request",
+      "originalText": "each indicator uses its model window, else the model clock\ncomputed variables: a validated formula or a window aggregation\nsemantic variables: one variable \u00d7 one support window per request",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -10988,13 +10996,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "each variable × window",
+      "text": "each variable \u00d7 window",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "chunk-loop",
-      "originalText": "each variable × window",
+      "originalText": "each variable \u00d7 window",
       "autoResize": true,
       "lineHeight": 1.25
     },
@@ -11321,13 +11329,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "score one variable × window",
+      "text": "score one variable \u00d7 window",
       "fontSize": 16,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "score-name",
-      "originalText": "score one variable × window",
+      "originalText": "score one variable \u00d7 window",
       "autoResize": true,
       "lineHeight": 1.25
     },
@@ -11358,13 +11366,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "the request projects only this variable’s source columns\nexactly one declared variable ID and window start\nfinite values of the declared dtype and valid level codes\nuse an explicit null when the value is unavailable",
+      "text": "the request projects only this variable\u2019s source columns\nexactly one declared variable ID and window start\nfinite values of the declared dtype and valid level codes\nuse an explicit null when the value is unavailable",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "score-body",
-      "originalText": "the request projects only this variable’s source columns\nexactly one declared variable ID and window start\nfinite values of the declared dtype and valid level codes\nuse an explicit null when the value is unavailable",
+      "originalText": "the request projects only this variable\u2019s source columns\nexactly one declared variable ID and window start\nfinite values of the declared dtype and valid level codes\nuse an explicit null when the value is unavailable",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -11728,13 +11736,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "next variable × window",
+      "text": "next variable \u00d7 window",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "chunk-next",
-      "originalText": "next variable × window",
+      "originalText": "next variable \u00d7 window",
       "autoResize": true,
       "lineHeight": 1.25
     },
@@ -11876,13 +11884,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "rows-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -11950,13 +11958,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "unknown model ref, missing clock,\nor extraction IDs do not match\nthe model’s indicators",
+      "text": "unknown model ref, missing clock,\nor extraction IDs do not match\nthe model\u2019s indicators",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "replicate-error-body",
-      "originalText": "unknown model ref, missing clock,\nor extraction IDs do not match\nthe model’s indicators",
+      "originalText": "unknown model ref, missing clock,\nor extraction IDs do not match\nthe model\u2019s indicators",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -11987,13 +11995,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "replicate-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12135,13 +12143,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "text": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "structure-error-outcome",
-      "originalText": "status: failed · body: null\ncommit_id + messages; state unchanged",
+      "originalText": "status: failed \u00b7 body: null\ncommit_id + messages; state unchanged",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12222,9 +12230,9 @@
     {
       "id": "DL07rMo4Rcht-8WDSMY8J",
       "type": "text",
-      "x": 670.5859375,
+      "x": 649.0,
       "y": 4783.25,
-      "width": 298.828125,
+      "width": 342.0,
       "height": 19.5,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -12239,20 +12247,20 @@
       "index": "b4c",
       "roundness": null,
       "seed": 654224484,
-      "version": 4,
+      "version": 5,
       "versionNonce": 495120996,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "issue → warn DATA_QUALITY_FINDINGS",
+      "text": "failed finding \u2192 warning with its code",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "dataset-outcome",
-      "originalText": "issue → warn DATA_QUALITY_FINDINGS",
+      "originalText": "failed finding \u2192 warning with its code",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12357,22 +12365,22 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "numeric, finite values\nparseable timestamps\n10+ values · non-zero\nvariance · with no numeric\nvalue, the other three\nskip the variable",
+      "text": "numeric, finite values\nparseable timestamps\n10+ values \u00b7 non-zero\nvariance \u00b7 with no numeric\nvalue, the other three\nskip the variable",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "values-body",
-      "originalText": "numeric, finite values\nparseable timestamps\n10+ values · non-zero\nvariance · with no numeric\nvalue, the other three\nskip the variable",
+      "originalText": "numeric, finite values\nparseable timestamps\n10+ values \u00b7 non-zero\nvariance \u00b7 with no numeric\nvalue, the other three\nskip the variable",
       "autoResize": true,
       "lineHeight": 1.3
     },
     {
       "id": "cksyVsC0IqymhqxheYuZ9",
       "type": "text",
-      "x": 288.46484375,
+      "x": 304.25,
       "y": 5144,
-      "width": 184.5703125,
+      "width": 153.0,
       "height": 39,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -12387,20 +12395,20 @@
       "index": "b4g",
       "roundness": null,
       "seed": 436275300,
-      "version": 4,
+      "version": 5,
       "versionNonce": 36481380,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "text": "failed \u2192 warning\nwith finding code",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "values-outcome",
-      "originalText": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "originalText": "failed \u2192 warning\nwith finding code",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12468,22 +12476,22 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "binary: 0 or 1\ncounts: non-negative\nintegers · codes index\ntheir levels · no value\nbeyond 3×IQR (with\n10+ values)",
+      "text": "binary: 0 or 1\ncounts: non-negative\nintegers \u00b7 codes index\ntheir levels \u00b7 no value\nbeyond 3\u00d7IQR (with\n10+ values)",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "types-body",
-      "originalText": "binary: 0 or 1\ncounts: non-negative\nintegers · codes index\ntheir levels · no value\nbeyond 3×IQR (with\n10+ values)",
+      "originalText": "binary: 0 or 1\ncounts: non-negative\nintegers \u00b7 codes index\ntheir levels \u00b7 no value\nbeyond 3\u00d7IQR (with\n10+ values)",
       "autoResize": true,
       "lineHeight": 1.3
     },
     {
       "id": "UJLpxZGlZKnBUyy9OcxIj",
       "type": "text",
-      "x": 567.96484375,
+      "x": 583.75,
       "y": 5144,
-      "width": 184.5703125,
+      "width": 153.0,
       "height": 39,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -12498,20 +12506,20 @@
       "index": "b4j",
       "roundness": null,
       "seed": 319271652,
-      "version": 4,
+      "version": 5,
       "versionNonce": 329896796,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "text": "failed \u2192 warning\nwith finding code",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "types-outcome",
-      "originalText": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "originalText": "failed \u2192 warning\nwith finding code",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12579,22 +12587,22 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "spans 10+ windows\n(needs 2+ times)\nlargest gap ≤ 5\nwindows (needs 3+)",
+      "text": "spans 10+ windows\n(needs 2+ times)\nlargest gap \u2264 5\nwindows (needs 3+)",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "time-body",
-      "originalText": "spans 10+ windows\n(needs 2+ times)\nlargest gap ≤ 5\nwindows (needs 3+)",
+      "originalText": "spans 10+ windows\n(needs 2+ times)\nlargest gap \u2264 5\nwindows (needs 3+)",
       "autoResize": true,
       "lineHeight": 1.3
     },
     {
       "id": "DjsMpLxJPVRkYbSHnvR05",
       "type": "text",
-      "x": 847.46484375,
+      "x": 863.25,
       "y": 5144,
-      "width": 184.5703125,
+      "width": 153.0,
       "height": 39,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -12609,20 +12617,20 @@
       "index": "b4m",
       "roundness": null,
       "seed": 237006180,
-      "version": 4,
+      "version": 5,
       "versionNonce": 1743451108,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "text": "failed \u2192 warning\nwith finding code",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "time-outcome",
-      "originalText": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "originalText": "failed \u2192 warning\nwith finding code",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12690,22 +12698,22 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "no value in over half\nthe rows · no arithmetic\nsequence (5+ values)\nrubric agrees with the\nmodel aggregation",
+      "text": "no value in over half\nthe rows \u00b7 no arithmetic\nsequence (5+ values)\nrubric agrees with the\nmodel aggregation",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "patterns-body",
-      "originalText": "no value in over half\nthe rows · no arithmetic\nsequence (5+ values)\nrubric agrees with the\nmodel aggregation",
+      "originalText": "no value in over half\nthe rows \u00b7 no arithmetic\nsequence (5+ values)\nrubric agrees with the\nmodel aggregation",
       "autoResize": true,
       "lineHeight": 1.3
     },
     {
       "id": "HoVSMdNeUVvcOZOaqDKBi",
       "type": "text",
-      "x": 1126.96484375,
+      "x": 1142.75,
       "y": 5144,
-      "width": 184.5703125,
+      "width": 153.0,
       "height": 39,
       "angle": 0,
       "strokeColor": "#78350f",
@@ -12720,20 +12728,20 @@
       "index": "b4p",
       "roundness": null,
       "seed": 1975859172,
-      "version": 4,
+      "version": 5,
       "versionNonce": 1083949276,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "text": "failed \u2192 warning\nwith finding code",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "patterns-outcome",
-      "originalText": "issue → warn\nDATA_QUALITY_FINDINGS",
+      "originalText": "failed \u2192 warning\nwith finding code",
       "autoResize": true,
       "lineHeight": 1.3
     },
@@ -12814,9 +12822,9 @@
     {
       "id": "K0JIr_fH-2TcNgEA4SSFg",
       "type": "text",
-      "x": 647.4609375,
+      "x": 607.84,
       "y": 5446.3,
-      "width": 345.078125,
+      "width": 424.32,
       "height": 62.400000000000006,
       "angle": 0,
       "strokeColor": "#172033",
@@ -12831,20 +12839,20 @@
       "index": "b4s",
       "roundness": null,
       "seed": 1415584868,
-      "version": 7,
+      "version": 8,
       "versionNonce": 861884004,
       "isDeleted": false,
       "boundElements": [],
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "data, metadata and profile required on success\ncomplete result saved before publication\nworker outcomes and reuse belong to messages",
+      "text": "data \u00b7 metadata \u00b7 profile \u00b7 extraction required\ncomplete result saved before publication\nworker outcomes and reuse belong to body.extraction",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "commit-body",
-      "originalText": "data, metadata and profile required on success\ncomplete result saved before publication\nworker outcomes and reuse belong to messages",
+      "originalText": "data \u00b7 metadata \u00b7 profile \u00b7 extraction required\ncomplete result saved before publication\nworker outcomes and reuse belong to body.extraction",
       "autoResize": true,
       "lineHeight": 1.3,
       "customData": {}
@@ -12876,13 +12884,13 @@
       "updated": 1791136359191,
       "link": null,
       "locked": false,
-      "text": "status: success · commit_id · body · messages\nMessagePack · NPY buffers remain binary",
+      "text": "status: success \u00b7 commit_id \u00b7 body \u00b7 messages\nMessagePack \u00b7 NPY buffers remain binary",
       "fontSize": 15,
       "fontFamily": 3,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "commit-outcome",
-      "originalText": "status: success · commit_id · body · messages\nMessagePack · NPY buffers remain binary",
+      "originalText": "status: success \u00b7 commit_id \u00b7 body \u00b7 messages\nMessagePack \u00b7 NPY buffers remain binary",
       "autoResize": true,
       "lineHeight": 1.3
     }

@@ -81,7 +81,7 @@ def build_site_bindings(
     """Bind by mechanism coefficient references, quantities, and scientific owner IDs."""
     from nof1_causal_lab.models.ssm.compile.parameter_identity import SHARED_OBSERVATION_FAMILIES
 
-    model = structure.model
+    dynamical_model_spec = structure.dynamical_model_spec
     bindings = _native_dynamics_bindings(components, {site.name: site for site in sites})
     latent = {identity: index for index, identity in enumerate(numeric.state_ids(structure))}
     manifest = {
@@ -92,9 +92,9 @@ def build_site_bindings(
     for parameter in parameters:
         if parameter.id in bindings:
             continue
-        kind = model.parameter_context(parameter.id).quantity
+        kind = dynamical_model_spec.parameter_context(parameter.id).quantity
         matches: list[tuple[SiteDescriptor, SiteSelection]] = []
-        owners = model.parameter_context(parameter.id).owners
+        owners = dynamical_model_spec.parameter_context(parameter.id).owners
         construct_ids = {owner.id for owner in owners if owner.kind == "construct"}
         indicator_ids = {owner.id for owner in owners if owner.kind == "indicator"}
         state_indices = {latent[key] for key in construct_ids if key in latent}

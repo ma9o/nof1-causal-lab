@@ -20,16 +20,18 @@ from tests.model_fixtures import construct_named, stress_sleep_causal_model
 pytestmark = pytest.mark.contract
 
 
-def test_edit_checks_ignore_panel_and_reuse_only_model_and_question_inputs(tmp_path, monkeypatch):
+def test_edit_checks_depend_only_on_model_and_question_inputs(tmp_path, monkeypatch):
     from nof1_causal_lab.actions import model_checks
     from nof1_causal_lab.models.ssm.predictive import simulation
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
-    model = stress_sleep_causal_model()
+    dynamical_model_spec = stress_sleep_causal_model()
     question_root(
         "checks",
-        QuestionSpec(text="How does sleep change?", outcome=construct_named(model, "Sleep").id),
+        QuestionSpec(
+            text="How does sleep change?", outcome=construct_named(dynamical_model_spec, "Sleep").id
+        ),
     )
     repository = StudyRepository("checks")
     root = repository.state(repository.head())
@@ -48,7 +50,7 @@ def test_edit_checks_ignore_panel_and_reuse_only_model_and_question_inputs(tmp_p
                     parent_ref=state.current["model"].revision
                     if state.has("model")
                     else root.current["question"].revision,
-                    model=model,
+                    dynamical_model_spec=dynamical_model_spec,
                 )
             ),
         )
@@ -57,22 +59,17 @@ def test_edit_checks_ignore_panel_and_reuse_only_model_and_question_inputs(tmp_p
         return apply_effects(state, staged.effects.produced, staged.effects.retracted), reports
 
     # Even a selected, unreadable panel has no bearing on a model edit.
-    state, (checks, identification, validation) = edit(
+    state, (checks, identification) = edit(
         root.revised(data=DataRef[GitOid, int](revision=git_oid(99), replicate_index=0))
     )
     assert checks.specification
     assert identification is not None
-    assert validation is None
-    assert checks.predictive is None
     assert checks.question is not None
-    assert checks.question.data is None
-    assert all(f.subject.check not in {"window", "range"} for f in checks.question.findings)
-    _, (reused, _, validation) = edit(
+    assert all(f.code not in {"window", "range"} for f in checks.question.findings)
+    _, (reused, _) = edit(
         state.revised(data=DataRef[GitOid, int](revision=git_oid(100), replicate_index=0))
     )
-    assert set(reused.reused) == {"specification", "identification", "question"}
     assert reused.question == checks.question
-    assert validation is None
 
 
 def test_edit_model_contract_rejects_panel_selection():
@@ -80,7 +77,7 @@ def test_edit_model_contract_rejects_panel_selection():
         EditModelInput[GitOid].model_validate(
             {
                 "parent_ref": git_oid(1),
-                "model": {},
+                "dynamical_model_spec": {},
                 "panel_ref": git_oid(2),
             }
         )

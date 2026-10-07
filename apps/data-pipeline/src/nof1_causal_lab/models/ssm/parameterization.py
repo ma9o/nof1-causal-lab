@@ -1,6 +1,6 @@
 """Compiled scientific site metadata and prior-predictive parameter assembly.
 
-The registry derives authored sample-site shapes and bindings from ModelSpec
+The registry derives authored sample-site shapes and bindings from DynamicalModelSpec
 without tracing. NumPyro distributions preserve native parameter pytrees and
 stable per-site random streams. Particle inference and MAP initialization use
 NumPyro replay through Dynestyx for reparameterized sites, transformations, and
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
@@ -48,19 +48,29 @@ class PriorRuntimeBundle:
 # ---------------------------------------------------------------------------
 
 
-def build_site_registry(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+def build_site_registry(
+    compiled_dynamical_model: CompiledDynamicalModel,
+) -> tuple[SiteDescriptor, ...]:
     """Return the site registry already owned by the compiled model."""
-    return spec.site_registry
+    return compiled_dynamical_model.site_registry
 
 
-def likelihood_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+def likelihood_sites(
+    compiled_dynamical_model: CompiledDynamicalModel,
+) -> tuple[SiteDescriptor, ...]:
     """Select sampling-site descriptors belonging to likelihood-specific auxiliary coefficients."""
-    return tuple(site for site in spec.site_registry if site.assembly_group == "likelihood")
+    return tuple(
+        site
+        for site in compiled_dynamical_model.site_registry
+        if site.assembly_group == "likelihood"
+    )
 
 
-def process_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+def process_sites(compiled_dynamical_model: CompiledDynamicalModel) -> tuple[SiteDescriptor, ...]:
     """Select sampling-site descriptors belonging to process-innovation coefficients."""
-    return tuple(site for site in spec.site_registry if site.assembly_group == "process")
+    return tuple(
+        site for site in compiled_dynamical_model.site_registry if site.assembly_group == "process"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +91,7 @@ def _resolve_num_draws(
 
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     *,
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
@@ -90,7 +100,7 @@ def assemble_deterministics_from_registry(
 
     def assemble_draw(index: jax.Array) -> dict[str, jax.Array]:
         return assemble_model_matrices(
-            spec, {name: value[index] for name, value in samples.items()}
+            compiled_dynamical_model, {name: value[index] for name, value in samples.items()}
         )[0]
 
     return jax.vmap(assemble_draw)(jnp.arange(n_draws))
@@ -133,11 +143,11 @@ def sample_prior_parameters(
 
 
 def build_prior_runtime_bundle(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     priors: Mapping[str, dist.Distribution] | None = None,
 ) -> PriorRuntimeBundle:
     """Resolve the scientific site declarations to native NumPyro laws."""
-    registry = build_site_registry(spec)
+    registry = build_site_registry(compiled_dynamical_model)
     return PriorRuntimeBundle(
         registry=tuple(registry), priors=MappingProxyType(resolve_site_priors(registry, priors))
     )

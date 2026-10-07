@@ -1,5 +1,7 @@
 """A published result is the response and remains reusable without scientific reads."""
 
+import io
+
 import msgpack
 import numpy as np
 import pytest
@@ -12,9 +14,9 @@ from nof1_causal_lab.actions.io import EditQuestionInput, EditQuestionOutput
 from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.study.action_outputs import completed_call_msgpack
-from nof1_causal_lab.study.result_codec import pack_result, unpack_result
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied, AttemptRecord, EditQuestionAttempt
+from nof1_causal_lab.study.result_codec import pack_result, unpack_result
 from nof1_causal_lab.study.store import ArtifactStore, read_question
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils.arrays import encode_array
@@ -95,22 +97,40 @@ def test_poll_and_repeated_post_return_the_saved_result_without_building(monkeyp
 
 def test_numerical_result_preserves_dtype_shape_missingness_and_vector_selection():
     from nof1_causal_lab.artifacts.arrays import ArrayVector
-    from nof1_causal_lab.study.action_arrays import decode_array, resolve_vector
+    from nof1_causal_lab.study.action_arrays import resolve_vector
 
     values = np.asarray([[1, np.nan, np.inf], [2, -np.inf, 4]], dtype=np.float64)
     saved = _array_value(values)
     loaded = NumericalArray.model_validate(
         msgpack.unpackb(msgpack.packb(saved.model_dump(mode="python")))
     )
-    np.testing.assert_array_equal(decode_array(loaded), values)
-    assert decode_array(loaded).shape == (2, 3)
-    assert decode_array(loaded).dtype == "float64"
+    np.testing.assert_array_equal(loaded.values, values)
+    assert loaded.values.shape == (2, 3)
+    assert loaded.values.dtype == "float64"
     selected = ArrayVector(
-        array=loaded, indices=(None, 0), mask=ArrayVector(array=_array_value(np.asarray([True, False])), indices=(None,))
+        array=loaded,
+        indices=(None, 0),
+        mask=ArrayVector(array=_array_value(np.asarray([True, False])), indices=(None,)),
     )
     assert resolve_vector(selected) == (1.0, None)
     empty = np.zeros((0, 3), dtype=np.int32)
-    np.testing.assert_array_equal(decode_array(_array_value(empty)), empty)
+    np.testing.assert_array_equal(_array_value(empty).values, empty)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [np.arange(6, dtype=">f8"), np.asfortranarray(np.arange(6).reshape(2, 3))],
+    ids=["big_endian", "fortran_order"],
+)
+def test_numerical_owner_normalizes_numpy_values_and_rejects_nonportable_wire_buffers(values):
+    owned = NumericalArray.from_numpy(values)
+    np.testing.assert_array_equal(owned.values, values)
+    assert owned.values.flags.c_contiguous
+    assert owned.values.dtype.str[0] in "<|"
+    original = io.BytesIO()
+    np.save(original, values, allow_pickle=False)
+    with pytest.raises(ValueError, match="little-endian, row-major"):
+        NumericalArray(npy=original.getvalue())
 
 
 def test_prepared_observations_round_trip_through_the_published_body(monkeypatch, tmp_path):
@@ -121,11 +141,11 @@ def test_prepared_observations_round_trip_through_the_published_body(monkeypatch
     from nof1_causal_lab.actions.io import PrepareDataInput
     from nof1_causal_lab.actions.output_builder import complete_attempt
     from nof1_causal_lab.actions.validation.flow import profile_data
-    from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
+    from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult, FileSourceRef
     from nof1_causal_lab.artifacts.data_ref import DataRef
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.study.data import read_data_history
-    from nof1_causal_lab.study.records import DataPreparationResult, applied_attempt
+    from nof1_causal_lab.study.records import applied_attempt
     from nof1_causal_lab.study.state import ArtifactResult
     from tests.action_fixtures import question_root
     from tests.integration.runner_fixtures import panel_frame, panel_metadata, seed_model
@@ -153,8 +173,8 @@ def test_prepared_observations_round_trip_through_the_published_body(monkeypatch
     profile = profile_data(expected, metadata=metadata)
     request = PrepareDataRequest[GitOid, FileSourceRef](
         input=PrepareDataInput[GitOid, FileSourceRef](
-            model_ref=model.revision,
-            source=metadata.source,
+            dynamical_model_spec_ref=model.revision,
+            source=FileSourceRef(files=("input/test.csv",), hashes={}),
             extraction={
                 item.observation.id: item.extraction for item in metadata.preparation.variables
             },
@@ -183,7 +203,7 @@ def test_prepared_observations_round_trip_through_the_published_body(monkeypatch
     ).observations.recorded.frame
     assert_frame_equal(actual, expected)
     body = msgpack.unpackb(completed_call_msgpack(workspace, revision))["body"]
-    assert set(body) == {"data", "metadata", "profile"}
+    assert set(body) == {"data", "metadata", "profile", "extraction"}
     assert body["metadata"] == metadata.model_dump(mode="json")
     assert body["profile"] == profile.model_dump(mode="json")
     assert body == msgpack.unpackb(repository.read_file(revision.commit_id, "result.msgpack"))
@@ -191,13 +211,12 @@ def test_prepared_observations_round_trip_through_the_published_body(monkeypatch
 
 def test_model_comparisons_resolve_published_artifact_trees_as_specs(monkeypatch, tmp_path):
     from nof1_causal_lab.actions.contracts import EditModelRequest
-    from nof1_causal_lab.actions.edit_model import edit_model
     from nof1_causal_lab.actions.io import EditModelInput
     from nof1_causal_lab.actions.output_builder import complete_attempt
     from nof1_causal_lab.actions.revisions import model_diff
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.study.records import applied_attempt
-    from tests.action_fixtures import question_root
+    from tests.action_fixtures import edit_and_check, question_root
     from tests.helpers import make_model
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -206,14 +225,14 @@ def test_model_comparisons_resolve_published_artifact_trees_as_specs(monkeypatch
         workspace, QuestionSpec(text="What changes Y?", outcome=fixture_entity_id("construct", "Y"))
     )
     store, repository = ArtifactStore(workspace), StudyRepository(workspace)
-    model = make_model(["X", "Y"], [("X", "Y")])
+    dynamical_model_spec = make_model(["X", "Y"], [("X", "Y")])
     request = EditModelRequest[GitOid](
         input=EditModelInput[GitOid](
             parent_ref=repository.question().revision,
-            model=model,
+            dynamical_model_spec=dynamical_model_spec,
         )
     )
-    staged = edit_model(workspace, request)
+    staged = edit_and_check(workspace, request, repository.state(repository.head()))
     assert isinstance(staged, Applied)
     attempt = complete_attempt(workspace, applied_attempt(request, staged))
     repository.append(AttemptRecord(seq=2, ts="2026-01-01T00:00:00Z", attempt=attempt))
@@ -221,11 +240,11 @@ def test_model_comparisons_resolve_published_artifact_trees_as_specs(monkeypatch
     tree = attempt.outcome.effects.produced[0].revision
     comparison = model_diff(workspace, tree, tree)
     assert comparison.model_dump(mode="json") == {"changes": {}}
-    ref = store.model_ref(tree)
+    ref = store.dynamical_model_spec_ref(tree)
     assert ref.path == "result.msgpack"
-    assert msgpack.unpackb(repository.read_file(tree, ref.path))["model"] == model.model_dump(
-        mode="json"
-    )
+    assert msgpack.unpackb(repository.read_file(tree, ref.path))[
+        "dynamical_model_spec"
+    ] == dynamical_model_spec.model_dump(mode="json")
 
 
 @pytest.mark.parametrize(
@@ -245,8 +264,8 @@ def test_published_arrays_remain_readable_after_execution_buffers_are_removed(
 ):
     from nof1_causal_lab.actions.contracts import EditModelRequest
     from nof1_causal_lab.actions.io import EditModelInput, EditModelOutput
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import GitOid
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.study.records import EditAttempt
     from tests.git_fixtures import git_oid
 
@@ -254,13 +273,32 @@ def test_published_arrays_remain_readable_after_execution_buffers_are_removed(
     store, repository = ArtifactStore("BUFFERS"), StudyRepository("BUFFERS")
     identity = store.write_array(values)
     result = EditModelOutput(
-        model=ModelSpec(distributions={"distribution:stored": {"distribution": "Delta", "params": {"v": {"array_ref": identity, "shape": list(values.shape), "dtype": str(values.dtype.newbyteorder("<")), "index": []}}}}),
-        checks=None,
-        identification=None,
+        dynamical_model_spec=DynamicalModelSpec.model_validate(
+            {
+                "distributions": {
+                    "distribution:stored": {
+                        "distribution": "Delta",
+                        "params": {
+                            "v": {
+                                "array_ref": identity,
+                                "shape": list(values.shape),
+                                "dtype": str(values.dtype.newbyteorder("<")),
+                                "index": [],
+                            }
+                        },
+                    }
+                }
+            }
+        ),
+        checks={"specification": (), "question": {"findings": ()}},
+        identification={"outcome": None, "treatments": {}},
+        pruning={},
     )
     ref = store.write_result(result)
     request = EditModelRequest[GitOid](
-        input=EditModelInput[GitOid](parent_ref=git_oid(1), model=ModelSpec())
+        input=EditModelInput[GitOid](
+            parent_ref=git_oid(1), dynamical_model_spec=DynamicalModelSpec()
+        )
     )
     repository.append(
         AttemptRecord(
@@ -276,9 +314,19 @@ def test_published_arrays_remain_readable_after_execution_buffers_are_removed(
     assert not (tmp_path / "BUFFERS/store/arrays" / f"{identity}.npy").exists()
     np.testing.assert_array_equal(ArtifactStore("BUFFERS").read_array(identity), values)
     payload = unpack_result(repository.read_file(repository.head(), "result.msgpack"))
-    assert set(payload) == {"model", "checks", "identification"}
-    assert payload["model"]["distributions"]["distribution:stored"]["params"]["v"] == _array_value(values).model_dump(mode="python")
-
+    assert payload == {
+        "dynamical_model_spec": {
+            "distributions": {
+                "distribution:stored": {
+                    "distribution": "Delta",
+                    "params": {"v": _array_value(values).model_dump(mode="python")},
+                }
+            }
+        },
+        "checks": {"specification": [], "question": {"findings": []}},
+        "identification": {"outcome": None, "treatments": {}},
+        "pruning": {"constructs": [], "edges": [], "parameters": [], "distributions": []},
+    }
 
 
 def test_domain_views_share_one_wire_buffer_and_decode_without_a_store():
@@ -295,8 +343,10 @@ def test_domain_views_share_one_wire_buffer_and_decode_without_a_store():
     encoded = pack_result(result)
     assert encoded.count(array.npy) == 1
     payload = unpack_result(encoded)
-    assert payload["owner"]["npy"] is payload["view"]["array"]["npy"]
     restored = NumericalViews.model_validate(payload)
+    assert restored.owner.npy is restored.view.array.npy
+    assert np.shares_memory(restored.owner.values, restored.view.array.values)
+    assert not restored.owner.values.flags.writeable
     assert resolve_vector(restored.view) == (2.0, 6.0, 10.0)
     with pytest.raises(ValueError, match="earlier"):
         unpack_result(msgpack.packb({"npy": msgpack.ExtType(42, (0).to_bytes(8, "big"))}))

@@ -14,8 +14,8 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.expressions import expression_coefficients
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm import numerics as numeric
@@ -33,23 +33,23 @@ from tests.model_fixtures import (
 
 
 def _teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_su() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "e2e_discretization/teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support_complete_test_model.json"
     )
 
 
-def _weekly_effect_rate() -> ModelSpec:
+def _weekly_effect_rate() -> DynamicalModelSpec:
     return load_model_fixture("e2e_discretization/weekly_effect_rate.json")
 
 
-def _daily_effect_rate() -> ModelSpec:
-    model = _weekly_effect_rate()
-    beta_stress_mood = parameter_named(model, "beta_stress_mood")
-    return model.with_entities(
+def _daily_effect_rate() -> DynamicalModelSpec:
+    dynamical_model_spec = _weekly_effect_rate()
+    beta_stress_mood = parameter_named(dynamical_model_spec, "beta_stress_mood")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             beta_stress_mood.revised(
                 transform=beta_stress_mood.transform.revised(interval_days=1.0)
             ),
@@ -57,18 +57,18 @@ def _daily_effect_rate() -> ModelSpec:
     )
 
 
-def _equal_intervals_elementwise_priors() -> ModelSpec:
-    model = _weekly_effect_rate()
-    rho_stress = parameter_named(model, "rho_stress")
-    rho_mood = parameter_named(model, "rho_mood")
-    return model.with_entities(
+def _equal_intervals_elementwise_priors() -> DynamicalModelSpec:
+    dynamical_model_spec = _weekly_effect_rate()
+    rho_stress = parameter_named(dynamical_model_spec, "rho_stress")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             rho_stress.revised(transform=rho_stress.transform.revised(interval_days=7.0)),
             rho_mood.revised(transform=rho_mood.transform.revised(interval_days=7.0)),
         ),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 rho_mood.id: dist.Beta(
                     concentration1=jnp.array(3.0, dtype=jnp.float32),
@@ -80,20 +80,20 @@ def _equal_intervals_elementwise_priors() -> ModelSpec:
     )
 
 
-def _stress_mood_model() -> ModelSpec:
-    model = _daily_effect_rate()
-    beta_stress_mood = parameter_named(model, "beta_stress_mood")
-    rho_stress = parameter_named(model, "rho_stress")
-    rho_mood = parameter_named(model, "rho_mood")
-    return model.with_entities(
+def _stress_mood_model() -> DynamicalModelSpec:
+    dynamical_model_spec = _daily_effect_rate()
+    beta_stress_mood = parameter_named(dynamical_model_spec, "beta_stress_mood")
+    rho_stress = parameter_named(dynamical_model_spec, "rho_stress")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             beta_stress_mood.revised(
                 transform=beta_stress_mood.transform.revised(interval_days="model_clock")
             ),
         ),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 rho_stress.id: dist.Beta(
                     concentration1=2.0, concentration0=2.0, validate_args=False
@@ -105,22 +105,24 @@ def _stress_mood_model() -> ModelSpec:
     )
 
 
-def _construct_specific_residual_scales() -> ModelSpec:
-    model = _daily_effect_rate()
-    beta_stress_mood = parameter_named(model, "beta_stress_mood")
-    rho_mood = parameter_named(model, "rho_mood")
-    sigma_stress = parameter_named(model, "sigma_stress")
-    lambda_stress_cortisol_stress = parameter_named(model, "lambda_stress_cortisol_stress")
-    sigma_mood = parameter_named(model, "sigma_mood")
-    return model.with_entities(
+def _construct_specific_residual_scales() -> DynamicalModelSpec:
+    dynamical_model_spec = _daily_effect_rate()
+    beta_stress_mood = parameter_named(dynamical_model_spec, "beta_stress_mood")
+    rho_mood = parameter_named(dynamical_model_spec, "rho_mood")
+    sigma_stress = parameter_named(dynamical_model_spec, "sigma_stress")
+    lambda_stress_cortisol_stress = parameter_named(
+        dynamical_model_spec, "lambda_stress_cortisol_stress"
+    )
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             beta_stress_mood.revised(
                 transform=beta_stress_mood.transform.revised(interval_days="model_clock")
             ),
         ),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 rho_mood.id: dist.Beta(
                     concentration1=jnp.array(3.0, dtype=jnp.float32),
@@ -143,21 +145,23 @@ def _construct_specific_residual_scales() -> ModelSpec:
     )
 
 
-def _weekly_reference_intervals() -> ModelSpec:
-    model = _equal_intervals_elementwise_priors()
-    rho_stress = parameter_named(model, "rho_stress")
-    sigma_stress = parameter_named(model, "sigma_stress")
-    obs_sd_stress_self_report = parameter_named(model, "obs_sd_stress_self_report")
-    lambda_stress_cortisol_stress = parameter_named(model, "lambda_stress_cortisol_stress")
-    obs_sd_stress_cortisol = parameter_named(model, "obs_sd_stress_cortisol")
-    sigma_mood = parameter_named(model, "sigma_mood")
-    return model.with_entities(
+def _weekly_reference_intervals() -> DynamicalModelSpec:
+    dynamical_model_spec = _equal_intervals_elementwise_priors()
+    rho_stress = parameter_named(dynamical_model_spec, "rho_stress")
+    sigma_stress = parameter_named(dynamical_model_spec, "sigma_stress")
+    obs_sd_stress_self_report = parameter_named(dynamical_model_spec, "obs_sd_stress_self_report")
+    lambda_stress_cortisol_stress = parameter_named(
+        dynamical_model_spec, "lambda_stress_cortisol_stress"
+    )
+    obs_sd_stress_cortisol = parameter_named(dynamical_model_spec, "obs_sd_stress_cortisol")
+    sigma_mood = parameter_named(dynamical_model_spec, "sigma_mood")
+    return dynamical_model_spec.with_entities(
         parameters=replace_parameters(
-            model.parameters,
+            dynamical_model_spec.parameters,
             rho_stress.revised(transform=rho_stress.transform.revised(interval_days="model_clock")),
         ),
         distributions=parameter_laws(
-            model,
+            dynamical_model_spec,
             {
                 sigma_stress.id: dist.HalfNormal(
                     scale=jnp.array(1.0, dtype=jnp.float32), validate_args=True
@@ -182,12 +186,12 @@ def _weekly_reference_intervals() -> ModelSpec:
 pytestmark = pytest.mark.contract
 
 
-def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
+def _compile_structure(payload: dict[str, Any]) -> DynamicalModelSpec:
 
-    return ModelSpec.model_validate(payload).materialized()
+    return DynamicalModelSpec.model_validate(payload).materialized()
 
 
-def _compile_priors_for_test(scientific_model: ModelSpec):
+def _compile_priors_for_test(scientific_model: DynamicalModelSpec):
     prior_registry, index_maps, _diagnostics = compile_ssm_priors(
         compile_model_fixture(scientific_model), StructuralSelection(scientific_model, None)
     )
@@ -198,17 +202,23 @@ def _prior_reference_value(prior, flat_index: int = 0) -> float:
     return float(np.asarray(prior_reference_value(prior)).reshape(-1)[flat_index])
 
 
-def _decay_reference_values(spec: ModelSpec, prior_registry) -> np.ndarray:
-    values = np.zeros(numeric.n_states(compile_model_fixture(spec)), dtype=float)
-    for index, component in enumerate(compile_model_fixture(spec).dynamics.spec.components):
+def _decay_reference_values(dynamical_model_spec: DynamicalModelSpec, prior_registry) -> np.ndarray:
+    values = np.zeros(numeric.n_states(compile_model_fixture(dynamical_model_spec)), dtype=float)
+    for index, component in enumerate(
+        compile_model_fixture(dynamical_model_spec).dynamics.spec.components
+    ):
         for _, site in component.parameter_sites(f"vf_{index}"):
             if site.site_kind == SiteKind.DYNAMICS_DECAY:
                 values[component.target] += _prior_reference_value(prior_registry[site.name])
     return values
 
 
-def _linear_edge_weight(spec: ModelSpec, prior_registry, *, source: int, target: int) -> float:
-    for index, component in enumerate(compile_model_fixture(spec).dynamics.spec.components):
+def _linear_edge_weight(
+    dynamical_model_spec: DynamicalModelSpec, prior_registry, *, source: int, target: int
+) -> float:
+    for index, component in enumerate(
+        compile_model_fixture(dynamical_model_spec).dynamics.spec.components
+    ):
         if component.source == source and component.target == target:
             for _, site in component.parameter_sites(f"vf_{index}"):
                 if site.site_kind == SiteKind.DYNAMICS_WEIGHT:
@@ -216,9 +226,9 @@ def _linear_edge_weight(spec: ModelSpec, prior_registry, *, source: int, target:
     raise AssertionError(f"No linear coefficient for source={source}, target={target}")
 
 
-def _decay_support(spec: ModelSpec) -> np.ndarray:
-    mask = np.zeros(numeric.n_states(compile_model_fixture(spec)), dtype=bool)
-    for component in compile_model_fixture(spec).dynamics.spec.components:
+def _decay_support(dynamical_model_spec: DynamicalModelSpec) -> np.ndarray:
+    mask = np.zeros(numeric.n_states(compile_model_fixture(dynamical_model_spec)), dtype=bool)
+    for component in compile_model_fixture(dynamical_model_spec).dynamics.spec.components:
         if any(
             operand.role == "decay" for operand in expression_coefficients(component.expression)
         ):
@@ -226,15 +236,15 @@ def _decay_support(spec: ModelSpec) -> np.ndarray:
     return mask
 
 
-def _linear_edge_support(spec: ModelSpec) -> np.ndarray:
+def _linear_edge_support(dynamical_model_spec: DynamicalModelSpec) -> np.ndarray:
     mask = np.zeros(
         (
-            numeric.n_states(compile_model_fixture(spec)),
-            numeric.n_states(compile_model_fixture(spec)),
+            numeric.n_states(compile_model_fixture(dynamical_model_spec)),
+            numeric.n_states(compile_model_fixture(dynamical_model_spec)),
         ),
         dtype=bool,
     )
-    for component in compile_model_fixture(spec).dynamics.spec.components:
+    for component in compile_model_fixture(dynamical_model_spec).dynamics.spec.components:
         if component.source is not None and any(
             operand.role == "weight" for operand in expression_coefficients(component.expression)
         ):
@@ -242,9 +252,9 @@ def _linear_edge_support(spec: ModelSpec) -> np.ndarray:
     return mask
 
 
-def _state_intercept_mask(spec: ModelSpec) -> np.ndarray:
-    mask = np.zeros(numeric.n_states(compile_model_fixture(spec)), dtype=bool)
-    for component in compile_model_fixture(spec).dynamics.spec.components:
+def _state_intercept_mask(dynamical_model_spec: DynamicalModelSpec) -> np.ndarray:
+    mask = np.zeros(numeric.n_states(compile_model_fixture(dynamical_model_spec)), dtype=bool)
+    for component in compile_model_fixture(dynamical_model_spec).dynamics.spec.components:
         if not component.edge_owned and any(
             operand.role in {"center", "intercept"} for _, operand in component.parameters
         ):
@@ -258,7 +268,7 @@ def _state_intercept_mask(spec: ModelSpec) -> np.ndarray:
 
 
 @pytest.fixture
-def two_construct_structure() -> ModelSpec:
+def two_construct_structure() -> DynamicalModelSpec:
     """Realistic 2-construct causal design: stress → mood.
 
     - Both constructs are daily time-varying
@@ -322,7 +332,7 @@ def two_construct_structure() -> ModelSpec:
 
 
 @pytest.fixture
-def two_construct_model(two_construct_structure) -> ModelSpec:
+def two_construct_model(two_construct_structure) -> DynamicalModelSpec:
     return _stress_mood_model()
 
 
@@ -332,10 +342,10 @@ def two_construct_model(two_construct_structure) -> ModelSpec:
 
 
 class TestE2ESpecToDiscretization:
-    """End-to-end: ModelSpec → ModelSpec → dict[str, dist.Distribution] → discretize → roundtrip."""
+    """End-to-end: DynamicalModelSpec → DynamicalModelSpec → dict[str, dist.Distribution] → discretize → roundtrip."""
 
     def test_source_model_structure_from_dag(self, two_construct_structure, two_construct_model):
-        """Compilation produces correct ModelSpec from DAG structure."""
+        """Compilation produces correct DynamicalModelSpec from DAG structure."""
 
         # Dimensions
         assert numeric.n_states(compile_model_fixture(two_construct_model)) == 2  # mood, stress
@@ -385,21 +395,25 @@ class TestE2ESpecToDiscretization:
 
     def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
 
-        model = _teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_su()
-        spec = model
-        assert not model.constructs[0].dynamics
-        static_index = numeric.state_names(compile_model_fixture(spec)).index("baseline")
-        dynamic_index = numeric.state_names(compile_model_fixture(spec)).index("mood")
-        assert not _decay_support(spec)[static_index]
-        assert _decay_support(spec)[dynamic_index]
-        assert not compile_model_fixture(spec).diffusion_block.diffusion_chol_support[
-            static_index, static_index
-        ]
-        assert compile_model_fixture(spec).diffusion_block.diffusion_chol_support[
+        dynamical_model_spec = _teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_su()
+        dynamical_model_spec = dynamical_model_spec
+        assert not dynamical_model_spec.constructs[0].dynamics
+        static_index = numeric.state_names(compile_model_fixture(dynamical_model_spec)).index(
+            "baseline"
+        )
+        dynamic_index = numeric.state_names(compile_model_fixture(dynamical_model_spec)).index(
+            "mood"
+        )
+        assert not _decay_support(dynamical_model_spec)[static_index]
+        assert _decay_support(dynamical_model_spec)[dynamic_index]
+        assert not compile_model_fixture(
+            dynamical_model_spec
+        ).diffusion_block.diffusion_chol_support[static_index, static_index]
+        assert compile_model_fixture(dynamical_model_spec).diffusion_block.diffusion_chol_support[
             dynamic_index, dynamic_index
         ]
-        assert not _linear_edge_support(spec)[static_index].any()
-        assert not _state_intercept_mask(spec)[static_index]
+        assert not _linear_edge_support(dynamical_model_spec)[static_index].any()
+        assert not _state_intercept_mask(dynamical_model_spec)[static_index]
 
     def test_model_rejects_mechanism_reference_outside_its_owners(self, two_construct_model):
         payload = two_construct_model.model_dump(mode="json")
@@ -410,7 +424,7 @@ class TestE2ESpecToDiscretization:
             "value": "parameter:foreign",
         }
         with pytest.raises(ValueError, match="parameter"):
-            ModelSpec.model_validate(payload).materialized()
+            DynamicalModelSpec.model_validate(payload).materialized()
 
     def test_compiled_artifact_roundtrips_grounded_structure(
         self,
@@ -419,7 +433,9 @@ class TestE2ESpecToDiscretization:
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
 
-        typed_scientific_model = ModelSpec.model_validate(two_construct_model).materialized()
+        typed_scientific_model = DynamicalModelSpec.model_validate(
+            two_construct_model
+        ).materialized()
         compile_model_fixture(_weekly_reference_intervals())
 
         assert numeric.state_names(compile_model_fixture(_weekly_reference_intervals())) == (
@@ -483,17 +499,20 @@ class TestE2ESpecToDiscretization:
         ).drop("indicator")
         source = _weekly_reference_intervals()
         model = compile_fit_fixture(source)
-        spec = model.compiled
-        assert numeric.state_names(spec) == ("stress", "mood")
+        compiled_dynamical_model = model.compiled_dynamical_model
+        assert numeric.state_names(compiled_dynamical_model) == ("stress", "mood")
         edge_support = _linear_edge_support(source)
         assert edge_support[1, 0]
         assert not edge_support[0, 1]
-        assert spec.loading_block.free_support is not None
-        assert spec.loading_block.free_support[1, 0]
+        assert compiled_dynamical_model.loading_block.free_support is not None
+        assert compiled_dynamical_model.loading_block.free_support[1, 0]
         runtime = model.prior_runtime_bundle
         assert runtime.priors["vf_0_p0"].batch_shape == ()
         assert runtime.priors["vf_1_p0"].batch_shape == ()
-        assert spec.bindings == parameter_bindings(compile_model_fixture(source))[0]
+        assert (
+            compiled_dynamical_model.bindings
+            == parameter_bindings(compile_model_fixture(source))[0]
+        )
 
     def test_residual_sd_priors_are_construct_specific(
         self, two_construct_structure, two_construct_model

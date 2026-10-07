@@ -62,12 +62,18 @@ class MessagePackResponse(JSONResponse):
         return _pack(content)
 
 
-def result_payload(result: BaseModel, *, array_loader: ArrayLoader | None = None) -> dict[str, object]:
+def result_payload(
+    result: BaseModel, *, array_loader: ArrayLoader | None = None
+) -> Mapping[str, object]:
     """Serialize each numerical field at its owner, without a result-wide buffer map."""
-    return cast("dict[str, object]", _metadata(result.model_dump(mode="python", context={
-        "binary_arrays": True,
-        "distribution_array_loader": array_loader,
-    })))
+    values = result.model_dump(
+        mode="python",
+        context={
+            "binary_arrays": True,
+            "distribution_array_loader": array_loader,
+        },
+    )
+    return {key: _metadata(value) for key, value in values.items()}
 
 
 def pack_result(result: BaseModel, *, array_loader: ArrayLoader | None = None) -> bytes:
@@ -102,6 +108,10 @@ def unpack_result(payload: bytes) -> Mapping[str, object]:
 def pack_envelope(metadata: JsonObject, body: bytes) -> bytes:
     """Append the saved body unchanged; envelope metadata contains no binary values."""
     packer = msgpack.Packer(use_bin_type=True)
-    return cast("bytes", packer.pack_map_header(len(metadata) + 1)
+    return cast(
+        "bytes",
+        packer.pack_map_header(len(metadata) + 1)
         + b"".join(packer.pack(key) + packer.pack(value) for key, value in metadata.items())
-        + packer.pack("body") + body)
+        + packer.pack("body")
+        + body,
+    )

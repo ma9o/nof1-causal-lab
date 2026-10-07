@@ -124,14 +124,14 @@ def simulate(
             vector_field, params, noise.diffusion, intervention=intervention
         )
     )
-    model = dsx.DynamicalModel(
+    dynamical_model = dsx.DynamicalModel(
         initial_condition=dist.Delta(initial_state, event_dim=1),
         state_evolution=evolution,
         observation_model=_latent_observation,
         t0=time_grid[0],
     )
     return simulate_model_path(
-        model,
+        dynamical_model,
         initial_state,
         time_grid,
         config=config,
@@ -140,7 +140,7 @@ def simulate(
 
 
 def simulate_model_path(
-    model: dsx.DynamicalModel,
+    dynamical_model: dsx.DynamicalModel,
     initial_state: Array,
     time_grid: Array,
     config: SimulationConfig | None = None,
@@ -154,18 +154,18 @@ def simulate_model_path(
     Dynestyx solver does not accept the indexed Brownian path used by paired runs.
     """
     cfg = config or SimulationConfig()
-    evolution = model.state_evolution
+    evolution = dynamical_model.state_evolution
     stochastic = isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
     if stochastic != (key is not None):
         raise ValueError("Stochastic evolution requires a key; deterministic evolution does not")
     y0 = initial_state
     t0, t1 = time_grid[0], time_grid[-1]
-    n_latent = model.state_dim
+    n_latent = dynamical_model.state_dim
     if time_grid.shape[0] == 1:
         return y0[None, :]
     if not stochastic:
         return solve_ode_state_path(
-            model,
+            dynamical_model,
             initial_state=y0,
             t0=t0,
             path_times=time_grid,

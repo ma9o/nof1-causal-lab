@@ -239,7 +239,7 @@ def _predictive_observation_grid(
 
 
 def sample_model_observations(
-    models: dsx.DynamicalModel,
+    dynamical_models: dsx.DynamicalModel,
     linear_predictors: jax.Array,
     times: jax.Array,
     *,
@@ -250,7 +250,7 @@ def sample_model_observations(
     held_channels: tuple[int, ...] = (),
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Draw point observations from the fitted model's law, then project interval summaries."""
-    observation = models.observation_model
+    observation = dynamical_models.observation_model
     assert isinstance(
         observation, HeterogeneousObservation
     )  # The compiled nof1 model owns this native adapter.

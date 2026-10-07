@@ -8,8 +8,8 @@ import numpy as np
 
 from nof1_causal_lab.actions.errors import ModelFitError
 from nof1_causal_lab.artifacts.arrays import ArrayVector, NumericalArray
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import ParameterRef
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior import (
     InferenceEvidence,
@@ -17,7 +17,6 @@ from nof1_causal_lab.artifacts.posterior import (
     InferenceReport,
     InferenceReportCore,
     InferenceReportDetail,
-    ModelFitResult,
 )
 from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
@@ -37,7 +36,7 @@ if TYPE_CHECKING:
 class FitResult(TypedDict):
     """The fitted model definition paired with its retained numerical inference evidence."""
 
-    _model: ModelSpec
+    _dynamical_model_spec: DynamicalModelSpec
     evidence: InferenceEvidence
     metadata: InferenceMetadata
 
@@ -46,7 +45,7 @@ def fit(
     *,
     selection: StructuralSelection,
     data_for_model: ObservationDataset,
-    time_origin: datetime | None,
+    time_origin: datetime,
     sampler: SamplerSpec,
     array_writer: Callable[[np.ndarray], str],
     array_loader: ArrayLoader,
@@ -67,8 +66,8 @@ def fit(
         return NumericalArray.from_numpy(np.asarray(values)) if values is not None else None
 
     conditioned, identity = condition_model(
-        selection.model,
-        fitted["panel"].model,
+        selection.dynamical_model_spec,
+        fitted["panel"].compiled_dynamical_model,
         result,
         times=fitted["panel"].times,
         time_origin=time_origin,
@@ -80,7 +79,7 @@ def fit(
         engine=result.evidence,
         duration_seconds=fitted["duration_seconds"],
         num_chains=native.mcmc.num_chains,
-        n_samples=native.mcmc.num_chains * native.mcmc.num_samples,
+        num_samples_total=native.mcmc.num_chains * native.mcmc.num_samples,
         sampler_diagnostics=native.marginal_particle_gibbs,
     )
     evidence = InferenceEvidence(
@@ -96,7 +95,10 @@ def fit(
         else None,
         exact_observation_rows=retain(native.exact_observation_rows),
         phase_extra_fields={
-            phase: {name: NumericalArray.from_numpy(np.asarray(values)) for name, values in buffers.items()}
+            phase: {
+                name: NumericalArray.from_numpy(np.asarray(values))
+                for name, values in buffers.items()
+            }
             for phase, buffers in (native.marginal_particle_gibbs_phase_extra_fields or {}).items()
         },
         warmup_complete_log_posterior_history=retain(native.warmup_complete_log_posterior_history),
@@ -104,19 +106,17 @@ def fit(
         initial_latent_delta=retain(result.initial_latent_delta),
         final_latent_delta=retain(result.final_latent_delta),
     )
-    return {"_model": conditioned, "evidence": evidence, "metadata": metadata}
+    return {"_dynamical_model_spec": conditioned, "evidence": evidence, "metadata": metadata}
 
 
 def read_inference_report(
     store: ArtifactStore,
     revision: GitOid,
-    result: ModelFitResult,
+    evidence: InferenceEvidence,
     metadata: InferenceMetadata,
 ) -> InferenceReport:
     """Compute exact-chain diagnostics from this fit's atoms and native telemetry."""
     from nof1_causal_lab.study.store import read_model
-
-    evidence = result.evidence
 
     def render() -> InferenceReport:
         import jax.numpy as jnp
@@ -130,9 +130,12 @@ def read_inference_report(
         )
         from nof1_causal_lab.numpyro_json import empirical_atoms
 
-        model = read_model(store, revision)
-        layouts = {metadata.distribution: model.law_layouts[metadata.distribution]}
-        atoms = {identity: empirical_atoms(model.distributions[identity]) for identity in layouts}
+        dynamical_model_spec = read_model(store, revision)
+        layouts = {metadata.distribution: dynamical_model_spec.law_layouts[metadata.distribution]}
+        atoms = {
+            identity: empirical_atoms(dynamical_model_spec.distributions[identity])
+            for identity in layouts
+        }
         count = next(iter(atoms.values())).shape[0]
         samples: dict[str, jnp.ndarray] = {
             element: jnp.asarray(atoms[identity][:, layout.parameter_columns[element]])
@@ -150,10 +153,7 @@ def read_inference_report(
             for element in elements
         }
         marginals = compute_posterior_marginals(samples, references)
-        extra = {
-            name: jnp.asarray(ref.values)
-            for name, ref in evidence.chain_extra_fields.items()
-        }
+        extra = {name: jnp.asarray(ref.values) for name, ref in evidence.chain_extra_fields.items()}
         diagnostics = None
         traces, ranks, loo = (), (), None
         if samples:
@@ -171,14 +171,10 @@ def read_inference_report(
                         num_chains=chains,
                         num_samples=count // chains,
                     ),
-                    observation_log_probs=jnp.asarray(
-                        evidence.observation_log_probs.values
-                    )
+                    observation_log_probs=jnp.asarray(evidence.observation_log_probs.values)
                     if evidence.observation_log_probs is not None
                     else jnp.empty((chains, count // chains, 0)),
-                    exact_observation_rows=jnp.asarray(
-                        evidence.exact_observation_rows.values
-                    )
+                    exact_observation_rows=jnp.asarray(evidence.exact_observation_rows.values)
                     if evidence.exact_observation_rows is not None
                     else None,
                 ),
@@ -193,14 +189,14 @@ def read_inference_report(
 
         from nof1_causal_lab.study.prior_views import quantity_prior_densities
 
-        input_model = read_model(store, result.model.revision)
+        input_model = read_model(store, store.read_meta("model", revision).derived_from["model"])
         fitted_parameters = frozenset(value.subject.parameter_id for value in marginals)
         priors = quantity_prior_densities(input_model, fitted_parameters)
         layout = layouts[metadata.distribution]
         atoms_value = NumericalArray.from_numpy(atoms[metadata.distribution])
         chain_size = count // metadata.num_chains
         return InferenceReport(
-            run=result,
+            evidence=evidence,
             core=InferenceReportCore(
                 inference_metadata=metadata,
                 inference_diagnostics=diagnostics,

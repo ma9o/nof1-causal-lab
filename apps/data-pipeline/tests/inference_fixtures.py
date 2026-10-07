@@ -26,9 +26,9 @@ from tests.model_fixtures import _make_lgss_data_model_fixture
 if TYPE_CHECKING:
     from numpyro.primitives import Message
 
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import ArtifactId, ConstructId, GitOid
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 
 _PRIOR_REVISION, _FITTED_REVISION = git_oid(1), git_oid(2)
@@ -79,21 +79,19 @@ def inference_metadata(model):
         distribution=identity,
         engine=ParticleMCMCEvidence(),
         duration_seconds=0,
-        n_samples=len(empirical_atoms(model.distributions[identity])),
+        num_samples_total=len(empirical_atoms(model.distributions[identity])),
         num_chains=1,
         sampler_diagnostics=None,
     )
 
 
 def _report(model):
-    from nof1_causal_lab.artifacts.data_ref import DataRef
-    from nof1_causal_lab.artifacts.identity import DistributionId, GitOid, GitRef, ParameterRef
+    from nof1_causal_lab.artifacts.identity import DistributionId, ParameterRef
     from nof1_causal_lab.artifacts.posterior import (
         InferenceEvidence,
         InferenceMetadata,
         InferenceReport,
         InferenceReportDetail,
-        ModelFitResult,
     )
     from nof1_causal_lab.artifacts.posterior_diagnostics import (
         ChainDiagnostics,
@@ -107,7 +105,7 @@ def _report(model):
     element, label = next(iter(binding.elements.items()))
     diagnostics = ChainDiagnostics(
         num_chains=4,
-        num_samples=3,
+        num_samples_per_chain=3,
         per_parameter=(
             ParameterDiagnostics(
                 parameter=label,
@@ -120,15 +118,11 @@ def _report(model):
         ),
     )
     return InferenceReport(
-        run=ModelFitResult(
-            model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
-            data=DataRef[GitOid, int](revision=git_oid(2), replicate_index=0),
-            evidence=InferenceEvidence(),
-        ),
+        evidence=InferenceEvidence(),
         core=InferenceReportCore(
             inference_metadata=InferenceMetadata(
                 distribution=DistributionId("distribution:fixture"),
-                n_samples=12,
+                num_samples_total=12,
                 num_chains=4,
                 duration_seconds=0,
                 engine=ParticleMCMCEvidence(),
@@ -197,7 +191,7 @@ def make_lgss_data(
     obs_sd: float = 0.5,
     seed: int = 42,
 ) -> dict[str, Any]:
-    """Build 1D linear-Gaussian SSM data plus a free-parameter ModelSpec.
+    """Build 1D linear-Gaussian SSM data plus a free-parameter DynamicalModelSpec.
 
     Returns a dict with ``observations``, ``times``, ``spec``, the true
     parameter values, and ``n_latent`` for convenience. Used by recovery
@@ -226,12 +220,12 @@ def make_lgss_data(
     observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
     times = jnp.arange(T, dtype=float) * dt
 
-    spec = _make_lgss_data_model_fixture()
+    dynamical_model_spec = _make_lgss_data_model_fixture()
 
     return {
         "observations": observations,
         "times": times,
-        "spec": spec,
+        "spec": dynamical_model_spec,
         "true_decay_diag": decay_diag,
         "true_diff_diag": diff_sd,
         "true_obs_sd": obs_sd,
@@ -271,13 +265,17 @@ def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime
     return ObservationSupportRuntime.assembled(**kwargs)
 
 
-def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
+def parameter_draws(
+    dynamical_model_spec: DynamicalModelSpec, n_draws: int
+) -> dict[str, jnp.ndarray]:
     """Repeat the authored prior reference point without invoking inference."""
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
     from nof1_causal_lab.prior_distributions import prior_reference_value
 
-    priors, _, _ = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))
+    priors, _, _ = compile_priors(
+        compile_model_fixture(dynamical_model_spec), StructuralSelection(dynamical_model_spec, None)
+    )
     return {
         name: jnp.broadcast_to(value, (n_draws, *value.shape))
         for name, law in priors.items()
@@ -285,7 +283,9 @@ def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
     }
 
 
-def compile_fit_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
+def compile_fit_fixture(
+    dynamical_model_spec: DynamicalModelSpec, outcome: ConstructId | None = None
+):
     """Require real compilation in fixtures instead of forging fit evidence."""
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import (
@@ -293,20 +293,24 @@ def compile_fit_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
         compile_ssm_inputs_from_model,
     )
 
-    inputs = compile_ssm_inputs_from_model(StructuralSelection(spec, outcome))
+    inputs = compile_ssm_inputs_from_model(StructuralSelection(dynamical_model_spec, outcome))
     assert isinstance(inputs, CompiledFitInputs), inputs
     return inputs
 
 
-def compile_model_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
+def compile_model_fixture(
+    dynamical_model_spec: DynamicalModelSpec, outcome: ConstructId | None = None
+):
     """Compile native execution facts without imposing the fitting law restrictions."""
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    return compile_executable_model(StructuralSelection(spec, outcome))
+    return compile_executable_model(StructuralSelection(dynamical_model_spec, outcome))
 
 
-def bind_panel_fixture(model, observations, times, *, support=None):
+def bind_panel_fixture(
+    compiled_dynamical_model: CompiledDynamicalModel, observations, times, *, support=None
+):
     """Publish a complete numerical test panel, including its identity-bearing rows."""
     from datetime import UTC, datetime, timedelta
 
@@ -318,11 +322,13 @@ def bind_panel_fixture(model, observations, times, *, support=None):
 
     observations, times = jnp.asarray(observations), jnp.asarray(times)
     support = (
-        simulation_observation_support(model, np.asarray(times)) if support is None else support
+        simulation_observation_support(compiled_dynamical_model, np.asarray(times))
+        if support is None
+        else support
     )
     origin = datetime(1970, 1, 1, tzinfo=UTC)
     rows = []
-    for i, observation in enumerate(model.observations):
+    for i, observation in enumerate(compiled_dynamical_model.observations):
         for t, at in enumerate(np.asarray(times)):
             start, end = support.support_start_times[t, i], support.support_end_times[t, i]
             rows.append(
@@ -343,22 +349,24 @@ def bind_panel_fixture(model, observations, times, *, support=None):
                 }
             )
     dataset = ObservationDataset.from_frame(
-        pl.DataFrame(rows),
-        tuple(item.observation for item in model.observations),
+        pl.DataFrame(rows, schema_overrides={"value": pl.Float64}),
+        tuple(item.observation for item in compiled_dynamical_model.observations),
         time_origin=origin,
     )
-    panel = bind_panel(dataset, model=model, time_origin=origin)
+    panel = bind_panel(
+        dataset, compiled_dynamical_model=compiled_dynamical_model, time_origin=origin
+    )
     assert isinstance(panel, BoundPanel), panel
     return panel
 
 
-def _scientific_draws(model_spec: CompiledModel) -> JointPosteriorDraws:
+def _scientific_draws(compiled_dynamical_model: CompiledDynamicalModel) -> JointPosteriorDraws:
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 
-    if len(model_spec.laws) != 1:
+    if len(compiled_dynamical_model.laws) != 1:
         raise ValueError("Retained particle draws require all random quantities in one joint law")
-    law = model_spec.laws[0]
-    states = tuple(state.id for state in model_spec.states if not state.is_input)
+    law = compiled_dynamical_model.laws[0]
+    states = tuple(state.id for state in compiled_dynamical_model.states if not state.is_input)
     if set(law.layout.constructs) != set(states):
         raise ValueError("Retained particle draws require all random quantities in one joint law")
     parameters, paths = law.layout.unpack(jnp.asarray(empirical_atoms(law.distribution)))
@@ -370,27 +378,29 @@ def _scientific_draws(model_spec: CompiledModel) -> JointPosteriorDraws:
 
 
 def model_draws(
-    model_spec: CompiledModel, *, input_values: jnp.ndarray | None = None
+    compiled_dynamical_model: CompiledDynamicalModel, *, input_values: jnp.ndarray | None = None
 ) -> JointPosteriorDraws:
     """Derive native tensors from the current model's aligned particle distribution."""
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 
-    retained = _scientific_draws(model_spec)
+    retained = _scientific_draws(compiled_dynamical_model)
     samples = assemble_parameter_draws(
-        model_spec, retained.parameters, count=retained.describe().n_draws
+        compiled_dynamical_model, retained.parameters, count=retained.describe().n_draws
     )
     paths = retained.latent_paths
-    state_ids = [state.id for state in model_spec.states if not state.is_input]
+    state_ids = [state.id for state in compiled_dynamical_model.states if not state.is_input]
     if paths is not None:
         if set(retained.state_ids) != set(state_ids):
-            raise ValueError("Stored trajectories do not match ModelSpec construct identities")
+            raise ValueError(
+                "Stored trajectories do not match DynamicalModelSpec construct identities"
+            )
         paths = paths[..., [retained.state_ids.index(identity) for identity in state_ids]]
-        if numeric.input_mask(model_spec).any():
+        if numeric.input_mask(compiled_dynamical_model).any():
             if input_values is None:
                 raise ValueError(
                     "Retained histories with exogenous inputs require the replayed panel path"
                 )
-            full_ids = numeric.state_ids(model_spec)
+            full_ids = numeric.state_ids(compiled_dynamical_model)
             full_paths = jnp.broadcast_to(input_values, (paths.shape[0], *input_values.shape))
             paths = full_paths.at[
                 :, :, jnp.asarray([full_ids.index(identity) for identity in state_ids])

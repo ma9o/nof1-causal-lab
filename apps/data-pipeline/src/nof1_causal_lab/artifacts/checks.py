@@ -1,4 +1,4 @@
-"""Producer-specialized assessments, independent of authoring progression."""
+"""Producer-specialized findings, independent of authoring progression."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 
-from .identity import ConstructId, EntityRef, IndicatorRef, ParameterRef
+from .identity import ConstructId, ConstructRef, EntityRef, IndicatorRef, ParameterRef
 
 type PredictiveCheckReason = Literal[
     "MODEL_INCOMPLETE",
@@ -35,6 +35,8 @@ type NotEvaluatedReason = (
         "NONFINITE_PATHS",
         "NONFINITE_SIGNAL",
         "COMPARISON_INPUTS_MISSING",
+        "MISSING_REPLICATE_VALUES",
+        "CAUSAL_EVALUATION_FAILED",
         "INSUFFICIENT_CHAIN_SAMPLES",
         "NO_RETAINED_CHAINS",
         "NO_OUTCOME",
@@ -49,8 +51,9 @@ class Evaluated[Subject, Evidence](Value):
     """One producer's measured outcome and the evidence supporting it."""
 
     kind: Literal["evaluated"] = "evaluated"
+    code: str
     subject: Subject
-    outcome: Literal["passed", "failed", "warning", "error"]
+    outcome: Literal["passed", "failed"]
     evidence: Evidence
 
 
@@ -58,9 +61,10 @@ class NotEvaluated[Subject](Value):
     """An explicit absence of evaluation, with a closed producer reason."""
 
     kind: Literal["not_evaluated"] = "not_evaluated"
+    code: str
     subject: Subject
     reason: NotEvaluatedReason
-    detail: str = ""
+    detail: str
 
 
 type Assessment[Subject, Evidence] = Annotated[
@@ -93,7 +97,6 @@ class NumericCriterionEvidence(Value):
 class PredictiveSubject(Value):
     """One named check and its stable target in a construct's scientific context."""
 
-    check: str
     construct_id: ConstructId | None = None
     target: EntityRef | Literal["whole_model", "observations"]
 
@@ -105,15 +108,43 @@ class IndicatorCheckSubject(Value):
     """The indicator and criterion remain present when evaluation is unavailable."""
 
     target: IndicatorRef
-    check: IndicatorCheck
 
 
 class ConvergenceSubject(Value):
     """A convergence criterion on one stable scientific scalar."""
 
     parameter: ParameterRef
-    criterion: ConvergenceCriterion
     label: str
+
+
+class OutcomeSubject(Value):
+    """The outcome construct selected by the study question."""
+
+    outcome: ConstructRef
+
+
+class QueryTargetSubject(Value):
+    """An intervention target in one named query."""
+
+    query: str
+    target: ConstructRef
+
+
+class QueryWindowSubject(Value):
+    """The observation window of one named query."""
+
+    query: str
+
+
+type QuestionSubject = OutcomeSubject | QueryTargetSubject | QueryWindowSubject
+type FindingSubject = (
+    str
+    | EntityRef
+    | PredictiveSubject
+    | IndicatorCheckSubject
+    | ConvergenceSubject
+    | QuestionSubject
+)
 
 
 type SpecificationAssessment = Assessment[str, str]

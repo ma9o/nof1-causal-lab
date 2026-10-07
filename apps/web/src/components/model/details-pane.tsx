@@ -31,8 +31,8 @@ function ModelScope({
   )
     return <Hint>No new model-wide state was produced.</Hint>;
   if (tick.record.attempt.action === "edit_question")
-    return context.model.question ? (
-      <QuestionDetails context={context} question={context.model.question} />
+    return context.modelSnapshot.question ? (
+      <QuestionDetails context={context} question={context.modelSnapshot.question} />
     ) : (
       <Hint>No question recorded at this version.</Hint>
     );
@@ -48,7 +48,7 @@ function ModelScope({
     );
   if (tick.record.attempt.action === "model_diff")
     return <ModelComparisonDetails context={context} />;
-  const identification = context.model.identification;
+  const identification = context.modelSnapshot.identification;
   const equations = [
     ...context.entities.constructs.flatMap((construct) => {
       const equation = constructEquation(construct, context.entities);

@@ -38,7 +38,8 @@ with workflow.unsafe.imports_passed_through():
         emit_progress,
         temporal_failure,
     )
-    from nof1_causal_lab.study.records import Applied, DataPreparationResult
+    from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+    from nof1_causal_lab.study.records import Applied
 
 _PLAN_TIMEOUT = timedelta(minutes=30)
 _FINALIZE_CHUNK_TIMEOUT = timedelta(minutes=5)

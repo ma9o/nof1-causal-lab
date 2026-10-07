@@ -62,8 +62,8 @@ function ParetoK({ loo, points }: { loo: LOODiagnostics; points: readonly Pareto
 
 /** The fit's leave-one-out predictive checks, as the engine recorded them. */
 export function FitCalibration({ context }: { context: ScopeContext }) {
-  const detail = useInferenceReport(context.model).data?.detail;
-  const fit = context.model.fit;
+  const detail = useInferenceReport(context.modelSnapshot).data?.detail;
+  const fit = context.modelSnapshot.fit;
   const loo = fit?.loo_diagnostics;
   if (!fit || !loo) return null;
   return (

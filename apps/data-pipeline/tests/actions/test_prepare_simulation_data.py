@@ -10,16 +10,15 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.io import FitInput
 from nof1_causal_lab.actions.runners import run_action
-from nof1_causal_lab.artifacts.availability import NotApplicable
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
 from nof1_causal_lab.artifacts.data_ref import DataRef
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
@@ -48,12 +47,12 @@ from tests.inference_fixtures import compile_model_fixture
 from tests.model_fixtures import construct_named, indicator_named, x_y_model
 
 
-def _recorded_replicate_becomes_a_compatible_panel_complete_test_model() -> ModelSpec:
-    model = x_y_model()
-    x = construct_named(model, "X")
-    x_obs = indicator_named(model, "X_obs")
-    y = construct_named(model, "Y")
-    y_obs = indicator_named(model, "Y_obs")
+def _recorded_replicate_becomes_a_compatible_panel_complete_test_model() -> DynamicalModelSpec:
+    dynamical_model_spec = x_y_model()
+    x = construct_named(dynamical_model_spec, "X")
+    x_obs = indicator_named(dynamical_model_spec, "X_obs")
+    y = construct_named(dynamical_model_spec, "Y")
+    y_obs = indicator_named(dynamical_model_spec, "Y_obs")
     x_obs_revised = x_obs.revised(
         observation=x_obs.observation.revised(aggregation=SummaryOperator.LAST)
     )
@@ -62,9 +61,9 @@ def _recorded_replicate_becomes_a_compatible_panel_complete_test_model() -> Mode
         observation=y_obs.observation.revised(aggregation=SummaryOperator.LAST)
     )
     y_revised = y.revised(indicators=(y_obs_revised,))
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 x_revised,
                 y_revised,
@@ -74,17 +73,17 @@ def _recorded_replicate_becomes_a_compatible_panel_complete_test_model() -> Mode
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.contract
 
 
 def _model(**observation_changes):
-    model = make_model(["X", "Y"], [("X", "Y")])
-    return model.with_entities(
+    dynamical_model_spec = make_model(["X", "Y"], [("X", "Y")])
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             tuple(
                 construct.revised(
                     indicators=tuple(
@@ -94,7 +93,7 @@ def _model(**observation_changes):
                         for indicator in construct.indicators
                     )
                 )
-                for construct in model.constructs
+                for construct in dynamical_model_spec.constructs
             ),
         )
     )
@@ -105,12 +104,12 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, history = ArtifactStore("TEST"), StudyRepository("TEST")
-    model = _recorded_replicate_becomes_a_compatible_panel_complete_test_model()
+    dynamical_model_spec = _recorded_replicate_becomes_a_compatible_panel_complete_test_model()
     model_info = store.write_artifact(
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": model.model_dump(mode="json")},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json")},
     )
     from tests.helpers import write_question
 
@@ -129,32 +128,36 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     design = SimulationSpec(start=date(2026, 1, 6), horizon="2d")
     report = SimulationReport(
         summary=empty_simulation_summary(),
-        causal=NotApplicable(reason="No intervention was requested."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
         evidence=SimulationEvidence(
-            model=GitRef(workspace_id="TEST", revision=model_info.revision, path="model.json"),
-            design=design,
             time_origin=datetime(2026, 1, 1, tzinfo=UTC),
             times=tuple(time + 5 for time in times),
             draws=2,
             seed=0,
-            state_ids=tuple(numeric.state_ids(compile_model_fixture(model))),
+            state_ids=tuple(numeric.state_ids(compile_model_fixture(dynamical_model_spec))),
             parameter_draws={"known_truth": NumericalArray.from_numpy(np.asarray([100.0, 100.0]))},
             arms=SingleArmSimulation(
                 action=SimulationArm(
                     latent_paths=NumericalArray.from_numpy(
-                        np.zeros((2, 3, len(numeric.state_ids(compile_model_fixture(model)))))
+                        np.zeros(
+                            (
+                                2,
+                                3,
+                                len(numeric.state_ids(compile_model_fixture(dynamical_model_spec))),
+                            )
+                        )
                     ),
                     observations=NumericalArray.from_numpy(draws),
                 ),
             ),
             observation_layout=simulation_layout(
-                model,
+                dynamical_model_spec,
                 tuple(t + 5 for t in times),
                 np.ones_like(draws, dtype=bool),
                 NumericalArray.from_numpy,
             ),
+            assignments=design.assignments(datetime(2026, 1, 1, tzinfo=UTC)),
         ),
     )
     simulation_record = applied_record(
@@ -190,6 +193,7 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     )
     source = DataRef[GitOid, int](revision=source_commit, replicate_index=1)
     refs_before = set(store.repo.references)
+
     def observations_only(_identity):
         raise AssertionError("Saved numerical evidence must be self-contained")
 
@@ -202,13 +206,17 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     assert set(store.repo.references) == refs_before
     panel = selected.observations.recorded.frame
     projected = project_observation_data(
-        panel, model_spec=compile_model_fixture(model), time_origin=selected.time_origin
+        panel,
+        compiled_dynamical_model=compile_model_fixture(dynamical_model_spec),
+        time_origin=selected.time_origin,
     )
     assert not isinstance(projected, ObservationPreflightFailure)
     (wide, _) = projected
     np.testing.assert_allclose(wide["time"].to_numpy(), np.asarray(times) + 5)
     np.testing.assert_allclose(
-        wide.select(numeric.observation_names(compile_model_fixture(model))).to_numpy(),
+        wide.select(
+            numeric.observation_names(compile_model_fixture(dynamical_model_spec))
+        ).to_numpy(),
         draws[1],
     )
     assert panel["anchor_time"].min() == datetime(2026, 1, 6)
@@ -222,22 +230,23 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
         assert kwargs["data_for_model"].recorded.frame.equals(panel)
         assert kwargs["time_origin"] == selected.time_origin
         return {
-            "_model": model,
+            "_dynamical_model_spec": dynamical_model_spec,
             "evidence": InferenceEvidence(),
-            "metadata": _report(model).core.inference_metadata,
+            "metadata": _report(dynamical_model_spec).core.inference_metadata,
         }
 
     monkeypatch.setattr(fit_module, "fit", fit)
-    monkeypatch.setattr(fit_module, "read_inference_report", lambda *_: _report(model))
+    monkeypatch.setattr(
+        fit_module, "read_inference_report", lambda *_: _report(dynamical_model_spec)
+    )
     request = FitRequest[GitOid](
         input=FitInput[GitOid](
-            model_ref=model_info.revision,
-            data_ref=source.revision,
-            replicate_index=source.replicate_index,
+            dynamical_model_spec_ref=model_info.revision,
+            data_ref=DataRef(revision=source.revision, replicate_index=source.replicate_index),
         )
     )
     applied = run_async(run_action("TEST", request, state.revised(data=source)))
-    assert applied.result.data == source
+    assert request.input.data_ref == source
     assert {info.artifact_id for info in applied.effects.produced} == {"model"}
     assert not any(ref.startswith("refs/artifacts/panel/") for ref in store.repo.references)
     for index in (2, 20):
@@ -245,7 +254,9 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
             run_async(
                 run_action(
                     "TEST",
-                    request.revised(input=request.input.revised(replicate_index=index)),
+                    request.revised(
+                        input=request.input.revised(data_ref=source.revised(replicate_index=index))
+                    ),
                     state,
                 )
             )
@@ -253,7 +264,7 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
 
 @pytest.mark.parametrize("interval", [False, True])
 def test_reading_preserves_measurement_support_and_numeric_codes(interval):
-    model = _model(
+    dynamical_model_spec = _model(
         **(
             {"aggregation": "mean", "observation_window": "1d"}
             if interval
@@ -269,23 +280,23 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
         values[0, 0] = 2
     report = SimulationReport(
         summary=empty_simulation_summary(),
-        causal=NotApplicable(reason="No intervention was requested."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
         evidence=SimulationEvidence(
-            model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
-            design=SimulationSpec(start=date(2026, 1, 1), horizon="60h"),
             time_origin=datetime(2026, 1, 1, tzinfo=UTC),
             times=(0, 1, 2.5),
             draws=1,
             seed=0,
-            state_ids=tuple(item.id for item in model.constructs),
+            state_ids=tuple(item.id for item in dynamical_model_spec.constructs),
             parameter_draws={},
             arms=SingleArmSimulation(
-                action=SimulationArm(latent_paths=NumericalArray.from_numpy(np.zeros_like(values)), observations=NumericalArray.from_numpy(values)),
+                action=SimulationArm(
+                    latent_paths=NumericalArray.from_numpy(np.zeros_like(values)),
+                    observations=NumericalArray.from_numpy(values),
+                ),
             ),
             observation_layout=SimulationObservationLayout(
-                variables=metadata_for_model(model).variables,
+                variables=metadata_for_model(dynamical_model_spec).variables,
                 support_start_times=NumericalArray.from_numpy(
                     np.array([[np.nan, np.nan], [0, 0], [1.5, 1.5]])
                     if interval
@@ -298,11 +309,12 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
                 ),
                 mask=NumericalArray.from_numpy(np.isfinite(values)),
             ),
+            assignments=SimulationSpec(start=date(2026, 1, 1), horizon="60h").assignments(
+                datetime(2026, 1, 1, tzinfo=UTC)
+            ),
         ),
     )
-    panel = read_simulation_observations(
-        report.evidence, 0
-    )
+    panel = read_simulation_observations(report.evidence, 0)
     assert panel["value"].drop_nulls().to_list() == [2.0] * (4 if interval else 6)
     assert panel["anchor_time"].min() == datetime(2026, 1, 1)
     if interval:
@@ -319,7 +331,15 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
             1,
         )
     values[0, 1, 0] = np.nan
-    report = report.revised(evidence=report.evidence.revised(arms=SingleArmSimulation(action=report.evidence.arms.action.revised(observations=NumericalArray.from_numpy(values)))))
+    report = report.revised(
+        evidence=report.evidence.revised(
+            arms=SingleArmSimulation(
+                action=report.evidence.arms.action.revised(
+                    observations=NumericalArray.from_numpy(values)
+                )
+            )
+        )
+    )
     with pytest.raises(ValueError, match="non-finite emissions"):
         read_simulation_observations(
             report.evidence,
@@ -334,7 +354,7 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
         {"input": {"revision": git_oid(1), "replicate": -1}},
         {
             "input": {"revision": git_oid(1), "replicate": 0},
-            "model_ref": git_oid(2),
+            "dynamical_model_spec_ref": git_oid(2),
         },
         {"input": {"revision": git_oid(1), "replicate": 0, "max_windows": 1}},
         {"input": "panel"},

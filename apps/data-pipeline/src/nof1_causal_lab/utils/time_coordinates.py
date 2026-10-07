@@ -7,8 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 import polars as pl
 
-SYNTHETIC_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-
 
 @dataclass(frozen=True)
 class ObservationInstant:
@@ -24,11 +22,6 @@ class ObservationInstant:
             else self.value.astimezone(UTC)
         )
         object.__setattr__(self, "value", utc)
-
-    @classmethod
-    def origin(cls, time_origin: datetime | None) -> ObservationInstant:
-        """Bind calendar-free histories to their serialization epoch explicitly."""
-        return cls(SYNTHETIC_EPOCH if time_origin is None else time_origin)
 
     def relative_to(self, origin: ObservationInstant) -> ModelTime:
         """Express this observation instant as fractional model days after the supplied origin."""

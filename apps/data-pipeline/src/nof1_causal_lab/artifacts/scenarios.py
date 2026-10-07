@@ -39,9 +39,7 @@ class CausalEffectResult(Value):
 
     outcome: ConstructId
     labels: Mapping[ConstructId, str]
-    differences: NumericalArray = Field(
-        description="Paired outcome contrasts, [draw, time]."
-    )
+    differences: NumericalArray = Field(description="Paired outcome contrasts, [draw, time].")
     frame: tuple[FiniteFloat, FiniteFloat]
     summary: EffectSummary
     reference_mean: FiniteFloat = Field(description="Mean reference outcome at the final time.")

@@ -63,7 +63,8 @@ class CheckResult:
         return cls(
             target,
             Evaluated(
-                subject=check,
+                code=check,
+                subject=target,
                 outcome=outcome,
                 evidence=tuple(
                     NumericCriterionEvidence(
@@ -89,12 +90,12 @@ class CheckResult:
         cls, check: str, target: str, reason: NotEvaluatedReason, note: str
     ) -> CheckResult:
         """Record why a predictive check could not be evaluated without assigning a pass/fail verdict."""
-        return cls(target, NotEvaluated(subject=check, reason=reason, detail=note))
+        return cls(target, NotEvaluated(code=check, subject=target, reason=reason, detail=note))
 
     @property
     def check(self) -> str:
         """Name of the predictive criterion represented by this assessment."""
-        return self.assessment.subject
+        return self.assessment.code
 
     @property
     def value(self) -> str:
@@ -126,12 +127,14 @@ class CheckResult:
 
     def finding(self, construct_id: ConstructId, target: EntityRef) -> PredictiveAssessment:
         """Attach construct and entity identities to the existing predictive assessment."""
-        subject = PredictiveSubject(check=self.check, construct_id=construct_id, target=target)
+        subject = PredictiveSubject(construct_id=construct_id, target=target)
         match self.assessment:
             case Evaluated(outcome=outcome, evidence=evidence):
-                return Evaluated(subject=subject, outcome=outcome, evidence=evidence)
+                return Evaluated(
+                    code=self.check, subject=subject, outcome=outcome, evidence=evidence
+                )
             case NotEvaluated(reason=reason, detail=detail):
-                return NotEvaluated(subject=subject, reason=reason, detail=detail)
+                return NotEvaluated(code=self.check, subject=subject, reason=reason, detail=detail)
         assert_never(self.assessment)
 
 

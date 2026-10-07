@@ -48,7 +48,7 @@ const timeline = (times: readonly number[], origin: string | null) => {
 
 /** One saved state, indicator or paired effect, every selected draw in the chosen arms. */
 export function SimulationHistory({
-  model,
+  modelSnapshot,
   id,
   kind,
   title,
@@ -56,7 +56,7 @@ export function SimulationHistory({
   arms = "both",
   height = 150,
 }: {
-  model: ModelSnapshot;
+  modelSnapshot: ModelSnapshot;
   id: string;
   kind: "states" | "indicators" | "effect";
   title: string;
@@ -64,7 +64,7 @@ export function SimulationHistory({
   arms?: ArmChoice;
   height?: number;
 }) {
-  const paths = useSimulationPaths(model, selection);
+  const paths = useSimulationPaths(modelSnapshot, selection);
   if (paths.error) return <Hint issue>{paths.error.message}</Hint>;
   if (!paths.data)
     return (
@@ -86,7 +86,7 @@ export function SimulationHistory({
     kind === "indicators"
       ? presentEntries(data.reference_category_probabilities).find(([key]) => key === id)?.[1]
       : undefined;
-  const assignments = model.simulation?.evidence.assignments ?? [];
+  const assignments = modelSnapshot.simulation?.evidence.assignments ?? [];
   const markers = assignments
     .filter((event) => kind === "effect" || event.target === id)
     .map((event) => ({ time: event.time, label: `set ${event.value}` }));
@@ -159,8 +159,14 @@ export function SimulationHistory({
   );
 }
 
-export function ObservationPlots({ model, id }: { model: ModelSnapshot; id: IndicatorId }) {
-  const history = useObservationHistory(model, id);
+export function ObservationPlots({
+  modelSnapshot,
+  id,
+}: {
+  modelSnapshot: ModelSnapshot;
+  id: IndicatorId;
+}) {
+  const history = useObservationHistory(modelSnapshot, id);
   if (history.error) return <Hint issue>{history.error.message}</Hint>;
   if (!history.data)
     return (
@@ -212,15 +218,15 @@ export function ObservationPlots({ model, id }: { model: ModelSnapshot; id: Indi
 
 /** The prepared values' profile, with every observation once the history has loaded. */
 export function ObservedProfile({
-  model,
+  modelSnapshot,
   id,
   profile,
 }: {
-  model: ModelSnapshot;
+  modelSnapshot: ModelSnapshot;
   id: IndicatorId;
   profile: IndicatorEmpiricalProfile;
 }) {
-  const history = useObservationHistory(model, id);
+  const history = useObservationHistory(modelSnapshot, id);
   return (
     <ProfileStrip
       profile={profile}

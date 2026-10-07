@@ -28,27 +28,29 @@ from tests.model_fixtures import (
 )
 
 
-def _treatment_outcome() -> ModelSpec:
+def _treatment_outcome() -> DynamicalModelSpec:
     return load_model_fixture("causal_proofs/treatment_outcome.json")
 
 
-def _conditioned_treatment_outcome() -> ModelSpec:
+def _conditioned_treatment_outcome() -> DynamicalModelSpec:
     return load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.contract
 
 
 def _identification():
-    model = _treatment_outcome()
+    dynamical_model_spec = _treatment_outcome()
     return IdentificationReport(
-        outcome=model.constructs[1].id,
+        outcome=dynamical_model_spec.constructs[1].id,
         treatments={
-            model.constructs[0].id: IdentifiedTreatmentStatus(estimand="E[outcome | do(treatment)]")
+            dynamical_model_spec.constructs[0].id: IdentifiedTreatmentStatus(
+                estimand="E[outcome | do(treatment)]"
+            )
         },
     )
 
@@ -60,7 +62,7 @@ def test_identification_proof_is_estimand_specific() -> None:
     proof = certify_identified_estimand(
         design,
         _identification(),
-        model_revision=design_ref,
+        dynamical_model_spec_ref=design_ref,
         treatment="treatment",
         outcome="outcome",
     )
@@ -109,7 +111,9 @@ def test_identification_proof_rejects_unidentified_treatment(
         certify_identified_estimand(
             model,
             report,
-            model_revision=GitRef(workspace_id="workspace", revision=git_oid(1), path="model.json"),
+            dynamical_model_spec_ref=GitRef(
+                workspace_id="workspace", revision=git_oid(1), path="model.json"
+            ),
             treatment="treatment",
             outcome="outcome",
         )
@@ -120,14 +124,14 @@ def test_conditioning_rejects_warmup_statically(tmp_path):
     probe.write_text(
         dedent("""\
             from jax import Array
-            from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
-            from nof1_causal_lab.artifacts.model_spec import ModelSpec
+            from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
+            from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
             from nof1_causal_lab.models.ssm.inference.persistence import condition_model
             from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior, WarmupProposal
 
-            def condition(model: ModelSpec, compiled: CompiledModel, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
-                condition_model(model, compiled, posterior, times=times, time_origin=None)
-                condition_model(model, compiled, warmup, times=times, time_origin=None)
+            def condition(model: DynamicalModelSpec, compiled: CompiledDynamicalModel, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
+                condition_model(model, compiled, posterior, times=times, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
+                condition_model(model, compiled, warmup, times=times, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
             """)
     )
     checked = subprocess.run(
@@ -155,19 +159,21 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
     from nof1_causal_lab.models.causal_proofs import certify_conditioned_model
     from tests.inference_fixtures import inference_log
 
-    model = _conditioned_treatment_outcome()
+    dynamical_model_spec = _conditioned_treatment_outcome()
     revision = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     from tests.inference_fixtures import _report
 
-    record = inference_log(model)
-    report = _report(model)
-    certify_conditioned_model(model, revision, record, model, report.core)
+    record = inference_log(dynamical_model_spec)
+    report = _report(dynamical_model_spec)
+    certify_conditioned_model(
+        dynamical_model_spec, revision, record, dynamical_model_spec, report.core
+    )
     with pytest.raises(CausalCertificationError, match="committed fit"):
         certify_conditioned_model(
-            model,
+            dynamical_model_spec,
             revision.revised(revision=git_oid(3)),
             record,
-            model,
+            dynamical_model_spec,
             report.core,
         )
     with pytest.raises(CausalCertificationError, match="differs from"):
@@ -175,7 +181,7 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
             _treatment_outcome(),
             revision,
             record,
-            model,
+            dynamical_model_spec,
             report.core,
         )
     from pydantic import ValidationError
@@ -204,7 +210,9 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
         )
     )
     with pytest.raises(CausalCertificationError, match=r"r_hat fails.*ess_tail fails"):
-        certify_conditioned_model(model, revision, record, model, mixed_poorly.core)
+        certify_conditioned_model(
+            dynamical_model_spec, revision, record, dynamical_model_spec, mixed_poorly.core
+        )
 
 
 def test_causal_analysis_joins_matching_proofs():
@@ -213,20 +221,20 @@ def test_causal_analysis_joins_matching_proofs():
     design = _conditioned_treatment_outcome()
     design_ref = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     analysis = CertifiedCausalAnalysis(
-        model=design,
+        dynamical_model_spec=design,
         identification=_identification(),
-        model_revision=design_ref,
+        dynamical_model_spec_ref=design_ref,
         estimands=(
             certify_identified_estimand(
                 design,
                 _identification(),
-                model_revision=design_ref,
+                dynamical_model_spec_ref=design_ref,
                 treatment="treatment",
                 outcome="outcome",
             ),
         ),
         inference=inference_log(design),
-        fitted_model=design,
+        fitted_dynamical_model_spec=design,
         report=_report(design).core,
     )
     assert analysis.treatments == ["treatment"]

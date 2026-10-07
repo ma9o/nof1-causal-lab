@@ -28,14 +28,16 @@ from tests.model_fixtures import fixed_hill_model, load_model_fixture
 from tests.observation_fixtures import observation_laws
 
 
-def _time_invariant_construct_omits_temporal_transmission_check_model_fixture() -> ModelSpec:
+def _time_invariant_construct_omits_temporal_transmission_check_model_fixture() -> (
+    DynamicalModelSpec
+):
     return load_model_fixture(
         "simulation_checks/time_invariant_construct_omits_temporal_transmission_check_model_fixture.json"
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.inference(concern="predictive")
@@ -91,7 +93,9 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
             observations_mask=jnp.ones(expected.shape, dtype=bool),
         ),
     )
-    spec = _time_invariant_construct_omits_temporal_transmission_check_model_fixture()
+    dynamical_model_spec = (
+        _time_invariant_construct_omits_temporal_transmission_check_model_fixture()
+    )
     obs_idx = np.arange(times)
     design = DesignInfo(
         manifest_ids=(fixture_entity_id("indicator", "static_indicator"),),
@@ -102,11 +106,11 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
         },
     )
     target = ConstructSimulationTarget(
-        construct=compile_model_fixture(spec).states[0],
+        construct=compile_model_fixture(dynamical_model_spec).states[0],
     )
 
     results, _timings = measure_construct_simulation(
-        compile_model_fixture(spec), pred, design, target, clock=time.monotonic
+        compile_model_fixture(dynamical_model_spec), pred, design, target, clock=time.monotonic
     )
     checks = {result.check for result in results}
     assert {"C5a location reach", "C5b width"} <= checks

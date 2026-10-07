@@ -106,19 +106,17 @@ class BenchmarkConfig(NamedTuple):
     smoother: Literal["dsmc"]
     leaf: Literal["amala_exact", "paid_mix"]
     block_coords: int
-    n_particles: int
+    num_particles: int
     t_steps: int
     trace: bool
 
     @property
     def tag(self) -> str:
-        return (
-            f"{self.smoother}/{self.leaf}/N{self.n_particles}/T{self.t_steps}/bc{self.block_coords}"
-        )
+        return f"{self.smoother}/{self.leaf}/N{self.num_particles}/T{self.t_steps}/bc{self.block_coords}"
 
     @property
     def profile_name(self) -> str:
-        return f"{self.smoother}_{self.leaf}_N{self.n_particles}_T{self.t_steps}"
+        return f"{self.smoother}_{self.leaf}_N{self.num_particles}_T{self.t_steps}"
 
 
 DEFAULT_BLOCK_COORDS = 256
@@ -130,12 +128,12 @@ T_GRID = (1024,)
 METHODS = (MethodSpec("dsmc", "amala_exact", DEFAULT_BLOCK_COORDS, trace=True),)
 
 
-def _config(method: MethodSpec, n_particles: int, t_steps: int) -> BenchmarkConfig:
+def _config(method: MethodSpec, num_particles: int, t_steps: int) -> BenchmarkConfig:
     return BenchmarkConfig(
         method.smoother,
         method.leaf,
         method.block_coords,
-        n_particles,
+        num_particles,
         t_steps,
         method.trace,
     )
@@ -143,9 +141,9 @@ def _config(method: MethodSpec, n_particles: int, t_steps: int) -> BenchmarkConf
 
 def _grid_configs(methods: tuple[MethodSpec, ...]) -> tuple[BenchmarkConfig, ...]:
     return tuple(
-        _config(method, n_particles, t_steps)
+        _config(method, num_particles, t_steps)
         for method in methods
-        for n_particles in N_GRID
+        for num_particles in N_GRID
         for t_steps in T_GRID
     )
 
@@ -209,7 +207,7 @@ def _run_benchmark(
     dim = int(bundle.runtime.initial_position.shape[0])
     kernel = build_marginal_particle_gibbs_kernel(
         bundle.runtime,
-        num_particles=cfg.n_particles,
+        num_particles=cfg.num_particles,
         num_parameter_particles=num_parameter_particles,
         param_step_size=0.01,
         dsmc_leaf_proposal=cfg.leaf,
@@ -253,7 +251,7 @@ def _run_benchmark(
         "smoother": cfg.smoother,
         "leaf": cfg.leaf,
         "block_coords": cfg.block_coords,
-        "N": cfg.n_particles,
+        "N": cfg.num_particles,
         "T": cfg.t_steps,
         "P": num_parameter_particles,
         "dim": dim,
@@ -306,7 +304,7 @@ def run_config(
         cfg.smoother == HEADLINE_CONFIG.smoother
         and cfg.leaf == HEADLINE_CONFIG.leaf
         and cfg.block_coords == HEADLINE_CONFIG.block_coords
-        and cfg.n_particles == HEADLINE_CONFIG.n_particles
+        and cfg.num_particles == HEADLINE_CONFIG.num_particles
         and cfg.t_steps == HEADLINE_CONFIG.t_steps
     )
     profile_dir = (
@@ -332,7 +330,7 @@ def run_config(
             "smoother": cfg.smoother,
             "leaf": cfg.leaf,
             "block_coords": cfg.block_coords,
-            "N": cfg.n_particles,
+            "N": cfg.num_particles,
             "T": cfg.t_steps,
             "error": f"{type(exc).__name__}: {exc}",
         }
@@ -358,9 +356,9 @@ def main(
     else:
         configs = (
             tuple(
-                _config(method._replace(trace=trace), n_particles, t_steps)
+                _config(method._replace(trace=trace), num_particles, t_steps)
                 for method in METHODS
-                for n_particles in N_GRID
+                for num_particles in N_GRID
                 for t_steps in T_GRID
             )
             if not trace

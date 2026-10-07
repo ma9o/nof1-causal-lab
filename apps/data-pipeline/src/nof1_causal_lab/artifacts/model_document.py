@@ -269,7 +269,7 @@ def _recursive_document_schema(
 ) -> JsonSchemaValue:
     """Keep recursively nested input fields partial without changing their complete owners."""
     reference = schema["$ref"]
-    identity = f"{__name__}.ModelSpecDocument[{reference}]"
+    identity = f"{__name__}.DynamicalModelSpecDocument[{reference}]"
     projected = handler(
         core_schema.definitions_schema(
             core_schema.definition_reference_schema(identity),
@@ -288,7 +288,7 @@ def _recursive_document_schema(
         )
         target.update(
             {
-                "x-python-module": "nof1_causal_lab.artifacts.model_spec",
+                "x-python-module": "nof1_causal_lab.artifacts.dynamical_model_spec",
                 "x-typescript-mode": "validation",
             }
         )

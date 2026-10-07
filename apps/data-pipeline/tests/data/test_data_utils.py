@@ -304,7 +304,7 @@ class TestPivotToWideSparsity:
         logger = logging.getLogger("nof1_causal_lab.utils.data")
         logger.propagate = True
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
-            wide = pivot_to_wide(raw, time_origin=None)
+            wide = pivot_to_wide(raw, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
 
         assert wide.height == 24
         assert any("Sparse observation matrix" in msg for msg in caplog.messages)
@@ -334,7 +334,7 @@ class TestPivotToWideSparsity:
 
         raw = pl.DataFrame(rows)
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
-            pivot_to_wide(raw, time_origin=None)
+            pivot_to_wide(raw, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
 
         assert not any("Sparse" in msg for msg in caplog.messages)
 

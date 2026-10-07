@@ -1,6 +1,6 @@
-import { decodeModelMessage } from "./msgpack";
 import createClient, { type Client, type ClientOptions, type ParseAs } from "openapi-fetch";
 import type { paths } from "./generated/model-api";
+import { decodeModelMessage } from "./msgpack";
 
 type WireRequest = (
   method: Parameters<Client<paths>["request"]>[0],

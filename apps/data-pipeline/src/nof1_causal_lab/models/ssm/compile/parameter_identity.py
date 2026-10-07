@@ -53,7 +53,9 @@ def component_identity(
         SiteKind.OBS_CAT_INTERCEPTS,
         SiteKind.OBS_CAT_SLOPES,
     }:
-        indicators = {item.observation.name: item for item in structure.model.indicators}
+        indicators = {
+            item.observation.name: item for item in structure.dynamical_model_spec.indicators
+        }
         indicator = indicators[numeric.observation_names(structure)[indices[0]]]
         levels = (
             indicator.observation.ordinal_levels
@@ -85,7 +87,7 @@ def component_identity(
     }:
         # A Cholesky entry is conditional on the preceding ordered basis. Reordering
         # that basis changes the quantity even if the endpoint labels survive.
-        constructs = {item.name: item.id for item in structure.model.constructs}
+        constructs = {item.name: item.id for item in structure.dynamical_model_spec.constructs}
         position = site.positions[coordinate.flat_index]
         row = position[0] if isinstance(position, tuple) else position
         basis = [constructs[name] for name in numeric.state_names(structure)[: row + 1]]

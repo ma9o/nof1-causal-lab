@@ -4,7 +4,7 @@ import type {
   CausalEdgeSpec,
   ParameterSpec,
   Expression,
-  ModelSpec,
+  DynamicalModelSpec,
   ParameterId,
 } from "@nof1-causal-lab/api-types";
 import { assertNever } from "./assert-never";
@@ -21,8 +21,10 @@ export function presentEntries<Key extends string, Value>(
 }
 
 /** Expand the document's keyed definitions into entities used by the viewer. */
-export function modelConstructs(model: ModelSpec | null | undefined): ConstructSpec[] {
-  return presentEntries(model?.constructs ?? {}).map(([id, value]) => ({
+export function modelConstructs(
+  dynamicalModelSpec: DynamicalModelSpec | null | undefined,
+): ConstructSpec[] {
+  return presentEntries(dynamicalModelSpec?.constructs ?? {}).map(([id, value]) => ({
     ...value,
     id,
     dynamics: presentEntries(value.dynamics).map(([id, mechanism]) => ({ ...mechanism, id })),
@@ -34,8 +36,10 @@ export function modelConstructs(model: ModelSpec | null | undefined): ConstructS
 }
 
 /** Edge endpoints identify the construct definitions held by the same document. */
-export function modelEdges(model: ModelSpec | null | undefined): CausalEdgeSpec[] {
-  return presentEntries(model?.edges ?? {}).map(([id, edge]) => ({
+export function modelEdges(
+  dynamicalModelSpec: DynamicalModelSpec | null | undefined,
+): CausalEdgeSpec[] {
+  return presentEntries(dynamicalModelSpec?.edges ?? {}).map(([id, edge]) => ({
     ...edge,
     id,
     cause: { kind: "construct", id: edge.cause },
@@ -45,8 +49,13 @@ export function modelEdges(model: ModelSpec | null | undefined): CausalEdgeSpec[
 }
 
 /** Restore each parameter's map identity for display and entity selection. */
-export function modelParameters(model: ModelSpec | null | undefined): ParameterSpec[] {
-  return presentEntries(model?.parameters ?? {}).map(([id, value]) => ({ ...value, id }));
+export function modelParameters(
+  dynamicalModelSpec: DynamicalModelSpec | null | undefined,
+): ParameterSpec[] {
+  return presentEntries(dynamicalModelSpec?.parameters ?? {}).map(([id, value]) => ({
+    ...value,
+    id,
+  }));
 }
 
 /** A coefficient operand that names a parameter, with the quantity its authored role declares. */

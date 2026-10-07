@@ -62,7 +62,6 @@ def panel_metadata():
     from nof1_causal_lab.artifacts.data_preparation import (
         DataPreparationSpec,
         DataVariableSpec,
-        FileSourceRef,
     )
 
     preparation = DataPreparationSpec(
@@ -83,6 +82,5 @@ def panel_metadata():
     )
     return PreparedDataMetadata(
         time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-        source=FileSourceRef(files=("observations.csv",)),
         preparation=preparation,
     )

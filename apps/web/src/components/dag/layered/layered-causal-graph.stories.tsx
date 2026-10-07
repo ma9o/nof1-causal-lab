@@ -12,7 +12,10 @@ function SelectableLayeredCausalGraph(
   props: Omit<LayeredCausalGraphProps, "selection" | "onSelect" | "entities">,
 ) {
   const [selection, setSelection] = useState<EntitySelection | null>(null);
-  const entities = useMemo(() => indexModel(props.model.model), [props.model]);
+  const entities = useMemo(
+    () => indexModel(props.modelSnapshot.dynamical_model_spec),
+    [props.modelSnapshot],
+  );
   return (
     <LayeredCausalGraph
       entities={entities}
@@ -62,30 +65,30 @@ type Story = StoryObj<typeof meta>;
 
 export const Structure: Story = {
   name: "1 · Structure",
-  args: { model: structureModel },
+  args: { modelSnapshot: structureModel },
 };
 
 export const Measurement: Story = {
   name: "2 · + Measurement",
-  args: { model: measurementModel },
+  args: { modelSnapshot: measurementModel },
 };
 
 export const Design: Story = {
   name: "3 · + Design",
-  args: { model: designModel },
+  args: { modelSnapshot: designModel },
 };
 
 export const Specification: Story = {
   name: "4 · + Specification",
-  args: { model: specificationModel },
+  args: { modelSnapshot: specificationModel },
 };
 
 export const Fit: Story = {
   name: "5 · + Fit",
-  args: { model: fitModel },
+  args: { modelSnapshot: fitModel },
 };
 
 export const Simulation: Story = {
   name: "6 · + Simulation",
-  args: { model: demoModelSnapshot, simulation: simulationResult },
+  args: { modelSnapshot: demoModelSnapshot, simulation: simulationResult },
 };

@@ -26,29 +26,37 @@ export function graphEntities(indexed: ModelEntities) {
 }
 
 /** Overlay saved identification findings on explicitly observed or latent constructs. */
-export function graphStatus(model: ModelSnapshot, id: ConstructId): ConstructStatus | null {
-  const construct = modelConstructs(model.model).find((item) => item.id === id);
+export function graphStatus(modelSnapshot: ModelSnapshot, id: ConstructId): ConstructStatus | null {
+  const construct = modelConstructs(modelSnapshot.dynamical_model_spec).find(
+    (item) => item.id === id,
+  );
   if (!construct) return null;
-  const blocking = presentEntries(model.identification?.treatments ?? {}).some(
+  const blocking = presentEntries(modelSnapshot.identification?.treatments ?? {}).some(
     ([target, finding]) =>
       finding.status === "not_identified" && (target === id || finding.confounders.includes(id)),
   );
-  return blocking ? "blocking" : construct.indicators.length > 0 || construct.role === "exogenous" ? "observed" : "latent";
+  return blocking
+    ? "blocking"
+    : construct.indicators.length > 0 || construct.role === "exogenous"
+      ? "observed"
+      : "latent";
 }
 
 /** Layer visibility reflects facts in the selected revision, including partial models. */
 export function availableGraphLayers(
-  model: ModelSnapshot,
+  modelSnapshot: ModelSnapshot,
   simulation?: SimulationReport | null,
 ): CausalGraphLayerId[] {
   const available = {
-    structure: modelConstructs(model.model).length > 0,
-    measurement: modelConstructs(model.model).some((construct) => construct.indicators.length > 0),
-    design: model.identification !== null,
-    specification: modelConstructs(model.model).some(
+    structure: modelConstructs(modelSnapshot.dynamical_model_spec).length > 0,
+    measurement: modelConstructs(modelSnapshot.dynamical_model_spec).some(
+      (construct) => construct.indicators.length > 0,
+    ),
+    design: modelSnapshot.identification !== null,
+    specification: modelConstructs(modelSnapshot.dynamical_model_spec).some(
       (c) => c.dynamics.length > 0 || c.indicators.some((i) => i.likelihood != null),
     ),
-    fit: model.fit !== null,
+    fit: modelSnapshot.fit !== null,
     simulation: simulation != null,
   };
   return CAUSAL_GRAPH_LAYER_ORDER.filter((layer) => available[layer]);

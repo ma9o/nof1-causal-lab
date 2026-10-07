@@ -31,13 +31,11 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from jax.typing import ArrayLike
     from pydantic import BaseModel
 
     from nof1_causal_lab.artifacts.data_ref import DataRef
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.json_types import JsonObject
@@ -48,13 +46,13 @@ def utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-def read_model(store: ArtifactStore, revision: GitOid) -> ModelSpec:
+def read_model(store: ArtifactStore, revision: GitOid) -> DynamicalModelSpec:
     """Decode a pinned model, keeping its numerical arrays lazy."""
     from functools import cache
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
-    return ModelSpec.model_validate(
+    return DynamicalModelSpec.model_validate(
         store.read_json_file("model", revision, "model.json"),
     ).materialized(context={"distribution_array_loader": cache(store.read_array)})
 
@@ -224,7 +222,7 @@ class ArtifactStore:
             )
         return info
 
-    def model_ref(self, revision: GitOid) -> GitRef:
+    def dynamical_model_spec_ref(self, revision: GitOid) -> GitRef:
         """Locate the file that owns a staged or published model's scientific value."""
         info = self.read_meta("model", revision)
         return GitRef(
@@ -248,7 +246,11 @@ class ArtifactStore:
             output = unpack_result(
                 self.repo[pygit2.Oid(hex=info.source.result)].peel(pygit2.Blob).data
             )
-            key = {"model": "model", "question": "question", "panel": "metadata"}[artifact_id]
+            key = {
+                "model": "dynamical_model_spec",
+                "question": "question",
+                "panel": "metadata",
+            }[artifact_id]
             return cast("JsonObject", output[key])
         value: JsonObject = json.loads(read_file(self.repo, revision, name))
         return value
@@ -319,24 +321,6 @@ def collect_run_traces(workspace_id: str, seq: int) -> dict[str, bytes]:
     return logs
 
 
-def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -> BaseModel:
-    """Parse an immutable artifact's primary JSON payload while keeping distribution arrays lazy."""
-    from functools import cache
-
-    from pydantic import BaseModel, TypeAdapter
-
-    from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
-    from nof1_causal_lab.study.artifact_files import artifact_file_spec
-
-    if artifact_id == "model":
-        return read_model(store, GitOid(revision))
-    filename = next(iter(artifact_file_spec(artifact_id).json_files.values()))
-    return TypeAdapter[BaseModel](ARTIFACT_CONTRACTS[artifact_id]).validate_python(
-        store.read_json_file(artifact_id, revision, filename),
-        context={"distribution_array_loader": cache(store.read_array)},
-    )
-
-
 def read_dataset(
     source: DataRef[GitOid, int],
     observations: ObservationDataset,
@@ -348,7 +332,6 @@ def read_dataset(
     series = {
         variable.id: DataSeries(
             variable=variable,
-            time_origin=observations.time_origin,
             points=tuple(
                 DataPoint.model_validate(row)
                 for row in frame.filter(pl.col("indicator_id") == variable.id)
@@ -359,4 +342,4 @@ def read_dataset(
         for variable in observations.variables
     }
 
-    return Dataset(source=source, series=series)
+    return Dataset(source=source, time_origin=observations.time_origin, series=series)

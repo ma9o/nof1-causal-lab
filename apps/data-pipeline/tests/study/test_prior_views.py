@@ -18,18 +18,24 @@ from nof1_causal_lab.study.prior_views import prior_density, quantity_prior_dens
 from tests.model_fixtures import construct_named, load_model_fixture
 
 
-def _quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model() -> ModelSpec:
-    model = load_model_fixture(
+def _quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model() -> (
+    DynamicalModelSpec
+):
+    dynamical_model_spec = load_model_fixture(
         "snapshots/fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model.json"
     )
-    x = construct_named(model, "X")
-    y = construct_named(model, "Y")
-    x_to_y = next(edge for edge in model.edges if edge.cause.id == x.id and edge.effect.id == y.id)
-    return model.with_entities(edges=(x_to_y.revised(description="X"),))
+    x = construct_named(dynamical_model_spec, "X")
+    y = construct_named(dynamical_model_spec, "Y")
+    x_to_y = next(
+        edge
+        for edge in dynamical_model_spec.edges
+        if edge.cause.id == x.id and edge.effect.id == y.id
+    )
+    return dynamical_model_spec.with_entities(edges=(x_to_y.revised(description="X"),))
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = [
@@ -63,14 +69,17 @@ def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_
 
 
 def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
-    model = _quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model()
-    curves = quantity_prior_densities(
-        model, frozenset(parameter.id for parameter in model.parameters)
+    dynamical_model_spec = (
+        _quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model()
     )
-    transforms = {parameter.transform.kind for parameter in model.parameters}
+    curves = quantity_prior_densities(
+        dynamical_model_spec,
+        frozenset(parameter.id for parameter in dynamical_model_spec.parameters),
+    )
+    transforms = {parameter.transform.kind for parameter in dynamical_model_spec.parameters}
     assert "dt_persistence_to_ct_decay" in transforms
-    for parameter in model.parameters:
-        law = model.distribution_for(parameter.id)
+    for parameter in dynamical_model_spec.parameters:
+        law = dynamical_model_spec.distribution_for(parameter.id)
         match parameter.transform.kind:
             case "dt_persistence_to_ct_decay":
                 # Posteriors report decay rates, so persistence priors move to that axis.

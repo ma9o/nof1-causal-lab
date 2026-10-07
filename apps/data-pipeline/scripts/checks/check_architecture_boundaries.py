@@ -392,7 +392,7 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
     ]
     index = TypeIndex(sources)
     raw = {
-        f"{_PACKAGE}.artifacts.model_spec.ModelSpec",
+        f"{_PACKAGE}.artifacts.dynamical_model_spec.DynamicalModelSpec",
         f"{_PACKAGE}.artifacts.likelihood.ObservationLawSpec",
         f"{_PACKAGE}.artifacts.likelihood.LikelihoodSpec",
         f"{_PACKAGE}.artifacts.posterior.FitSettingsSpec",

@@ -39,11 +39,17 @@ export function ownLawUses(entity: ConstructSpec | CausalEdgeSpec | IndicatorSpe
 }
 
 /** A fit's posteriors supersede the laws authored at its version. */
-export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[]): LawCurve[] {
+export function lawCurves(
+  modelSnapshot: ModelSnapshot,
+  uses: readonly CoefficientUse[],
+): LawCurve[] {
   const parameters = new Map(
-    modelParameters(model.model).map((parameter) => [parameter.id, parameter]),
+    modelParameters(modelSnapshot.dynamical_model_spec).map((parameter) => [
+      parameter.id,
+      parameter,
+    ]),
   );
-  const fit = model.fit;
+  const fit = modelSnapshot.fit;
   return uses.flatMap((use): LawCurve[] => {
     const parameter = parameters.get(use.parameterId);
     if (!parameter) return [];
@@ -61,7 +67,9 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
           family: null,
         },
       ];
-    const law = parameter.distribution ? model.model?.distributions[parameter.distribution] : null;
+    const law = parameter.distribution
+      ? modelSnapshot.dynamical_model_spec?.distributions[parameter.distribution]
+      : null;
     return law
       ? [
           {

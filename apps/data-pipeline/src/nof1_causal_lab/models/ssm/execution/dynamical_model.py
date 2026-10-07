@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
     from jax.typing import ArrayLike
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.execution.contracts import (
         ObservationLaws,
@@ -166,27 +166,27 @@ class _ObservationDistribution(dist.Distribution):
 
 
 def initial_state_distribution(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     mean: jax.Array,
     covariance: jax.Array,
     *,
     input_values: jax.Array | None = None,
 ) -> MultivariateNormal:
     """Embed the modeled initial law in a state vector with lawless inputs."""
-    endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(spec)))
+    endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(compiled_dynamical_model)))
     factor = (
         jnp.zeros_like(covariance)
         .at[jnp.ix_(endogenous, endogenous)]
         .set(jnp.linalg.cholesky(covariance[jnp.ix_(endogenous, endogenous)]))
     )
     if input_values is not None:
-        mean = jnp.where(numeric.input_mask(spec), input_values[0], mean)
+        mean = jnp.where(numeric.input_mask(compiled_dynamical_model), input_values[0], mean)
     return MultivariateNormal(mean, scale_tril=factor)
 
 
 def assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     *,
     dynamics: DynamicsSpec | None = None,
     intervention: Intervention | None = None,
@@ -200,8 +200,10 @@ def assemble_likelihood_inputs(
     """Consume the canonical deterministic values from NumPyro's prior replay."""
     from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
 
-    dynamics_spec = spec.dynamics.spec if dynamics is None else dynamics
-    compiled = spec.dynamics if dynamics is None else compile_dynamics(dynamics_spec)
+    dynamics_spec = compiled_dynamical_model.dynamics.spec if dynamics is None else dynamics
+    compiled = (
+        compiled_dynamical_model.dynamics if dynamics is None else compile_dynamics(dynamics_spec)
+    )
     diffusion_chol = samples["diffusion"]
     evolution = continuous_state_evolution(
         vector_field=compiled.vector_field,
@@ -215,14 +217,14 @@ def assemble_likelihood_inputs(
         manifest_cov=samples["manifest_cov"],
     )
     initial = initial_state_distribution(
-        spec, samples["t0_means"], samples["t0_cov"], input_values=input_values
+        compiled_dynamical_model, samples["t0_means"], samples["t0_cov"], input_values=input_values
     )
-    laws = materialize_observation_laws(spec, samples)
+    laws = materialize_observation_laws(compiled_dynamical_model, samples)
     return evolution, measurement, initial, laws
 
 
 def build_dynamical_model(
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     values: dict[str, jnp.ndarray],
     *,
     t0: jax.Array,
@@ -235,7 +237,7 @@ def build_dynamical_model(
     edge-off admission contrasts while retaining the same measurement and initial laws.
     """
     evolution, measurement, initial, laws = assemble_likelihood_inputs(
-        values, model_spec, dynamics=dynamics
+        values, compiled_dynamical_model, dynamics=dynamics
     )
     return dsx.DynamicalModel(
         initial_condition=initial,

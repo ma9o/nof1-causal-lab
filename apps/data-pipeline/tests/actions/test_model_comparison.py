@@ -6,8 +6,8 @@ import numpyro.distributions as dist
 import pytest
 
 from nof1_causal_lab.actions.io import ModelDiffOutput
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec, apply_model_edit
 from nof1_causal_lab.artifacts.model_document import diff_fields, merge_fields
-from nof1_causal_lab.artifacts.model_spec import ModelSpec, apply_model_edit
 from tests.helpers import make_model
 from tests.model_fixtures import load_model_fixture
 
@@ -20,7 +20,7 @@ def test_spec_diffs_replay_nested_edits_pruning_and_empty_checkpoints_in_both_di
     indicator = outcome.indicators[0].observation
     after = apply_model_edit(
         before,
-        ModelSpec.model_validate(
+        DynamicalModelSpec.model_validate(
             {
                 "constructs": {
                     source.id: {"name": "Exposure"},
@@ -33,7 +33,7 @@ def test_spec_diffs_replay_nested_edits_pruning_and_empty_checkpoints_in_both_di
             }
         ),
         outcome.id,
-    ).model
+    ).dynamical_model_spec
     patch = after.changes_from(before).model_dump(mode="json")
     assert patch == {
         "constructs": {
@@ -44,7 +44,7 @@ def test_spec_diffs_replay_nested_edits_pruning_and_empty_checkpoints_in_both_di
         "edges": {before.edges[1].id: None},
         "measurement_clock": None,
     }
-    for left, right in product((ModelSpec.from_entities(), before, after), repeat=2):
+    for left, right in product((DynamicalModelSpec.from_entities(), before, after), repeat=2):
         changes = right.changes_from(left)
         assert merge_fields(left.model_dump(mode="json"), changes.model_dump(mode="json")) == (
             right.model_dump(mode="json")
@@ -59,11 +59,13 @@ def test_spec_diffs_replay_nested_edits_pruning_and_empty_checkpoints_in_both_di
 
 
 def test_law_changes_stay_at_their_owner_and_changed_families_replace_the_variant():
-    model = load_model_fixture("model_comparison/y_z_model.json")
-    parameter = model.parameters_for(model.edges[0].id)[0]
+    dynamical_model_spec = load_model_fixture("model_comparison/y_z_model.json")
+    parameter = dynamical_model_spec.parameters_for(dynamical_model_spec.edges[0].id)[0]
     identity = parameter.distribution
     assert identity is not None
-    before = model.with_entities(distributions={**model.distributions, identity: dist.Normal(0, 1)})
+    before = dynamical_model_spec.with_entities(
+        distributions={**dynamical_model_spec.distributions, identity: dist.Normal(0, 1)}
+    )
     for law in (dist.Normal(2, 1), dist.Uniform(-1, 1)):
         after = before.with_entities(distributions={**before.distributions, identity: law})
         patch = after.changes_from(before).model_dump(mode="json")
@@ -81,7 +83,7 @@ def test_law_changes_stay_at_their_owner_and_changed_families_replace_the_varian
 def test_map_order_is_ignored_and_ordered_values_are_replaced():
     before = make_model(["X", "Y"], [("X", "Y")])
     saved = before.model_dump(mode="json")
-    reordered = ModelSpec.model_validate(
+    reordered = DynamicalModelSpec.model_validate(
         {**saved, "constructs": dict(reversed(tuple(saved["constructs"].items())))}
     )
     assert reordered.changes_from(before).model_dump(mode="json") == {}
@@ -97,8 +99,8 @@ def test_referenced_laws_compare_without_resolving_numerical_buffers():
             "event_dim": 1,
         },
     }
-    before = ModelSpec.model_validate({"distributions": {identity: law}})
-    after = ModelSpec.model_validate(
+    before = DynamicalModelSpec.model_validate({"distributions": {identity: law}})
+    after = DynamicalModelSpec.model_validate(
         {
             "distributions": {
                 identity: {
@@ -122,4 +124,4 @@ def test_element_label_maps_reuse_identity_deletion_semantics():
 
 
 def test_output_serialization_preserves_the_partial_model_contract():
-    assert ModelDiffOutput(changes=ModelSpec()).model_dump(mode="json") == {"changes": {}}
+    assert ModelDiffOutput(changes=DynamicalModelSpec()).model_dump(mode="json") == {"changes": {}}

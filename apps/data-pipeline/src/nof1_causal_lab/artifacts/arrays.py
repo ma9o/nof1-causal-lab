@@ -9,7 +9,7 @@ from functools import cached_property
 from typing import Annotated, Self, override
 
 import numpy as np
-from pydantic import Field, FiniteFloat, model_validator
+from pydantic import Field, FiniteFloat, model_serializer, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
@@ -17,14 +17,19 @@ from nof1_causal_lab.artifacts.base import Value
 class NumericalArray(Value):
     """An immutable NPY buffer carried as a MessagePack binary value.
 
-    The NPY header owns dtype, shape and storage order. Numerical decoding
-    belongs to the boundary that consumes the buffer.
+    The NPY header owns dtype and shape. Buffers use little-endian, row-major
+    storage; numerical decoding belongs to the boundary that consumes them.
     """
 
     npy: bytes = Field(
         description="Lossless NPY bytes, including dtype and dimensions; never base64 or scalar JSON.",
         json_schema_extra={"tsType": "Uint8Array"},
     )
+
+    @model_serializer  # noqa: V105 -- Pydantic invokes the registered binary serialization hook.
+    def serialize_buffer(self):  # noqa: ANN201 -- Preserve the owned NPY field schema, including its binary TypeScript type.
+        """Serialize only the buffer, independently of decoded and layout caches."""
+        return {"npy": self.npy}
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -36,9 +41,15 @@ class NumericalArray(Value):
         """Own a portable, lossless encoding of a numerical value."""
         array = np.asarray(values)
         if array.dtype.kind not in "bifu" or array.dtype.itemsize not in (1, 2, 4, 8):
-            raise TypeError("Numerical buffers require boolean, integer or floating dtypes up to 64 bits")
+            raise TypeError(
+                "Numerical buffers require boolean, integer or floating dtypes up to 64 bits"
+            )
         buffer = io.BytesIO()
-        np.save(buffer, np.asarray(array, dtype=array.dtype.newbyteorder("<"), order="C"), allow_pickle=False)
+        np.save(
+            buffer,
+            np.asarray(array, dtype=array.dtype.newbyteorder("<"), order="C"),
+            allow_pickle=False,
+        )
         return cls(npy=buffer.getvalue())
 
     @cached_property
@@ -48,25 +59,42 @@ class NumericalArray(Value):
 
     @cached_property
     def values(self) -> np.ndarray:
-        """Decode once at the numerical consumer and retain immutable values."""
-        values = np.load(io.BytesIO(self.npy), allow_pickle=False)
-        values.setflags(write=False)
-        return values
+        """View immutable bytes directly so restored owners share numerical storage."""
+        shape, dtype, offset = self._header
+        return np.ndarray(
+            shape,
+            dtype=dtype,
+            buffer=self.npy,
+            offset=offset,
+            order="C",
+        )
 
-    @cached_property
+    @property
     def layout(self) -> tuple[tuple[int, ...], np.dtype]:
         """Read dimensions and dtype without materializing numerical elements."""
+        shape, dtype, _ = self._header
+        return shape, dtype
+
+    @cached_property
+    def _header(self) -> tuple[tuple[int, ...], np.dtype, int]:
+        """Parse the storage layout once at the numerical value boundary."""
         stream = io.BytesIO(self.npy)
         version = np.lib.format.read_magic(stream)
         if version not in ((1, 0), (2, 0)):
             raise ValueError("Numerical arrays require NPY version 1 or 2")
-        reader = np.lib.format.read_array_header_1_0 if version == (1, 0) else np.lib.format.read_array_header_2_0
-        shape, _, dtype = reader(stream)
+        reader = (
+            np.lib.format.read_array_header_1_0
+            if version == (1, 0)
+            else np.lib.format.read_array_header_2_0
+        )
+        shape, fortran_order, dtype = reader(stream)
         if dtype.kind not in "bifu" or dtype.itemsize not in (1, 2, 4, 8):
             raise ValueError("NPY values must have a supported numerical dtype")
+        if fortran_order or dtype.str[0] not in "<|":
+            raise ValueError("Numerical arrays require little-endian, row-major storage")
         if len(self.npy) - stream.tell() != math.prod(shape) * dtype.itemsize:
             raise ValueError("NPY payload does not match its declared shape and dtype")
-        return shape, dtype
+        return shape, dtype, stream.tell()
 
     @model_validator(mode="after")
     def parse_layout(self) -> Self:
@@ -108,7 +136,9 @@ class ArrayVector(Value):
     def length(self) -> int:
         """The selected vector's extent, proven at construction."""
         shape, _ = self.array.layout
-        return (self.stop if self.stop is not None else shape[self.indices.index(None)]) - self.start
+        return (
+            self.stop if self.stop is not None else shape[self.indices.index(None)]
+        ) - self.start
 
 
 type ScalarValues = tuple[FiniteFloat | None, ...] | ArrayVector

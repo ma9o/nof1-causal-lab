@@ -43,8 +43,8 @@ from nof1_causal_lab.actions.temporal.activities import (
 from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
 from nof1_causal_lab.artifacts.data_preparation import FileSourceRef, SemanticExtractionSpec
 from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.study.history import StudyRepository
@@ -79,11 +79,13 @@ async def _execute_action(
             )
         ),
         EditModelRequest[GitOid](
-            input=EditModelInput[GitOid](parent_ref=git_oid(3), model=ModelSpec())
+            input=EditModelInput[GitOid](
+                parent_ref=git_oid(3), dynamical_model_spec=DynamicalModelSpec()
+            )
         ),
         PrepareDataRequest[GitOid, FileSourceRef](
             input=PrepareDataInput[GitOid, FileSourceRef](
-                model_ref=git_oid(1),
+                dynamical_model_spec_ref=git_oid(1),
                 source=FileSourceRef(files=("data.csv",)),
                 extraction={
                     fixture_entity_id("indicator", "outcome"): SemanticExtractionSpec(
@@ -93,18 +95,21 @@ async def _execute_action(
             )
         ),
         FitRequest[GitOid](
-            input=FitInput[GitOid](replicate_index=0, model_ref=git_oid(1), data_ref=git_oid(2))
+            input=FitInput[GitOid](
+                dynamical_model_spec_ref=git_oid(1),
+                data_ref=DataRef(revision=git_oid(2), replicate_index=0),
+            )
         ),
         SimulateRequest[GitOid](
             input=SimulateInput[GitOid](
                 simulation=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
-                model_ref=git_oid(1),
+                dynamical_model_spec_ref=git_oid(1),
             )
         ),
         DataDiffRequest[GitOid](
             input=DataDiffInput[GitOid](
-                left_ref=DataRef[GitOid, int | None](revision=git_oid(1), replicate_index=0),
-                right_ref=DataRef[GitOid, int | None](revision=git_oid(2), replicate_index=None),
+                left_ref=(DataRef[GitOid, int | None](revision=git_oid(1), replicate_index=0),),
+                right_ref=(DataRef[GitOid, int | None](revision=git_oid(2), replicate_index=None),),
             )
         ),
         ModelDiffRequest[GitOid](

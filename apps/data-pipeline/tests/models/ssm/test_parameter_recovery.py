@@ -35,7 +35,7 @@ def test_map_initialization_recovers_mode_and_builds_preconditioner(monkeypatch)
     monkeypatch.setattr(map_warmup, "_sample_gaussian_parameter_posterior", sample_at_mode)
     result = map_warmup.fit_map(
         model.prior_runtime_bundle,
-        bind_panel_fixture(model.compiled, data["observations"], data["times"]),
+        bind_panel_fixture(model.compiled_dynamical_model, data["observations"], data["times"]),
         num_samples=1,
         # A linear Gaussian model reaches its exact latent mode in one step.
         n_ieks_iters=1,

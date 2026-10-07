@@ -28,7 +28,7 @@ import { selectedNeighbors } from "./selection";
 import { useGraphControls, usePlayback } from "./use-graph-controls";
 
 export interface LayeredGraphOptions {
-  model: ModelSnapshot;
+  modelSnapshot: ModelSnapshot;
   entities: ModelEntities;
   /** A simulation of the viewed model revision; its node histories replace the law charts. */
   simulation?: SimulationReport | null;
@@ -38,14 +38,17 @@ export interface LayeredGraphOptions {
 
 /** Derive graph display state from recorded model findings and user interaction. */
 export function useLayeredGraph({
-  model,
+  modelSnapshot,
   entities: indexed,
   simulation = null,
   comparison = null,
   selection,
 }: LayeredGraphOptions) {
   const selectedNode = selection?.kind === "construct" ? selection.id : null;
-  const available = useMemo(() => availableGraphLayers(model, simulation), [model, simulation]);
+  const available = useMemo(
+    () => availableGraphLayers(modelSnapshot, simulation),
+    [modelSnapshot, simulation],
+  );
   const [hiddenLayers, setHiddenLayers] = useState<Set<CausalGraphLayerId>>(() => new Set());
   const { zoom, setZoom, hoveredEdge, setHoveredEdge } = useGraphControls(1, 0.08, 1.8);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -83,7 +86,7 @@ export function useLayeredGraph({
   const nodeStatuses = new Map(
     entities.constructs.map((entity) => [
       entity.id,
-      designVisible ? graphStatus(model, entity.id) : null,
+      designVisible ? graphStatus(modelSnapshot, entity.id) : null,
     ]),
   );
   const indicatorsByConstruct = new Map<ConstructId, readonly IndicatorSpec[]>(
@@ -104,25 +107,26 @@ export function useLayeredGraph({
       new Map<ConstructId, LawCurve[]>(
         entities.constructs.map((construct) => [
           construct.id,
-          lawCurves(model, ownLawUses(construct)),
+          lawCurves(modelSnapshot, ownLawUses(construct)),
         ]),
       ),
-    [model, entities.constructs],
+    [modelSnapshot, entities.constructs],
   );
   const edgeLaws = useMemo(
     () =>
       new Map<EdgeId, LawCurve[]>(
-        entities.edges.map((edge) => [edge.id, lawCurves(model, ownLawUses(edge))]),
+        entities.edges.map((edge) => [edge.id, lawCurves(modelSnapshot, ownLawUses(edge))]),
       ),
-    [model, entities.edges],
+    [modelSnapshot, entities.edges],
   );
   const marginal = (uses: ReturnType<typeof ownLawUses>, role: "weight" | "decay") => {
     const parameters = new Set(
       uses.filter((use) => use.role === role).map((use) => use.parameterId),
     );
     const rows =
-      model.fit?.posterior_marginals.filter((row) => parameters.has(row.subject.parameter_id)) ??
-      [];
+      modelSnapshot.fit?.posterior_marginals.filter((row) =>
+        parameters.has(row.subject.parameter_id),
+      ) ?? [];
     return rows.length === 1 ? rows[0] : undefined;
   };
   const edgePosteriors: Partial<Record<EdgeId, PosteriorMarginal | undefined>> = fitVisible
@@ -196,27 +200,20 @@ export function useLayeredGraph({
       nodeStatuses.get(meta.cause.id) === "blocking" ||
       nodeStatuses.get(meta.effect.id) === "blocking";
     const latent =
-      nodeStatuses.get(meta.cause.id) === "latent" ||
-      nodeStatuses.get(meta.effect.id) === "latent";
+      nodeStatuses.get(meta.cause.id) === "latent" || nodeStatuses.get(meta.effect.id) === "latent";
     const color = blocking
       ? BLOCKING
       : latent
         ? LATENT
         : meta.crossSlice
-            ? DAG_COLORS.crossSlice
-            : DAG_COLORS.contemporaneous;
+          ? DAG_COLORS.crossSlice
+          : DAG_COLORS.contemporaneous;
     // A coefficient's mean is not the strength or sign of a nonlinear state-dependent effect.
     const width = 1.7;
     const selectedEdge =
       selectedNode == null || meta.cause.id === selectedNode || meta.effect.id === selectedNode;
     const dimmed = !selectedEdge || (hoveredEdge != null && hoveredEdge !== meta.id);
-    const opacity = dimmed
-      ? 0.1
-      : latent
-        ? 0.38
-        : posterior
-          ? 0.92
-          : 0.78;
+    const opacity = dimmed ? 0.1 : latent ? 0.38 : posterior ? 0.92 : 0.78;
     const change = difference.edgeChanges.get(meta.id);
     return {
       posterior,

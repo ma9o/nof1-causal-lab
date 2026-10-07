@@ -24,7 +24,6 @@ const emissions = { npy: new Uint8Array(dump([0, 1, 2, 2, 3, 4], [2, 3, 1], { dt
 const mask = { npy: new Uint8Array(dump([1, 1, 1, 1, 0, 1], [2, 3, 1], { dtype: "b1" })) };
 const origin = "2026-01-01T00:00:00Z";
 const metadata: PreparedDataMetadata = {
-  source: { files: ["input/test.csv"], hashes: {}, start: null, end: null },
   preparation: {
     default_window: "1d",
     variables: [
@@ -39,13 +38,10 @@ const metadata: PreparedDataMetadata = {
   variables: [observation],
 };
 const history: ObservationHistory = {
-  label: observation.name,
   times: [5, 6, 7],
   values: [1, 4, null],
   support_start: [4, 5, 6],
   support_end: [5, 6, 7],
-  time_origin: origin,
-  levels: null,
   empirical: [],
 };
 const envelope = {
@@ -81,7 +77,8 @@ const sources = new Map<string, DataSourceResult>([
       body: {
         data: { [observation.id]: history },
         metadata,
-        profile: { indicators: {}, dataset_issues: [], is_valid: true },
+        extraction: { workers: [], extraction_reused: null },
+        profile: { indicators: {}, findings: [] },
       },
     },
   ],
@@ -96,6 +93,7 @@ const sources = new Map<string, DataSourceResult>([
           ...fixtureValue(reports[0]),
           evidence: {
             ...fixtureValue(reports[0]).evidence,
+            time_origin: origin,
             observation_layout: {
               ...fixtureValue(reports[0]).evidence.observation_layout,
               variables: [observation],
@@ -103,7 +101,6 @@ const sources = new Map<string, DataSourceResult>([
           },
         },
         data: [replicate(0), replicate(1)],
-
       },
     },
   ],
@@ -115,14 +112,16 @@ const report: DataComparisonReport = {
     {
       indicator_id: observation.id,
       changes: [],
-      comparison_issues: [],
-      statistics: [{ statistic: "mean", level: null, left: [2.5], right: [3, 1] }],
+      findings: [],
+      statistics: [{ statistic: "mean", left: [2.5], right: [3, 1] }],
       predictive: {
-        kind: "comparison",
         reference_side: "left",
         evaluation: {
-          kind: "unavailable",
-          reason: "Replicas contain missing values at observed anchors",
+          kind: "not_evaluated",
+          code: "data_comparison",
+          subject: { kind: "indicator", id: observation.id },
+          reason: "MISSING_REPLICATE_VALUES",
+          detail: "Replicas contain missing values at observed anchors",
         },
       },
     },
@@ -135,9 +134,12 @@ it("joins selected source histories in report order and retains computed evidenc
   expect(view.left).toBe(report.left);
   expect(view.right).toBe(report.right);
   expect(variable.statistics).toBe(report.variables[0]?.statistics);
-  expect(variable.predictive).toBe(report.variables[0]?.predictive);
+  const retained = fixtureValue(report.variables[0]);
+  if (!("predictive" in variable) || !("predictive" in retained))
+    throw new Error("Expected the recorded predictive alternative");
+  expect(variable.predictive).toBe(retained.predictive);
   expect(variable.left[0]?.points.map((point) => point.value)).toEqual([1, 4, null]);
-  expect(variable.right.map((series) => series.points.map((point) => point.value))).toEqual([
+  expect(variable.right.map((series) => series?.points.map((point) => point.value))).toEqual([
     [2, null, 4],
     [0, 1, 2],
   ]);
@@ -154,10 +156,7 @@ it("joins selected source histories in report order and retains computed evidenc
     },
     sources,
   );
-  expect(missing.variables[0]?.right).toEqual([
-    { variable: null, time_origin: null, points: [] },
-    { variable: null, time_origin: null, points: [] },
-  ]);
+  expect(missing.variables[0]?.right).toEqual([null, null]);
 });
 
 it("plots exact point changes against canonical history coordinates without changing their values", () => {
@@ -167,14 +166,12 @@ it("plots exact point changes against canonical history coordinates without chan
     right: [{ revision: simulation, replicate_index: 0 }],
     variables: [
       {
-        ...fixtureValue(report.variables[0]),
+        indicator_id: observation.id,
+        statistics: [],
+        findings: [],
         changes: [
           { kind: "revised", before: { ...point, value: 4 }, after: { ...point, value: 1 } },
         ],
-        predictive: {
-          kind: "not_applicable",
-          reason: "A predictive comparison requires replicated histories.",
-        },
       },
     ],
   };

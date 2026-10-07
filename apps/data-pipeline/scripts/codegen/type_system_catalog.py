@@ -166,7 +166,7 @@ CONCERNS = {
         "Scientific model",
         (
             "artifacts.question",
-            "artifacts.model_spec",
+            "artifacts.dynamical_model_spec",
             "artifacts.construct",
             "artifacts.evidence",
             "artifacts.indicator",
@@ -200,7 +200,6 @@ CONCERNS = {
             "artifacts.scenarios",
             "artifacts.simulation",
             "artifacts.checks",
-            "artifacts.availability",
             "artifacts.model_checks",
         ),
     ),
@@ -218,7 +217,7 @@ CONCERNS = {
     ),
     "read_models": (
         "Read models",
-        ("study.snapshot_models", "study.view_models", "study.visual_models"),
+        ("study.snapshot_models", "study.view_models", "artifacts.observation_history"),
     ),
     "api_tools": (
         "API & tool contracts",
@@ -338,7 +337,7 @@ def _layer_for(name: str, module: str) -> str:
         )
     if module.endswith("artifacts.simulation"):
         return "authored" if name in {"SimulationSpec"} else "findings"
-    if module.endswith(("artifacts.checks", "artifacts.model_checks", "artifacts.availability")):
+    if module.endswith(("artifacts.checks", "artifacts.model_checks")):
         return "findings"
     if name == "FitSettingsSpec" or module.endswith("sampler_config"):
         return "authored"

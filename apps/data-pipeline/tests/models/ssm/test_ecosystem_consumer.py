@@ -23,7 +23,7 @@ from tests.model_fixtures import load_model_fixture
 
 
 def _nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "ecosystem_consumer/nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model.json"
@@ -31,7 +31,7 @@ def _nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlin
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.inference(concern="sampling")
@@ -57,7 +57,7 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
     )
     problem = build_particle_problem(
         model.prior_runtime_bundle,
-        bind_panel_fixture(model.compiled, observations, times),
+        bind_panel_fixture(model.compiled_dynamical_model, observations, times),
         scheme="euler_maruyama",
         trace_key=jax.random.key(7),
         reparam=None,
@@ -100,14 +100,14 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
     np.testing.assert_allclose(transition, law.log_prob(path[1]), atol=2e-5)
     result = fit(
         model.prior_runtime_bundle,
-        bind_panel_fixture(model.compiled, observations, times),
+        bind_panel_fixture(model.compiled_dynamical_model, observations, times),
         reparam=None,
         sampler=SamplerSpec(
             num_warmup=2,
-            num_samples=4,
+            num_samples_per_chain=4,
             num_chains=1,
             seed=9,
-            n_particles=4,
+            num_particles=4,
             retain_latent_paths=True,
             marginal_particle_gibbs=MarginalParticleGibbsSpec(
                 n_parameter_particles=2,

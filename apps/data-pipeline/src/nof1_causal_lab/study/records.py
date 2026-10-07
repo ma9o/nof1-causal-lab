@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from uuid import UUID
 
@@ -20,12 +19,12 @@ from nof1_causal_lab.actions.contracts import (
 )
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.data_preparation import ExtractionWorkerResult, FileSourceRef
+from nof1_causal_lab.artifacts.checks import FindingSubject
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult, FileSourceRef
+from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelEditResult
-from nof1_causal_lab.artifacts.posterior import ModelFitResult
+from nof1_causal_lab.artifacts.posterior import InferenceEvidence
 from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
-from nof1_causal_lab.json_types import JsonValue
 from nof1_causal_lab.study.state import StudyState
 
 if TYPE_CHECKING:
@@ -39,16 +38,10 @@ class ActionMessage(Value):
 
     kind: Literal["log"] = "log"
     timestamp: AwareDatetime
-    level: Literal["debug", "info", "warn", "error"]
-    label: str = Field(pattern=r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
-    details: Mapping[str, JsonValue] = Field(default_factory=dict)  # noqa: FIELD003 -- External action clients retain structured execution facts through messages.
-
-
-class DataPreparationResult(Value):
-    """Preparation artifacts and the measurements actually retained by extraction."""
-
-    workers: tuple[ExtractionWorkerResult, ...] = ()
-    extraction_reused: int | None = None
+    severity: Literal["debug", "info", "warning", "error"]
+    code: str
+    subject: FindingSubject
+    detail: str
 
 
 class Applied[ResultT](Value):
@@ -67,23 +60,14 @@ class Applied[ResultT](Value):
     )
 
 
-type RejectionReason = Literal[
-    "revision_conflict", "input_unavailable", "scientific_inputs", "recorded_rejection"
-]
-
-
 class Rejected(Value):
     """An expected refusal to execute or publish a scientific request."""
 
     status: Literal["rejected"] = Field(
         default="rejected", description="Discriminator identifying a rejected outcome."
     )
-    reason: RejectionReason = Field(
-        description=(
-            "Machine-readable category used to distinguish input, science, and "
-            "revision-conflict rejections."
-        )
-    )
+    code: str
+    subject: FindingSubject
     detail: str = Field(
         description="Explanation of the specific condition that prevented application."
     )
@@ -281,7 +265,7 @@ def applied_attempt[ResultT](
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
-        case FitRequest(), ModelFitResult():
+        case FitRequest(), InferenceEvidence():
             return StagedFitAttempt(
                 action="fit",
                 request=request,
@@ -392,7 +376,9 @@ class ActionBase(Value):
     saved: StudyRevision | None = None
 
 
-def inference_record[T: StudyRevision](records: Iterable[T], model_revision: GitOid) -> T | None:
+def inference_record[T: StudyRevision](
+    records: Iterable[T], dynamical_model_spec_revision: GitOid
+) -> T | None:
     """Find the committed inference operation that produced this exact model value."""
     return next(
         (
@@ -401,7 +387,7 @@ def inference_record[T: StudyRevision](records: Iterable[T], model_revision: Git
             if record.record.attempt.action == "fit"
             and isinstance(record.record.attempt.outcome, Applied)
             and any(
-                info.artifact_id == "model" and info.revision == model_revision
+                info.artifact_id == "model" and info.revision == dynamical_model_spec_revision
                 for info in record.record.attempt.outcome.effects.produced
             )
         ),

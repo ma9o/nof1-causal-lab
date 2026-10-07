@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.study.artifact_files import json_filename
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.study.state import ArtifactRecord
     from nof1_causal_lab.study.store import ArtifactStore
 
 
 def write_model_revision(
     store: ArtifactStore,
-    payload: ModelSpec,
+    payload: DynamicalModelSpec,
     *,
     derived_from: dict[ArtifactId, GitOid],
     produced_by: str | None,

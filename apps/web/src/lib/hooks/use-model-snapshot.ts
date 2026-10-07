@@ -27,13 +27,13 @@ export function useActionResult(workspaceId: string, identity: string | undefine
 }
 
 /** Locate the simulation selected through the viewed call's recorded dependencies. */
-export function useViewedSimulationResult(model: ModelSnapshot, enabled: boolean) {
-  const journal = useStudyJournal(model.workspace_id).data;
-  const selected = producingCall(journal?.attempts ?? [], model.commit_id);
+export function useViewedSimulationResult(modelSnapshot: ModelSnapshot, enabled: boolean) {
+  const journal = useStudyJournal(modelSnapshot.workspace_id).data;
+  const selected = producingCall(journal?.attempts ?? [], modelSnapshot.commit_id);
   const calls =
     selected && journal ? callDependencies(selected, journal.attempts, journal.dependencies) : [];
   const call = calls.findLast((entry) => entry.record.attempt.action === "simulate");
-  return useQuery(callQuery(model.workspace_id, call, enabled));
+  return useQuery(callQuery(modelSnapshot.workspace_id, call, enabled));
 }
 
 export function useModelSnapshot(workspaceId: string, identity?: string, enabled = true) {

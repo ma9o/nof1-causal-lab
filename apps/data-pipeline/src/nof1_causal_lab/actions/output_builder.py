@@ -24,9 +24,9 @@ from nof1_causal_lab.study.store import ArtifactStore, read_model, read_question
 
 if TYPE_CHECKING:
     from nof1_causal_lab.actions.effects import ActionEffects
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec, ModelEditResult
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.study.results import ActionOutput
@@ -49,14 +49,12 @@ class OutputBuilder:
     @cached_property
     def checks(
         self,
-    ) -> tuple[ModelCheckReport, IdentificationReport] | None:
+    ) -> tuple[ModelCheckReport, IdentificationReport]:
         """Checks computed by this action, without searching another call's reports."""
         from nof1_causal_lab.artifacts.identification import IdentificationReport
         from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 
         reports = self.applied.effects.reports
-        if "checks" not in reports:
-            return None
         return (
             self.store.read_report(reports["checks"], ModelCheckReport),
             self.store.read_report(reports["identification"], IdentificationReport),
@@ -78,7 +76,7 @@ class OutputBuilder:
         )
 
     @cached_property
-    def model(self) -> ModelSpec | None:
+    def dynamical_model_spec(self) -> DynamicalModelSpec | None:
         """Read the scientific model produced by this execution."""
         return (
             read_model(self.store, self.state.current["model"].revision)
@@ -86,20 +84,15 @@ class OutputBuilder:
             else None
         )
 
-    def identification(self) -> IdentificationReport | None:
-        """Return model identification findings, or ``None`` without retained checks."""
-        if self.checks is None:
-            return None
-        return self.checks[1]
-
-    def model_output(self) -> EditModelOutput:
+    def model_output(self, pruning: ModelEditResult) -> EditModelOutput:
         """Retain the model and scientific findings without computing viewer projections."""
-        model = self.model
-        assert model is not None, "A model producer must retain its model"
+        dynamical_model_spec = self.dynamical_model_spec
+        assert dynamical_model_spec is not None, "A model producer must retain its model"
         return EditModelOutput(
-            model=model,
-            checks=self.checks[0] if self.checks is not None else None,
-            identification=self.identification(),
+            dynamical_model_spec=dynamical_model_spec,
+            checks=self.checks[0],
+            identification=self.checks[1],
+            pruning=pruning,
         )
 
 
@@ -107,7 +100,7 @@ def build_output(
     workspace_id: str, attempt: StagedActionAttempt, state: StudyState
 ) -> ActionOutput:
     """Complete one action's result using only its inputs and staged execution evidence."""
-    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
+    from nof1_causal_lab.artifacts.validation_report import DataProfileReport
     from nof1_causal_lab.study.lineage import read_data_metadata
     from nof1_causal_lab.study.visuals import observation_history, simulation_observation_histories
 
@@ -124,7 +117,7 @@ def build_output(
             assert reader.question is not None
             return EditQuestionOutput(question=reader.question)
         case "edit_model":
-            return reader.model_output()
+            return reader.model_output(attempt.outcome.result)
         case "prepare_data":
             panel_revision = next(
                 artifact.revision
@@ -136,36 +129,26 @@ def build_output(
                 "panel", panel_revision, parquet_filename("panel", "panel")
             )
             return PrepareDataOutput(
+                extraction=attempt.outcome.result,
                 metadata=metadata,
-                profile=store.read_report(effects.reports["data-profile"], DataProfileArtifact),
+                profile=store.read_report(effects.reports["data-profile"], DataProfileReport),
                 data={
                     variable.id: observation_history(
                         metadata.time_origin,
-                        variable,
                         panel.filter(pl.col("indicator_id") == variable.id).sort("anchor_time"),
                     )
                     for variable in metadata.variables
                 },
             )
         case "fit":
-            from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
             from nof1_causal_lab.artifacts.posterior import FitCheckReport, InferenceReport
-            from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 
-            model = read_model(store, state.current["model"].revision)
+            dynamical_model_spec = read_model(store, state.current["model"].revision)
             inference = store.read_report(effects.reports["inference"], InferenceReport)
-            checks = store.read_report(effects.reports["checks"], ModelCheckReport)
-            assert checks.question is not None, "A completed fit evaluates its pinned question"
             return FitOutput(
-                model=model,
-                checks=FitCheckReport(
-                    validation=store.read_report(
-                        effects.reports["validation"], ValidationReportArtifact
-                    ),
-                    question=checks.question,
-                ),
+                dynamical_model_spec=dynamical_model_spec,
+                checks=store.read_report(effects.reports["checks"], FitCheckReport),
                 inference=inference,
-
             )
         case "simulate":
             report = reader.simulation()

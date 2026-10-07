@@ -35,10 +35,10 @@ from typing import Optional as Maybe
 from typing import Union as Either
 
 def parse(
-    first: Either[ModelSpec, dict],
-    second: t.Optional[t.Union[ModelSpec, dict]],
-    third: Maybe[ModelSpec],
-    fourth: list[ModelSpec | dict] | None,
+    first: Either[DynamicalModelSpec, dict],
+    second: t.Optional[t.Union[DynamicalModelSpec, dict]],
+    third: Maybe[DynamicalModelSpec],
+    fourth: list[DynamicalModelSpec | dict] | None,
 ) -> None:
     ...
 """,
@@ -47,9 +47,9 @@ def parse(
     )
 
     assert [violation.annotation for violation in violations] == [
-        "Either[ModelSpec, dict]",
-        "t.Optional[t.Union[ModelSpec, dict]]",
-        "ModelSpec | dict",
+        "Either[DynamicalModelSpec, dict]",
+        "t.Optional[t.Union[DynamicalModelSpec, dict]]",
+        "DynamicalModelSpec | dict",
     ]
 
 
@@ -57,7 +57,7 @@ def test_rules_can_be_selected_independently() -> None:
     checker = _load_checker()
     violations = checker.scan_text(
         """
-def compile_plan(plan: ModelSpec | dict[str, int] | None) -> None:
+def compile_plan(plan: DynamicalModelSpec | dict[str, int] | None) -> None:
     if plan is None:
         raise ValueError("plan is required")
 """,
@@ -80,7 +80,7 @@ class Indicator(BaseModel):
     name: str
 
 def compile_plan(
-    plan: ModelSpec | dict[str, Any] | None,
+    plan: DynamicalModelSpec | dict[str, Any] | None,
     indicator: Indicator | dict[str, Any],
     legacy: Union[Indicator, dict[str, Any]],
     metadata: dict[str, Any] | None,
@@ -125,7 +125,7 @@ def test_reject_only_optional_parameter_is_checked() -> None:
         '''
 from typing import Optional as Maybe
 
-def compile_plan(plan: Maybe[ModelSpec]) -> None:
+def compile_plan(plan: Maybe[DynamicalModelSpec]) -> None:
     """Compile an already validated plan."""
     if plan is None:
         raise ValueError("plan is required")
@@ -134,7 +134,7 @@ def compile_spec(spec: StatisticalModelSpec | None = None) -> None:
     if None is spec:
         raise ValueError("spec is required")
 
-def compile_after_audit(plan: ModelSpec | None) -> None:
+def compile_after_audit(plan: DynamicalModelSpec | None) -> None:
     audit_request()
     audit_complete = True
     if plan is None:
@@ -159,7 +159,7 @@ def test_conditional_or_non_rejecting_optional_parameter_is_allowed() -> None:
     violations = checker.scan_text(
         """
 def conditionally_require_plan(
-    plan: ModelSpec | None,
+    plan: DynamicalModelSpec | None,
     *,
     enabled: bool,
 ) -> None:
@@ -167,17 +167,17 @@ def conditionally_require_plan(
         if plan is None:
             raise ValueError("enabled compilation requires a plan")
 
-def default_plan(plan: ModelSpec | None = None) -> None:
+def default_plan(plan: DynamicalModelSpec | None = None) -> None:
     if plan is None:
         return
 
-def return_before_rejection(plan: ModelSpec | None, enabled: bool) -> None:
+def return_before_rejection(plan: DynamicalModelSpec | None, enabled: bool) -> None:
     if not enabled:
         return
     if plan is None:
         raise ValueError("plan is required")
 
-def replace_before_rejection(plan: ModelSpec | None) -> None:
+def replace_before_rejection(plan: DynamicalModelSpec | None) -> None:
     if plan is None:
         plan = default_plan()
     if plan is None:
@@ -240,7 +240,7 @@ def test_core_bypasses_reject_self_updates_and_allow_validated_revisions() -> No
 """
     violations = checker.scan_text(
         source,
-        path="src/nof1_causal_lab/artifacts/model_spec.py",
+        path="src/nof1_causal_lab/artifacts/dynamical_model_spec.py",
         rules=frozenset({"CORE001"}),
     )
     assert [item.target for item in violations] == ["model_copy", "model_copy", "__setattr__"]
@@ -366,7 +366,7 @@ def test_core_collections_cover_private_owned_data_and_properties() -> None:
     violations = checker.scan_text(
         """from typing import Dict as MutableDict
 from nof1_causal_lab.artifacts.base import Value
-class ModelSpec(Value):
+class DynamicalModelSpec(Value):
     entries: tuple[MutableDict[str, int], ...]
     readonly: Mapping[str, int]
     _builder: dict[str, int]
@@ -380,7 +380,7 @@ class ModelSpec(Value):
 class Request:
     entries: dict[str, int]
 """,
-        path="src/nof1_causal_lab/artifacts/model_spec.py",
+        path="src/nof1_causal_lab/artifacts/dynamical_model_spec.py",
         rules=frozenset({"CORE002"}),
     )
     assert [(v.code, v.target) for v in violations] == [
@@ -405,7 +405,7 @@ class Request:
 )
 def test_pure_projection_scope_rejects_revalidation(operation: str) -> None:
     checker = _load_checker()
-    source = f"def newly_added_projection(model: ModelSpec, payload):\n    {operation}\n"
+    source = f"def newly_added_projection(model: DynamicalModelSpec, payload):\n    {operation}\n"
     assert [
         v.code
         for v in checker.scan_text(
@@ -445,7 +445,7 @@ def test_suppress_obeys_the_same_builtin_error_rule(prefix: str, call: str) -> N
 @pytest.mark.parametrize("role", ["models/ssm/compile", "models/ssm/execution", "study"])
 def test_constructor_parsing_stays_with_the_target_owner_or_edge(role: str) -> None:
     violations = _load_checker().scan_text(
-        """from nof1_causal_lab.artifacts.model_spec import ModelSpec as Authored
+        """from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec as Authored
 from pydantic import TypeAdapter
 
 def read(payload):

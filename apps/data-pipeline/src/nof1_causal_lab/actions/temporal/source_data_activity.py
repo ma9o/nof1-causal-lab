@@ -27,7 +27,8 @@ async def read_source_data_activity(
         suffix = PurePosixPath(filename).suffix.lower()
         if suffix not in {".csv", ".parquet"}:
             return Rejected(
-                reason="scientific_inputs",
+                code="SOURCE_INVALID",
+                subject="inputs",
                 detail=f"{filename}: prepare_data requires ready-to-use CSV or Parquet tables.",
             )
         path = storage.join(
@@ -40,28 +41,37 @@ async def read_source_data_activity(
             with storage.open_file(path, "rb") as source:
                 table = csv.read_csv(source) if suffix == ".csv" else pq.read_table(source)
         except pa.ArrowInvalid as exc:
-            return Rejected(reason="scientific_inputs", detail=f"{filename}: {exc}")
+            return Rejected(code="SOURCE_INVALID", subject="inputs", detail=f"{filename}: {exc}")
         if "timestamp" not in table.column_names:
             return Rejected(
-                reason="scientific_inputs", detail=f"{filename}: a timestamp column is required."
+                code="SOURCE_INVALID",
+                subject="inputs",
+                detail=f"{filename}: a timestamp column is required.",
             )
         timestamp = table.column("timestamp")
         if not (pa.types.is_timestamp(timestamp.type) or pa.types.is_date(timestamp.type)):
             return Rejected(
-                reason="scientific_inputs",
+                code="SOURCE_INVALID",
+                subject="inputs",
                 detail=f"{filename}: timestamp must contain dates or datetimes.",
             )
         if timestamp.null_count:
             return Rejected(
-                reason="scientific_inputs", detail=f"{filename}: timestamp cannot contain nulls."
+                code="SOURCE_INVALID",
+                subject="inputs",
+                detail=f"{filename}: timestamp cannot contain nulls.",
             )
         tables.append(table)
     try:
         table = pa.concat_tables(tables, promote_options="permissive")
     except (pa.ArrowInvalid, pa.ArrowTypeError) as exc:
-        return Rejected(reason="scientific_inputs", detail=f"Incompatible source tables: {exc}")
+        return Rejected(
+            code="SOURCE_INVALID", subject="inputs", detail=f"Incompatible source tables: {exc}"
+        )
     if table.num_rows == 0:
-        return Rejected(reason="scientific_inputs", detail="Source tables contain no records.")
+        return Rejected(
+            code="SOURCE_INVALID", subject="inputs", detail="Source tables contain no records."
+        )
     return ArtifactStore(activity_input.workspace_id).write_artifact(
         "raw_data",
         derived_from={},

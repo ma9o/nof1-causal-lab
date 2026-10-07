@@ -4,22 +4,14 @@ import { constructEquation } from "@/lib/model-asset/equations";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import { humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import {
-  Callout,
-  Hint,
-  KeyValue,
-  OwnerLink,
-  Prose,
-  Section,
-  StatusIcon,
-} from "../scope-primitives";
+import { Callout, KeyValue, OwnerLink, Prose, Section, StatusIcon } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
   const scope = constructPresentation(context, id);
   if (!scope) return null;
-  const { model, construct, indicators } = scope;
+  const { modelSnapshot, construct, indicators } = scope;
   const equation = constructEquation(construct, context.entities);
   return (
     <>
@@ -62,7 +54,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
       <LawSections context={context} uses={ownLawUses(construct)} />
       <SimulatedHistory context={context} id={id} kind="states" />
 
-      {model.identification?.treatments[id] && (
+      {modelSnapshot.identification?.treatments[id] && (
         <Section title="Identification">
           <IdentificationFinding context={context} construct={construct} />
         </Section>
@@ -78,7 +70,7 @@ export function IdentificationFinding({
   context: ScopeContext;
   construct: ConstructSpec;
 }) {
-  const finding = context.model.identification?.treatments[construct.id];
+  const finding = context.modelSnapshot.identification?.treatments[construct.id];
   const identified = finding?.status === "identified" ? finding : null;
   const notIdentified = finding?.status === "not_identified" ? finding : null;
   const namesFor = (ids: readonly ConstructId[]) =>

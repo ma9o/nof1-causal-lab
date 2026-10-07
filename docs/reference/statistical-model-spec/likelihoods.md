@@ -1,10 +1,10 @@
 # Likelihoods
 
-Defines the observation-model vocabulary for `LikelihoodSpec` entries in a `ModelSpec`.
+Defines the observation-model vocabulary for `LikelihoodSpec` entries in a `DynamicalModelSpec`.
 
 ## Conditional Expressions
 
-`LikelihoodSpec.law` is a [closed union of law specifications](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/likelihood.py), each with a `distribution` tag and required `Expression` fields directly on the law. Expressions use scientific state references, coefficient operands, arithmetic, and bounded functions. In the table, `p = a + Σ bᵢ state(xᵢ)` is an affine predictor; each loading refers to its actual construct. `a`, `bᵢ`, and the auxiliary operands are fixed coefficients or references to `ModelSpec.parameters`.
+`LikelihoodSpec.law` is a [closed union of law specifications](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/likelihood.py), each with a `distribution` tag and required `Expression` fields directly on the law. Expressions use scientific state references, coefficient operands, arithmetic, and bounded functions. In the table, `p = a + Σ bᵢ state(xᵢ)` is an affine predictor; each loading refers to its actual construct. `a`, `bᵢ`, and the auxiliary operands are fixed coefficients or references to `DynamicalModelSpec.parameters`.
 
 | Native law | Argument expressions |
 |---|---|

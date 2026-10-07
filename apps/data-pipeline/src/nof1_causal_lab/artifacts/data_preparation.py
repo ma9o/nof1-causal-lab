@@ -263,11 +263,8 @@ class FilePreparationSpec(Value):
 class PreparedDataMetadata(Value):
     """An uploaded panel's recipe owns its resolved observation schema."""
 
-    source: FileSourceRef
     preparation: DataPreparationSpec
-    time_origin: AwareDatetime | None = Field(
-        description="Calendar instant of model day zero; null denotes a calendar-free history."
-    )
+    time_origin: AwareDatetime = Field(description="Calendar instant of model day zero.")
 
     @computed_field
     @property
@@ -300,3 +297,10 @@ class FailedExtractionChunk(Value):
 type ExtractionWorkerResult = Annotated[
     CompletedExtractionWorker | FailedExtractionChunk, Field(discriminator="status")
 ]
+
+
+class DataPreparationResult(Value):
+    """Preparation artifacts and the measurements actually retained by extraction."""
+
+    workers: tuple[ExtractionWorkerResult, ...] = ()
+    extraction_reused: int | None = None

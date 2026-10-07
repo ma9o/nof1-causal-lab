@@ -38,17 +38,17 @@ export function LawSections({
   context: ScopeContext;
   uses: readonly CoefficientUse[];
 }) {
-  const fit = context.model.fit;
-  const detail = useInferenceReport(context.model);
+  const fit = context.modelSnapshot.fit;
+  const detail = useInferenceReport(context.modelSnapshot);
   const chains = detail.data?.detail;
   const mcmc = fit?.inference_diagnostics;
   const rows = mcmc?.per_parameter ?? [];
-  const curves = lawCurves(context.model, uses);
+  const curves = lawCurves(context.modelSnapshot, uses);
   return context.entities.parameters
     .filter((parameter) => uses.some((use) => use.parameterId === parameter.id))
     .map((parameter) => {
       const law = parameter.distribution
-        ? context.model.model?.distributions[parameter.distribution]
+        ? context.modelSnapshot.dynamical_model_spec?.distributions[parameter.distribution]
         : null;
       const curve = curves.find((item) => item.parameter.id === parameter.id);
       const label = curve
@@ -75,8 +75,8 @@ export function LawSections({
           {curve && lawHint(curve) && <Hint>{lawHint(curve)}</Hint>}
           {diagnostics.map((row) => {
             const subject = row.subject;
-            const assessments =
-              fit?.convergence.assessments.filter(
+            const findings =
+              fit?.convergence.findings.filter(
                 (item) =>
                   typeof item.subject !== "string" &&
                   item.subject.parameter.element_id === subject.element_id,
@@ -90,11 +90,8 @@ export function LawSections({
             return (
               <div key={String(subject.element_id)} className="space-y-2 border-t pt-2">
                 <span>{humanize(row.parameter)}</span>
-                {assessments.map((item) => (
-                  <div
-                    key={typeof item.subject === "string" ? item.subject : item.subject.criterion}
-                    className="flex items-center gap-2"
-                  >
+                {findings.map((item) => (
+                  <div key={item.code} className="flex items-center gap-2">
                     <StatusIcon
                       status={item.kind === "evaluated" ? item.outcome : "not_evaluated"}
                     />
@@ -146,7 +143,7 @@ export function SimulatedHistory({
   id: string;
   kind: "states" | "indicators";
 }) {
-  const simulation = context.model.simulation;
+  const simulation = context.modelSnapshot.simulation;
   const included =
     simulation &&
     (kind === "states"
@@ -155,16 +152,21 @@ export function SimulatedHistory({
   if (!simulation || !included) return null;
   return (
     <Section title="Simulated history" wide>
-      <SimulationHistory model={context.model} id={id} kind={kind} title="Every saved draw" />
+      <SimulationHistory
+        modelSnapshot={context.modelSnapshot}
+        id={id}
+        kind={kind}
+        title="Every saved draw"
+      />
     </Section>
   );
 }
 
 /** All retained coordinates and their empirical marginal, without a preselected report subset. */
 export function PosteriorPairs({ context }: { context: ScopeContext }) {
-  const fit = context.model.fit;
-  const draws = useParameterDraws(context.model);
-  const report = useInferenceReport(context.model);
+  const fit = context.modelSnapshot.fit;
+  const draws = useParameterDraws(context.modelSnapshot);
+  const report = useInferenceReport(context.modelSnapshot);
   const [xId, setX] = useState<string | null>(null);
   const [yId, setY] = useState<string | null>(null);
   const columns = draws.data ?? [];

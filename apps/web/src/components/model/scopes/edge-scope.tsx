@@ -36,7 +36,6 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
         )}
       </Section>
       <LawSections context={context} uses={ownLawUses(edge)} />
-
     </>
   );
 }

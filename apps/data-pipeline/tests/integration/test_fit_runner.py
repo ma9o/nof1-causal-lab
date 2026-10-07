@@ -10,6 +10,7 @@ import pytest
 from nof1_causal_lab.actions.contracts import FitRequest
 from nof1_causal_lab.actions.io import FitInput
 from nof1_causal_lab.actions.runners import run_action_locally
+from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import read_model
@@ -52,7 +53,7 @@ def test_inference_advances_model_and_uses_the_selected_input(
     fitted_inputs = []
 
     def fake_fit_model(selection, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        model = selection.model
+        model = selection.dynamical_model_spec
         fitted_inputs.append(model.model_dump(mode="json"))
         return {
             "fitted": True,
@@ -75,7 +76,8 @@ def test_inference_advances_model_and_uses_the_selected_input(
     # Refit the selected authored revision; conditioned joint laws cannot be fit inputs.
     request = FitRequest[GitOid](
         input=FitInput[GitOid](
-            replicate_index=0, model_ref=original.revision, data_ref=panel.revision
+            dynamical_model_spec_ref=original.revision,
+            data_ref=DataRef(revision=panel.revision, replicate_index=0),
         )
     )
     question = write_question(artifact_store)
@@ -92,7 +94,7 @@ def test_inference_advances_model_and_uses_the_selected_input(
         # Both provenance and computation follow the selected model revision.
         assert info.derived_from == pins
         assert {
-            "model": applied.result.model.revision,
+            "model": applied.result.dynamical_model_spec_ref.revision,
             "panel": applied.result.data.revision,
             "question": question.revision,
         } == info.derived_from
@@ -101,8 +103,8 @@ def test_inference_advances_model_and_uses_the_selected_input(
         report = artifact_store.read_report(applied.effects.reports["inference"], InferenceReport)
         assert report.core.inference_diagnostics is not None
         assert report.core.inference_diagnostics.num_chains == 1
-        assert report.core.inference_diagnostics.num_samples == 4
-        assert report.core.inference_metadata.n_samples == 4
+        assert report.core.inference_diagnostics.num_samples_per_chain == 4
+        assert report.core.inference_metadata.num_samples_total == 4
         assert "report" not in applied.result.model_dump()
         assert (
             report.core.inference_metadata.distribution

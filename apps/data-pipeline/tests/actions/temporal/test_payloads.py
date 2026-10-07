@@ -42,7 +42,7 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
         "attempt_id": str(uuid4()),
         "request": {
             "action": "edit_model",
-            "input": {"parent_ref": "3" * 40, "model": model},
+            "input": {"parent_ref": "3" * 40, "dynamical_model_spec": model},
         },
     }
     # Constructing this law before entering the sandbox warms JAX's lazy imports
@@ -65,7 +65,7 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                 from nof1_causal_lab.actions.io import FitInput, SimulateInput
                 from nof1_causal_lab.artifacts.identity import GitOid
                 from nof1_causal_lab.artifacts.simulation import SimulationSpec
-                from nof1_causal_lab.artifacts.model_spec import ModelEditResult
+                from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
                 from nof1_causal_lab.study.records import AttemptRecord, Applied, EditAttempt
                 from nof1_causal_lab.actions.temporal.messages import (
                     ActionInput, ActionRequest, EditModelActivityInput, EvaluateChecksInput, AttemptPublication,
@@ -85,18 +85,18 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                     state = StudyState(current={"model": model_record, "panel": panel_record})
                     inputs = [
                         EditModelActivityInput(workspace_id="test", request=restored.request),
-                        # These activities carry revision references, not a ModelSpec.
+                        # These activities carry revision references, not a DynamicalModelSpec.
                         ActionInput(
                             workspace_id="test", state=state,
                             request=FitRequest[GitOid](input=FitInput[GitOid](
-                                model_ref=model_record.revision,
-                                data_ref=panel_record.revision, replicate_index=0,
+                                dynamical_model_spec_ref=model_record.revision,
+                                data_ref={"revision": panel_record.revision, "replicate_index": 0},
                             )),
                         ),
                         ActionInput(
                             workspace_id="test", state=state,
                             request=SimulateRequest[GitOid](input=SimulateInput[GitOid](
-                                model_ref=model_record.revision,
+                                dynamical_model_spec_ref=model_record.revision,
                                 simulation=SimulationSpec(start="2026-01-01", horizon="2d"),
                             )),
                         ),
@@ -125,7 +125,7 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                 # Sandbox configuration must not alter the existing wire representation.
                 assert converter.to_payloads(inputs) == activity_payloads
                 assert converter.to_payloads([restored]) == update_payloads
-                law = restored.request.input.model.distributions["distribution:baseline"]
+                law = restored.request.input.dynamical_model_spec.distributions["distribution:baseline"]
                 assert type(law).__name__ == "Beta"
                 assert law.batch_shape == law.event_shape == ()
 
@@ -150,3 +150,71 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "round trip verified"
+
+
+@pytest.mark.parametrize("action", ["fit", "simulate"])
+def test_numerical_results_cross_workflows_only_as_saved_report_references(action):
+    import numpy as np
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
+    from nof1_causal_lab.actions.effects import ActionEffects
+    from nof1_causal_lab.artifacts.arrays import NumericalArray
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+    from nof1_causal_lab.artifacts.simulation import ModelSimulationResult, SimulationEvidence
+    from nof1_causal_lab.study.records import Applied, StagedActionAttempt, applied_attempt
+
+    ref = {"workspace_id": "TEST", "revision": "1" * 40, "path": "model.json"}
+    data = {"revision": "2" * 40, "replicate_index": 0}
+    values = NumericalArray.from_numpy(np.ones((1, 2, 1)))
+    if action == "fit":
+        request = FitRequest.model_validate(
+            {
+                "input": {
+                    "dynamical_model_spec_ref": ref["revision"],
+                    "data_ref": data,
+                }
+            }
+        )
+        result = InferenceEvidence(chain_extra_fields={"energy": values})
+    else:
+        design = {"start": "2026-01-01", "horizon": "1d"}
+        request = SimulateRequest.model_validate(
+            {"input": {"dynamical_model_spec_ref": ref["revision"], "simulation": design}}
+        )
+        result = ModelSimulationResult(
+            evidence=SimulationEvidence.model_validate(
+                {
+                    "assignments": [],
+                    "time_origin": "2026-01-01T00:00:00Z",
+                    "times": [0, 1],
+                    "draws": 1,
+                    "seed": 0,
+                    "state_ids": [],
+                    "parameter_draws": {},
+                    "arms": {
+                        "kind": "single",
+                        "action": {"latent_paths": values, "observations": values},
+                    },
+                    "observation_layout": {
+                        "variables": [],
+                        "support_start_times": values,
+                        "support_end_times": values,
+                        "mask": values,
+                    },
+                }
+            )
+        )
+    staged = applied_attempt(
+        request,
+        Applied(
+            result=result,
+            effects=ActionEffects(
+                reports={"inference" if action == "fit" else "simulation": "3" * 40}
+            ),
+        ),
+    )
+    payload = staged.model_dump_json()
+    assert '"result":null' in payload
+    assert '"npy"' not in payload
+    assert TypeAdapter(StagedActionAttempt).validate_json(payload) == staged

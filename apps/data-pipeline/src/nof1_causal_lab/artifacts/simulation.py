@@ -7,15 +7,14 @@ from datetime import UTC, date, datetime, time
 from itertools import pairwise
 from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, Field, FiniteFloat, computed_field, model_validator
+from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
 from .arrays import NumericalArray
-from .availability import Available, Evaluation, NotApplicable, Unavailable
-from .checks import PredictiveAssessment
+from .checks import NotEvaluated, PredictiveAssessment
 from .duration import Duration
-from .identity import ConstructId, GitRef, IndicatorId
+from .identity import ConstructId, IndicatorId
 from .observations import ResolvedObservationSpec
 from .predictive_provenance import PredictiveLawProvenance
 from .scenarios import CausalEffectResult, InterventionSpec, StateAssignment
@@ -127,6 +126,7 @@ class PairedArmSimulation(Value):
     kind: Literal["paired"] = "paired"
     action: SimulationArm
     reference: SimulationArm
+    causal: CausalEffectResult | NotEvaluated[Literal["causal_effect"]]
 
 
 type SimulationArms = Annotated[
@@ -144,10 +144,9 @@ class SimulationSummary(Value):
 
 
 class SimulationEvidence(Value):
-    """Exact generated histories with their production coordinates and input provenance."""
+    """Exact generated histories with their production coordinates."""
 
-    model: GitRef
-    design: SimulationSpec
+    assignments: tuple[StateAssignment, ...]
     time_origin: AwareDatetime = Field(description="Calendar instant of model day zero.")
     times: tuple[FiniteFloat, ...] = Field(min_length=2)
     draws: int = Field(ge=1)
@@ -157,23 +156,11 @@ class SimulationEvidence(Value):
     arms: SimulationArms
     observation_layout: SimulationObservationLayout
 
-    @computed_field
-    @property
-    def assignments(self) -> tuple[StateAssignment, ...]:
-        """Intervention assignments positioned on the evidence's retained model-time origin."""
-        return self.design.assignments(self.time_origin)
-
     @model_validator(mode="after")
-    def validate_histories(self) -> Self:
-        """Require the requested time span and paired reference histories exactly for interventions."""
-        if (
-            any(right <= left for left, right in pairwise(self.times))
-            or self.times[0] != self.design.start_day(self.time_origin)
-            or self.times[-1] != self.design.end_day(self.time_origin)
-        ):
-            raise ValueError("Simulation times must increase from the requested start to its end")
-        if bool(self.design.interventions) != isinstance(self.arms, PairedArmSimulation):
-            raise ValueError("Interventions require paired reference histories")
+    def increasing_times(self) -> Self:
+        """Own the generated histories' strictly increasing time axis."""
+        if any(right <= left for left, right in pairwise(self.times)):
+            raise ValueError("Simulation times must be strictly increasing")
         return self
 
 
@@ -191,24 +178,3 @@ class SimulationReport(Value):
     law: PredictiveLawProvenance
     findings: tuple[PredictiveAssessment, ...] = ()
     fit_reliability: FitReliability
-    causal: Evaluation[CausalEffectResult]
-
-    def with_causal_result(self, result: CausalEffectResult) -> Self:
-        """Return a report containing the available causal-effect result."""
-        return self.revised(causal=Available(value=result))
-
-    def without_causal_result(self, reason: str) -> Self:
-        """Return a report explaining why the requested causal-effect result is unavailable."""
-        return self.revised(causal=Unavailable(reason=reason))
-
-    @model_validator(mode="after")
-    def own_causal_scope(self) -> Self:
-        """Require causal findings to match intervention scope and retain all involved state trajectories."""
-        if isinstance(self.causal, NotApplicable) != (not self.evidence.design.interventions):
-            raise ValueError("Causal evaluation applies exactly when interventions are requested")
-        if isinstance(self.causal, Available) and not {
-            self.causal.value.outcome,
-            *(event.target for event in self.evidence.design.interventions),
-        } <= set(self.evidence.state_ids):
-            raise ValueError("Causal trajectories must include the outcome and interventions")
-        return self

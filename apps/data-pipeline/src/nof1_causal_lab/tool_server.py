@@ -56,7 +56,7 @@ that folder, including subfolders, is captured and hashed before call identity.
 Polling saved calls does not require the original source folder.
 `edit_model` selects a question or model parent through `input.parent_ref`;
 a question parent starts a new model; a model parent supplies its definition and pinned
-question. The same ModelSpec accepts partial definitions: omission retains fields and null
+question. The same DynamicalModelSpec accepts partial definitions: omission retains fields and null
 entity entries delete their IDs. The editing boundary prunes outcome-unrelated components
 with warnings and validates the assembled model. Every study starts with `edit_question`.
 

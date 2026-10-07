@@ -134,7 +134,9 @@ def test_observation_producers_reject_owners_outside_the_pinned_measurement():
             ),
         )
     report = validate_extraction(make_model(["mood"]), [rows])
-    assert not report.is_valid
+    assert any(
+        finding.kind == "evaluated" and finding.outcome == "failed" for finding in report.findings
+    )
     worker, errors = validate_worker_output(
         {
             "extractions": [

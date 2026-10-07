@@ -24,10 +24,10 @@ from nof1_causal_lab.models.ssm.structure import (
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.model_parameters import CoefficientUse
     from nof1_causal_lab.models.model_structure import StructuralSelection
@@ -49,25 +49,25 @@ from nof1_causal_lab.utils.model_structure import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 class NumericalSupportError(AggregatedCompileError):
-    """Aggregate failures to derive numerical support from ModelSpec."""
+    """Aggregate failures to derive numerical support from DynamicalModelSpec."""
 
     header = "Numerical derivation failed"
 
 
 def get_construct_dt_days(
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
 ) -> float:
     """Get the model clock interval in fractional days."""
-    return get_model_clock(model).days
+    return get_model_clock(dynamical_model_spec).days
 
 
 def categorical_anchors(selection: StructuralSelection) -> tuple[bool, ...]:
     """Pin the reference contrast only for states with exclusively nominal emissions."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     references = get_reference_indicator_lookup(selection)
     categorical_states = {
         identity
@@ -75,13 +75,13 @@ def categorical_anchors(selection: StructuralSelection) -> tuple[bool, ...]:
         if all(
             indicator.likelihood is not None
             and indicator.likelihood.law.family == DistributionFamily.CATEGORICAL
-            for indicator in model.get_construct(identity).indicators
+            for indicator in dynamical_model_spec.get_construct(identity).indicators
         )
     }
     return tuple(
-        model.indicator_owner(indicator.observation.id).id in categorical_states
+        dynamical_model_spec.indicator_owner(indicator.observation.id).id in categorical_states
         and indicator.observation.name
-        == references[model.indicator_owner(indicator.observation.id).name]
+        == references[dynamical_model_spec.indicator_owner(indicator.observation.id).name]
         for indicator in observed_indicators(selection)
     )
 
@@ -93,7 +93,7 @@ def _build_static_factor_structure(
     from nof1_causal_lab.artifacts.expressions import linear_coefficient
     from nof1_causal_lab.models.model_parameters import baseline_factor_groups, coefficient_value
 
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     groups = baseline_factor_groups(selection)
     factors = [group[0] for group in groups]
     state_index = {identity: index for index, identity in enumerate(selected_state_ids(selection))}
@@ -101,7 +101,7 @@ def _build_static_factor_structure(
     for index, group in enumerate(groups):
         sources = {construct.id for construct in group}
         for source in sources:
-            construct = model.get_construct(source)
+            construct = dynamical_model_spec.get_construct(source)
             initial_mean = construct.coefficient("initial_mean")
             assert initial_mean is not None
             if coefficient_value(initial_mean) != 0.0:
@@ -111,12 +111,12 @@ def _build_static_factor_structure(
             if (
                 construct.indicators
                 or construct.temporal_status != "time_invariant"
-                or any(edge.effect.id == source for edge in model.edges)
+                or any(edge.effect.id == source for edge in dynamical_model_spec.edges)
             ):
                 raise NumericalSupportError(
                     ["A marginalized baseline factor must be an unmeasured time-invariant root"]
                 )
-            for edge in model.edges:
+            for edge in dynamical_model_spec.edges:
                 if edge.cause.id != source or edge.effect.id not in state_index:
                     continue
                 weight = 1.0
@@ -151,8 +151,10 @@ def state_ids(selection: StructuralSelection) -> tuple[ConstructId, ...]:
 
 def state_names(selection: StructuralSelection) -> tuple[str, ...]:
     """Return state display labels in the same order as the compiled state axis."""
-    model = selection.model
-    return tuple(model.get_construct(identity).name for identity in state_ids(selection))
+    dynamical_model_spec = selection.dynamical_model_spec
+    return tuple(
+        dynamical_model_spec.get_construct(identity).name for identity in state_ids(selection)
+    )
 
 
 def n_states(selection: StructuralSelection) -> int:
@@ -162,9 +164,9 @@ def n_states(selection: StructuralSelection) -> int:
 
 def observed_indicators(selection: StructuralSelection) -> tuple[IndicatorSpec, ...]:
     """Return model-owned indicators in the selection's compiled observation order."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     return tuple(
-        model.indicator(identity)
+        dynamical_model_spec.indicator(identity)
         for identity in tuple(
             indicator.observation.id for indicator in selected_indicators(selection)
         )
@@ -396,10 +398,10 @@ def observation_noise_block(selection: StructuralSelection) -> ManifestCholBlock
 
 def time_invariant_mask(selection: StructuralSelection) -> np.ndarray:
     """Mark compiled state coordinates whose constructs are time-invariant."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     return np.asarray(
         [
-            model.get_construct(identity).temporal_status == "time_invariant"
+            dynamical_model_spec.get_construct(identity).temporal_status == "time_invariant"
             for identity in state_ids(selection)
         ],
         dtype=bool,
@@ -408,9 +410,12 @@ def time_invariant_mask(selection: StructuralSelection) -> np.ndarray:
 
 def input_mask(selection: StructuralSelection) -> np.ndarray:
     """Coordinates read from the panel instead of generated under a state law."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     return np.asarray(
-        [model.get_construct(identity).role == "exogenous" for identity in state_ids(selection)],
+        [
+            dynamical_model_spec.get_construct(identity).role == "exogenous"
+            for identity in state_ids(selection)
+        ],
         dtype=bool,
     )
 
@@ -419,10 +424,10 @@ def diffusion_families(selection: StructuralSelection) -> tuple[DistributionFami
     """Resolve innovation families, requiring diffusion scales for dynamic endogenous states."""
     from nof1_causal_lab.distributions import DistributionFamily
 
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     result = []
     for identity in state_ids(selection):
-        construct = model.get_construct(identity)
+        construct = dynamical_model_spec.get_construct(identity)
         if construct.role == "exogenous" or construct.temporal_status == "time_invariant":
             result.append(DistributionFamily.GAUSSIAN)
         elif construct.coefficient("diffusion_scale") is None:
@@ -507,14 +512,16 @@ def static_factor_ids(selection: StructuralSelection) -> tuple[ConstructId, ...]
 
 def static_factor_names(selection: StructuralSelection) -> tuple[str, ...]:
     """Label baseline factors from their initial-scale parameters or owning constructs."""
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
     names = []
     for identity in static_factor_ids(selection):
-        construct = model.get_construct(identity)
+        construct = dynamical_model_spec.get_construct(identity)
         coefficient = construct.coefficient("initial_scale")
         assert coefficient is not None
         names.append(
-            model.parameter(coefficient).name if isinstance(coefficient, str) else construct.name
+            dynamical_model_spec.parameter(coefficient).name
+            if isinstance(coefficient, str)
+            else construct.name
         )
     return tuple(names)
 
@@ -591,14 +598,14 @@ def _require_execution_choices(selection: StructuralSelection) -> None:
     from nof1_causal_lab.models.model_structure import validate_execution_structure
 
     validate_execution_structure(selection)
-    model = selection.model
+    dynamical_model_spec = selection.dynamical_model_spec
 
     def require_hyperparameter(coefficient: float | ParameterId | None, label: str) -> None:
         if not isinstance(coefficient, str):
             raise IncompleteModelError(f"{label} requires a prior parameter")
 
     for identity in state_ids(selection):
-        construct = model.get_construct(identity)
+        construct = dynamical_model_spec.get_construct(identity)
         if construct.role == "exogenous":
             if construct.distribution is None:
                 raise IncompleteModelError(

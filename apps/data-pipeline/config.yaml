@@ -57,10 +57,10 @@ inference:
   compute_loo_diagnostics: false
   sampler:
     num_warmup: 4000
-    num_samples: 1000
+    num_samples_per_chain: 1000
     num_chains: 4
     seed: 0
-    n_particles: 64
+    num_particles: 64
     marginal_particle_gibbs:
       n_ieks_iters: 6
       n_parameter_particles: 2

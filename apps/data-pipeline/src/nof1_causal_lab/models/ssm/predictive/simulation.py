@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
     from nof1_causal_lab.artifacts.scenarios import StateAssignment
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
 
 
@@ -56,7 +56,7 @@ class SimulationBatch:
     prediction: PredictiveDraws
     observations: jnp.ndarray | None
     measurement_design: DesignInfo
-    time_origin: datetime | None = None
+    time_origin: datetime
 
     @classmethod
     def from_draws(
@@ -64,7 +64,7 @@ class SimulationBatch:
         prediction: PredictiveDraws,
         measurement_design: DesignInfo,
         *,
-        time_origin: datetime | None = None,
+        time_origin: datetime,
     ) -> Self:
         """Bind existing draws to the measurement design that owns their time coordinates."""
         return cls(
@@ -77,11 +77,16 @@ class SimulationBatch:
 
 
 def _time_grid(
-    model: CompiledModel, start: float, end: float, assignments: tuple[StateAssignment, ...]
+    compiled_dynamical_model: CompiledDynamicalModel,
+    start: float,
+    end: float,
+    assignments: tuple[StateAssignment, ...],
 ) -> np.ndarray:
     times = {
         float(value)
-        for value in np.linspace(start, end, max(1, ceil((end - start) / model.clock_days)) + 1)
+        for value in np.linspace(
+            start, end, max(1, ceil((end - start) / compiled_dynamical_model.clock_days)) + 1
+        )
     }
     times.update(event.time for event in assignments)
     return np.asarray(sorted(times))
@@ -105,7 +110,7 @@ def _window_input_events(
 
 
 def generate_simulation_batch(
-    source: CompiledModel | BoundPanel,
+    source: CompiledDynamicalModel | BoundPanel,
     *,
     start: float,
     end: float,
@@ -113,7 +118,7 @@ def generate_simulation_batch(
     times: np.ndarray | jnp.ndarray | None = None,
     draws: int = SIMULATION_DRAWS,
     seed: int = SIMULATION_SEED,
-    time_origin: datetime | None = None,
+    time_origin: datetime,
 ) -> SimulationBatch | ObservationPreflightFailure:
     """Sample current laws once and always generate nonlinear stochastic paths and emissions.
 
@@ -123,18 +128,19 @@ def generate_simulation_batch(
     """
     if isinstance(source, BoundPanel):
         time_origin = source.time_origin
-        model = source.model
+        compiled_dynamical_model = source.compiled_dynamical_model
         times = source.times
         observations = source.values
         support = source.observation_support
     else:
-        model = source
+        compiled_dynamical_model = source
         observations = None
         support = None
-    indicator_ids = tuple(numeric.observation_ids(model))
-    state_ids = tuple(numeric.state_ids(model))
+    indicator_ids = tuple(numeric.observation_ids(compiled_dynamical_model))
+    state_ids = tuple(numeric.state_ids(compiled_dynamical_model))
     time_points: tuple[float, ...] = next(
-        (law.layout.time_points for law in model.laws if law.layout.constructs), ()
+        (law.layout.time_points for law in compiled_dynamical_model.laws if law.layout.constructs),
+        (),
     )
     if isinstance(source, BoundPanel):
         input_events = source.input_events
@@ -142,13 +148,19 @@ def generate_simulation_batch(
         anchor_index = int(np.searchsorted(time_points, start, side="right")) - 1
         history_start = time_points[anchor_index] if time_points and anchor_index >= 0 else 0.0
         events = input_trajectory_events(
-            model, time_origin=time_origin, start=history_start, end=end
+            compiled_dynamical_model, time_origin=time_origin, start=history_start, end=end
         )
         if isinstance(events, ObservationPreflightFailure):
             return events
         input_events = events
-    laws = sample_model_laws(model, draws=draws, key=predictive_keys(seed).parameters)
-    grid = _time_grid(model, start, end, assignments) if times is None else np.asarray(times)
+    laws = sample_model_laws(
+        compiled_dynamical_model, draws=draws, key=predictive_keys(seed).parameters
+    )
+    grid = (
+        _time_grid(compiled_dynamical_model, start, end, assignments)
+        if times is None
+        else np.asarray(times)
+    )
     if len(grid) < 2 or grid[0] != start or grid[-1] != end or np.any(np.diff(grid) <= 0):
         raise ValueError("The prepared simulation grid must increase from start through end")
     grid = np.asarray(
@@ -173,7 +185,7 @@ def generate_simulation_batch(
                 }
             )
             history, _, _ = simulate_latent_histories(
-                model,
+                compiled_dynamical_model,
                 laws.parameters,
                 jnp.asarray(history_grid),
                 random.fold_in(predictive_keys(seed).latents, 1),
@@ -207,7 +219,7 @@ def generate_simulation_batch(
                 }
             )
             history, _, _ = simulate_latent_histories(
-                model,
+                compiled_dynamical_model,
                 laws.parameters,
                 jnp.asarray(history_grid),
                 random.fold_in(predictive_keys(seed).latents, 1),
@@ -219,14 +231,14 @@ def generate_simulation_batch(
     from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
 
     if support is None:
-        support = simulation_observation_support(model, grid)
+        support = simulation_observation_support(compiled_dynamical_model, grid)
     interventions = []
     for event in assignments:
         if event.target not in state_ids:
             raise ValueError(f"Intervention target is not a model state: {event.target}")
         interventions.append(ResolvedIntervention(index=state_ids.index(event.target), spec=event))
     prediction = simulate_predictive_draws(
-        model,
+        compiled_dynamical_model,
         laws.parameters,
         jnp.asarray(grid),
         seed=seed,
@@ -268,7 +280,7 @@ def generate_simulation_batch(
 
 
 def measure_simulation_batch(
-    model: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     batch: SimulationBatch,
     *,
     groups: tuple[str, ...] = ("dynamics", "measurement"),
@@ -279,23 +291,26 @@ def measure_simulation_batch(
     prediction = batch.prediction
     observations = batch.observations
     measurement_design = batch.measurement_design
-    indicator_ids = tuple(numeric.observation_ids(model))
-    state_ids = tuple(numeric.state_ids(model))
+    indicator_ids = tuple(numeric.observation_ids(compiled_dynamical_model))
+    state_ids = tuple(numeric.state_ids(compiled_dynamical_model))
     targets = {
-        **{state.name: ConstructRef(id=state.id) for state in model.states},
-        **{observation.id: IndicatorRef(id=observation.id) for observation in model.observations},
+        **{state.name: ConstructRef(id=state.id) for state in compiled_dynamical_model.states},
         **{
-            f"{model.states[source].name}->{state.name}": EdgeRef(id=identity)
-            for state in model.states
+            observation.id: IndicatorRef(id=observation.id)
+            for observation in compiled_dynamical_model.observations
+        },
+        **{
+            f"{compiled_dynamical_model.states[source].name}->{state.name}": EdgeRef(id=identity)
+            for state in compiled_dynamical_model.states
             for source, identity in state.incoming_edges
         },
     }
     findings: list[PredictiveAssessment] = []
-    components = model.dynamics.spec.components if "dynamics" in groups else ()
+    components = compiled_dynamical_model.dynamics.spec.components if "dynamics" in groups else ()
     for state_index, identity in enumerate(
         state_ids if set(groups) & {"dynamics", "measurement"} else ()
     ):
-        if model.states[state_index].is_input:
+        if compiled_dynamical_model.states[state_index].is_input:
             continue
         incoming = [
             component
@@ -318,12 +333,14 @@ def measure_simulation_batch(
             if source != state_index
         }
         target = ConstructSimulationTarget(
-            construct=model.states[state_index],
-            edge_parents=tuple(model.states[source].name for source in parents),
-            hill_parents=tuple(model.states[source].name for source in sorted(hills)),
+            construct=compiled_dynamical_model.states[state_index],
+            edge_parents=tuple(compiled_dynamical_model.states[source].name for source in parents),
+            hill_parents=tuple(
+                compiled_dynamical_model.states[source].name for source in sorted(hills)
+            ),
         )
         measured, _ = measure_construct_simulation(
-            model,
+            compiled_dynamical_model,
             prediction,
             measurement_design,
             target,
@@ -336,7 +353,9 @@ def measure_simulation_batch(
     modeled_columns = [
         index
         for index, identity in enumerate(indicator_ids)
-        if not model.states[model.observations[index].state_index].is_input
+        if not compiled_dynamical_model.states[
+            compiled_dynamical_model.observations[index].state_index
+        ].is_input
     ]
     nonfinite = bool(
         np.any(
@@ -353,13 +372,17 @@ def measure_simulation_batch(
             tuple(indicator_ids[index] for index in modeled_columns),
             times=batch.times,
             time_origin=batch.time_origin,
-            standardized=tuple(model.observations[index].standardized for index in modeled_columns),
+            standardized=tuple(
+                compiled_dynamical_model.observations[index].standardized
+                for index in modeled_columns
+            ),
         )
     )
     if "data_comparison" in groups and checks is None:
         findings.append(
             NotEvaluated(
-                subject=PredictiveSubject(check="data_comparison", target="observations"),
+                code="data_comparison",
+                subject=PredictiveSubject(target="observations"),
                 reason="NONFINITE_PATHS" if nonfinite else "COMPARISON_INPUTS_MISSING",
                 detail="Predictive observations contain non-finite values."
                 if nonfinite

@@ -7,9 +7,10 @@ from pathlib import Path
 import polars as pl
 
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.model_spec import ModelEditResult
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, DataPreparationResult
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
@@ -32,13 +33,15 @@ def seed(root, workspace, options):
         path.write_text("fixture input")
     question_root(workspace)
     # Incomplete authored equations keep this projection contract non-numerical.
-    model = make_model(["stress_score", "sleep_score"], [("stress_score", "sleep_score")])
+    dynamical_model_spec = make_model(
+        ["stress_score", "sleep_score"], [("stress_score", "sleep_score")]
+    )
     frame = panel_frame(n_days=2).with_columns(
         pl.col("indicator_id").replace_strict(
             {
                 fixture_entity_id("indicator", name): next(
                     indicator.observation.id
-                    for indicator in model.indicators
+                    for indicator in dynamical_model_spec.indicators
                     if indicator.observation.name == name + "_obs"
                 )
                 for name in ("stress_score", "sleep_score")
@@ -62,14 +65,16 @@ def seed(root, workspace, options):
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
+        json_files={"model.json": dynamical_model_spec.model_dump(mode="json", round_trip=True)},
     )
     panel = store.write_artifact(
         "panel",
         produced_by="prepare_data",
         derived_from={"raw_data": old_raw.revision if options.get("stalePanel") else raw.revision},
         json_files={
-            "metadata.json": metadata_for_model(model).model_dump(mode="json", round_trip=True)
+            "metadata.json": metadata_for_model(dynamical_model_spec).model_dump(
+                mode="json", round_trip=True
+            )
         },
         parquet_files={"panel.parquet": frame},
     )

@@ -99,7 +99,7 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
     <ModelRevision
       {...props}
       result={selected.result}
-      model={selected.data}
+      modelSnapshot={selected.data}
       loadingRevision={selected.isPlaceholderData === true}
       viewAt={viewAt}
       focusSeq={focusSeq}
@@ -114,14 +114,14 @@ function ModelRevision({
   attempts,
   dependencies,
   useActionTrace,
-  model,
+  modelSnapshot,
   result,
   loadingRevision,
   viewAt,
   focusSeq,
   running,
 }: CausalModelAssetViewProps & {
-  model: ModelSnapshot;
+  modelSnapshot: ModelSnapshot;
   result: ActionSuccess | undefined;
   loadingRevision: boolean;
   viewAt: (seq: number | null) => void;
@@ -151,12 +151,12 @@ function ModelRevision({
     workspaceId,
     question: initialQuestion,
     attempts,
-    model,
+    modelSnapshot,
     focusSeq,
     result,
     viewAt,
   });
-  const recordedPaths = useSimulationPaths(model);
+  const recordedPaths = useSimulationPaths(modelSnapshot);
   const tick = ticks.find((item) => item.record.seq === focusSeq);
   const dataReport =
     tick?.record.attempt.action === "data_diff" && tick.record.attempt.outcome.status === "applied"
@@ -298,7 +298,7 @@ function ModelRevision({
               activeComparison ||
               recordedComparison ? (
                 <LayeredCausalGraph
-                  model={model}
+                  modelSnapshot={modelSnapshot}
                   entities={context.entities}
                   simulation={step === "simulate" ? simulationResult : null}
                   simulationPaths={step === "simulate" ? (recordedPaths.data ?? null) : null}

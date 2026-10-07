@@ -1,7 +1,8 @@
 import { Buffer } from "node:buffer";
-import { encode } from "@msgpack/msgpack";
+import { ExtData, encode } from "@msgpack/msgpack";
 import {
   createModelClient,
+  decodeModelMessage,
   readNumericalArray,
   type TimelineRevision,
 } from "@nof1-causal-lab/api-types";
@@ -109,26 +110,59 @@ it("decodes binary NPY buffers once with shape, non-finite values and exact 64-b
   const integers = {
     npy: new Uint8Array(dump(new BigUint64Array([BigInt("18446744073709551615")]), [1])),
   };
-  const body = { arrays: { floats, integers } };
+  const body = {
+    changes: {
+      distributions: {
+        "distribution:floats": { distribution: "Normal", params: { loc: floats, scale: floats } },
+        "distribution:integers": { distribution: "Delta", params: { v: integers } },
+      },
+    },
+  };
   fetcher.mockResolvedValue(
     messagePack({
       call_id: comparison.call_id,
       action: "model_diff",
       status: "success",
       commit_id: comparison.commit_id,
-      body,
+      body: {
+        changes: {
+          distributions: {
+            ...body.changes.distributions,
+            "distribution:floats": {
+              distribution: "Normal",
+              params: { loc: floats, scale: { npy: new ExtData(42, new Uint8Array(8)) } },
+            },
+          },
+        },
+      },
       messages: [],
     }),
   );
   const saved = await readActionResult("user-1", comparison);
   expect(saved.body).toEqual(body);
-  if (!("arrays" in saved.body)) throw new Error("Expected binary result arrays");
-  const array = fixtureValue(saved.body.arrays.floats);
+  if (saved.action !== "model_diff") throw new Error("Expected model comparison");
+  const laws = fixtureValue(saved.body.changes.distributions);
+  const law = fixtureValue(laws["distribution:floats"]);
+  const integerLaw = fixtureValue(laws["distribution:integers"]);
+  function buffer(value: unknown) {
+    if (
+      value === null ||
+      typeof value !== "object" ||
+      !("npy" in value) ||
+      !(value.npy instanceof Uint8Array)
+    )
+      throw new Error("Expected owned numerical value");
+    return { npy: value.npy };
+  }
+  const array = buffer(law.params?.loc);
+  const shared = buffer(law.params?.scale);
+  expect(shared.npy).toBe(array.npy);
   expect(array.npy).toBeInstanceOf(Uint8Array);
   const decoded = readNumericalArray(array);
   expect(decoded.shape).toEqual([2, 2]);
   expect(Array.from(decoded.values)).toEqual([1, NaN, Infinity, -Infinity]);
   expect(readNumericalArray(array)).toBe(decoded);
+  expect(readNumericalArray(shared)).toBe(decoded);
   const nodeBuffer = Buffer.concat([Buffer.from("padding"), Buffer.from(floats.npy)]);
   expect(Array.from(readNumericalArray({ npy: nodeBuffer.subarray(7) }).values)).toEqual([
     1,
@@ -136,9 +170,29 @@ it("decodes binary NPY buffers once with shape, non-finite values and exact 64-b
     Infinity,
     -Infinity,
   ]);
-  expect(Array.from(readNumericalArray(fixtureValue(saved.body.arrays.integers)).values)).toEqual([
+  expect(Array.from(readNumericalArray(buffer(integerLaw.params?.v)).values)).toEqual([
     BigInt("18446744073709551615"),
   ]);
+});
+
+it("restores shared buffers in wire order when JavaScript reorders numeric object keys", () => {
+  const first = new Uint8Array([11, 12]);
+  const second = new Uint8Array([21, 22]);
+  const reference = new ExtData(42, new Uint8Array(8));
+  // A Python map can emit these keys in insertion order; a JavaScript object
+  // enumerates them as 1, 2, 10 after MessagePack decoding.
+  const payload = Buffer.concat([
+    Buffer.from([0x83]),
+    encode("10"),
+    encode(first),
+    encode("2"),
+    encode(second),
+    encode("1"),
+    encode(reference),
+  ]);
+  expect(decodeModelMessage(Uint8Array.from(payload))).toEqual({ 1: first, 2: second, 10: first });
+  const forwardReference = Buffer.concat([Buffer.from([0x92]), encode(reference), encode(first)]);
+  expect(() => decodeModelMessage(forwardReference)).toThrow("earlier value");
 });
 
 it("keeps JSON requests, timeline responses and HTTP errors alongside binary action responses", async () => {

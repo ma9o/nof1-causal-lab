@@ -10,13 +10,13 @@ from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.likelihood import Law
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.execution.contracts import ObservationLaws
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 def build_laplace_backend(
-    spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     n_ieks_iters: int,
     observation_support: ObservationSupportRuntime | None = None,
 ):
@@ -24,8 +24,8 @@ def build_laplace_backend(
     from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
 
     return LaplaceLikelihood(
-        n_latent=numeric.n_states(spec),
-        n_manifest=numeric.n_observations(spec),
+        n_latent=numeric.n_states(compiled_dynamical_model),
+        n_manifest=numeric.n_observations(compiled_dynamical_model),
         n_ieks_iters=n_ieks_iters,
         observation_support=observation_support,
     )

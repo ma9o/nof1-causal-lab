@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.validation_report import ValidationIssue
+from nof1_causal_lab.artifacts.checks import Evaluated
+from nof1_causal_lab.artifacts.identity import IndicatorRef
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.identity import IndicatorId
+    from nof1_causal_lab.artifacts.validation_report import DataFinding
 
 MIN_OBSERVATIONS = 10
 MIN_COVERAGE_PERIODS = 10
@@ -61,22 +63,22 @@ def parse_timestamp_series(timestamps: pl.Series) -> pl.Series:
 def timestamp_issue_specs(
     n_total: int,
     n_unparseable: int,
-) -> list[tuple[Literal["error", "warning"], str]]:
-    """Report all-unparseable timestamps as an error and a majority as a warning."""
+) -> tuple[str, ...]:
+    """Explain failures of the recorded-timestamp criterion."""
     if n_total == 0:
-        return []
+        return ()
     if n_unparseable == n_total:
-        return [("error", f"All {n_total} timestamps are unparseable")]
+        return (f"All {n_total} timestamps are unparseable",)
     if n_unparseable > n_total * 0.5:
-        return [("warning", f"{n_unparseable}/{n_total} timestamps are unparseable (>50%)")]
-    return []
+        return (f"{n_unparseable}/{n_total} timestamps are unparseable (>50%)",)
+    return ()
 
 
 def check_dtype_range(
     values: pl.Series,
     dtype: str,
     ind_name: IndicatorId,
-) -> tuple[list[ValidationIssue], int]:
+) -> tuple[list[DataFinding], int]:
     """Check recorded values against their declared data kind.
 
     Args:
@@ -87,7 +89,7 @@ def check_dtype_range(
     Returns:
         The issues and number of values violating the selected check.
     """
-    issues: list[ValidationIssue] = []
+    issues: list[DataFinding] = []
     violation_count = 0
 
     if dtype == "binary":
@@ -95,11 +97,11 @@ def check_dtype_range(
         violation_count = len(non_binary)
         if violation_count > 0:
             issues.append(
-                ValidationIssue(
-                    indicator_id=ind_name,
-                    issue_type="dtype_violation",
-                    severity="error",
-                    message=f"Binary indicator has values outside {{0, 1}}: {non_binary.to_list()[:5]}",
+                Evaluated(
+                    code="dtype_violation",
+                    subject=IndicatorRef(id=ind_name),
+                    outcome="failed",
+                    evidence=f"Binary indicator has values outside {{0, 1}}: {non_binary.to_list()[:5]}",
                 )
             )
     elif dtype == "count":
@@ -109,20 +111,20 @@ def check_dtype_range(
         violation_count = len(negative) + len(fractional)
         if len(negative) > 0:
             issues.append(
-                ValidationIssue(
-                    indicator_id=ind_name,
-                    issue_type="dtype_violation",
-                    severity="error",
-                    message=f"Count indicator has negative values: {negative.to_list()[:5]}",
+                Evaluated(
+                    code="dtype_violation",
+                    subject=IndicatorRef(id=ind_name),
+                    outcome="failed",
+                    evidence=f"Count indicator has negative values: {negative.to_list()[:5]}",
                 )
             )
         if len(fractional) > 0:
             issues.append(
-                ValidationIssue(
-                    indicator_id=ind_name,
-                    issue_type="dtype_violation",
-                    severity="error",
-                    message=f"Count indicator has fractional values: {fractional.to_list()[:5]}",
+                Evaluated(
+                    code="dtype_violation",
+                    subject=IndicatorRef(id=ind_name),
+                    outcome="failed",
+                    evidence=f"Count indicator has fractional values: {fractional.to_list()[:5]}",
                 )
             )
     elif dtype == "continuous":
@@ -139,11 +141,11 @@ def check_dtype_range(
                 violation_count = len(outliers)
                 if violation_count > 0:
                     issues.append(
-                        ValidationIssue(
-                            indicator_id=ind_name,
-                            issue_type="dtype_violation",
-                            severity="warning",
-                            message=f"{violation_count} outlier(s) outside [{lower:.2f}, {upper:.2f}]",
+                        Evaluated(
+                            code="dtype_violation",
+                            subject=IndicatorRef(id=ind_name),
+                            outcome="failed",
+                            evidence=f"{violation_count} outlier(s) outside [{lower:.2f}, {upper:.2f}]",
                         )
                     )
 
@@ -154,7 +156,7 @@ def check_time_coverage(
     parsed_ts: pl.Series,
     model_clock_hours: float,
     ind_name: IndicatorId,
-) -> tuple[list[ValidationIssue], float | None]:
+) -> tuple[list[DataFinding], float | None]:
     """Assess whether recorded times span enough model-clock periods.
 
     Args:
@@ -166,7 +168,7 @@ def check_time_coverage(
         Coverage issues and the fraction of the required span covered, capped at
         one; the fraction is ``None`` when coverage cannot be assessed.
     """
-    issues: list[ValidationIssue] = []
+    issues: list[DataFinding] = []
     if len(parsed_ts) < 2:
         return issues, None
 
@@ -178,11 +180,11 @@ def check_time_coverage(
 
     if time_span_hours < min_hours:
         issues.append(
-            ValidationIssue(
-                indicator_id=ind_name,
-                issue_type="insufficient_coverage",
-                severity="warning",
-                message=f"Time span {time_span_hours:.0f}h < required {min_hours}h "
+            Evaluated(
+                code="insufficient_coverage",
+                subject=IndicatorRef(id=ind_name),
+                outcome="failed",
+                evidence=f"Time span {time_span_hours:.0f}h < required {min_hours}h "
                 f"({MIN_COVERAGE_PERIODS} x {model_clock_hours}h)",
             )
         )
@@ -194,7 +196,7 @@ def check_timestamp_gaps(
     parsed_ts: pl.Series,
     model_clock_hours: float,
     ind_name: IndicatorId,
-) -> tuple[list[ValidationIssue], float | None]:
+) -> tuple[list[DataFinding], float | None]:
     """Assess the largest consecutive gap relative to the model clock.
 
     Args:
@@ -206,7 +208,7 @@ def check_timestamp_gaps(
         Gap issues and the largest gap divided by the allowed gap threshold, or
         ``None`` for the ratio when there are too few timestamps.
     """
-    issues: list[ValidationIssue] = []
+    issues: list[DataFinding] = []
     if len(parsed_ts) < 3:
         return issues, None
 
@@ -218,11 +220,11 @@ def check_timestamp_gaps(
 
     if max_gap_hours > threshold:
         issues.append(
-            ValidationIssue(
-                indicator_id=ind_name,
-                issue_type="large_timestamp_gap",
-                severity="warning",
-                message=f"Max consecutive gap {max_gap_hours:.0f}h > "
+            Evaluated(
+                code="large_timestamp_gap",
+                subject=IndicatorRef(id=ind_name),
+                outcome="failed",
+                evidence=f"Max consecutive gap {max_gap_hours:.0f}h > "
                 f"{MAX_GAP_MULTIPLIER}x {model_clock_hours}h ({threshold}h)",
             )
         )
@@ -232,7 +234,7 @@ def check_timestamp_gaps(
 
 def check_hallucination_signals(
     values: pl.Series, dtype: str, ind_name: IndicatorId
-) -> tuple[list[ValidationIssue], float, bool]:
+) -> tuple[list[DataFinding], float, bool]:
     """Flag suspicious repetition and arithmetic patterns in extracted values.
 
     Args:
@@ -245,7 +247,7 @@ def check_hallucination_signals(
         distinct sorted values form a nonconstant arithmetic sequence. These are
         heuristic signals, not proof of fabricated measurements.
     """
-    issues: list[ValidationIssue] = []
+    issues: list[DataFinding] = []
     n = len(values)
     duplicate_pct = 0.0
     arithmetic_sequence_detected = False
@@ -262,11 +264,11 @@ def check_hallucination_signals(
         if variance > 0 and max_count > n * HALLUCINATION_DUPLICATE_THRESHOLD:
             most_common = vc.sort("count", descending=True).row(0)[0]
             issues.append(
-                ValidationIssue(
-                    indicator_id=ind_name,
-                    issue_type="suspicious_pattern",
-                    severity="warning",
-                    message=f">{HALLUCINATION_DUPLICATE_THRESHOLD * 100:.0f}% of values "
+                Evaluated(
+                    code="suspicious_pattern",
+                    subject=IndicatorRef(id=ind_name),
+                    outcome="failed",
+                    evidence=f">{HALLUCINATION_DUPLICATE_THRESHOLD * 100:.0f}% of values "
                     f"are {most_common} ({max_count}/{n})",
                 )
             )
@@ -278,11 +280,11 @@ def check_hallucination_signals(
             if step != 0:
                 arithmetic_sequence_detected = True
                 issues.append(
-                    ValidationIssue(
-                        indicator_id=ind_name,
-                        issue_type="suspicious_pattern",
-                        severity="warning",
-                        message=f"Values form arithmetic sequence with step {step}",
+                    Evaluated(
+                        code="suspicious_pattern",
+                        subject=IndicatorRef(id=ind_name),
+                        outcome="failed",
+                        evidence=f"Values form arithmetic sequence with step {step}",
                     )
                 )
 
@@ -291,10 +293,10 @@ def check_hallucination_signals(
 
 def check_construct_correlations(
     combined: pl.DataFrame,
-    construct_lookup: Mapping[str, ConstructSpec],
-) -> list[ValidationIssue]:
+    construct_lookup: Mapping[IndicatorId, ConstructSpec],
+) -> list[DataFinding]:
     """Warn when sufficiently aligned indicators of the same construct correlate negatively."""
-    issues: list[ValidationIssue] = []
+    issues: list[DataFinding] = []
 
     construct_indicators: dict[str, list[str]] = {}
     for indicator_id, construct in construct_lookup.items():
@@ -337,30 +339,14 @@ def check_construct_correlations(
                 corr = aligned.select(pl.corr("value_a", "value_b")).item()
                 if corr is not None and not math.isnan(corr) and corr < 0:
                     issues.append(
-                        ValidationIssue(
-                            indicator_id=None,
-                            issue_type="low_construct_correlation",
-                            severity="warning",
-                            message=f"Indicators {name_a} and {name_b} of {construct_id} have negative "
+                        Evaluated(
+                            code="low_construct_correlation",
+                            subject="dataset",
+                            outcome="failed",
+                            evidence=f"Indicators {name_a} and {name_b} of {construct_id} have negative "
                             f"daily correlation (r={corr:.3f}), violating reflective "
                             f"measurement assumption",
                         )
                     )
 
     return issues
-
-
-def data_availability_issue(
-    indicator_id: IndicatorId, n_observations: int
-) -> ValidationIssue | None:
-    """Report a declared channel with no likelihood contributions, without simulation."""
-    from nof1_causal_lab.artifacts.validation_report import ValidationIssue
-
-    if n_observations:
-        return None
-    return ValidationIssue(
-        indicator_id=indicator_id,
-        issue_type="missing",
-        severity="warning",
-        message="No data extracted for this indicator; its quantities are not empirically anchored by this channel.",
-    )

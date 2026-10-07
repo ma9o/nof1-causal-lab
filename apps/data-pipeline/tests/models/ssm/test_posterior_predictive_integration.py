@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import jax
@@ -21,14 +22,14 @@ from tests.model_fixtures import (
 )
 
 
-def _predictive_draws_feed_mixed_family_diagnostics_model_fixture() -> ModelSpec:
+def _predictive_draws_feed_mixed_family_diagnostics_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json"
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 pytestmark = pytest.mark.inference(concern="predictive")
@@ -37,11 +38,11 @@ pytestmark = pytest.mark.inference(concern="predictive")
 def test_predictive_draws_feed_mixed_family_diagnostics():
     # Exhaustive family/link domains are checked by the observation-sampling
     # test. This case checks the complete prior/runtime/report connection.
-    spec = _predictive_draws_feed_mixed_family_diagnostics_model_fixture()
-    runtime = compile_fit_fixture(spec).prior_runtime_bundle
+    dynamical_model_spec = _predictive_draws_feed_mixed_family_diagnostics_model_fixture()
+    runtime = compile_fit_fixture(dynamical_model_spec).prior_runtime_bundle
     times = jnp.array([0.0, 0.1, 0.25, 0.4, 0.7, 1.0], dtype=jnp.float32)
     samples = sample_prior_predictive_from_runtime(
-        compile_model_fixture(spec), runtime, times, num_samples=3, seed=7
+        compile_model_fixture(dynamical_model_spec), runtime, times, num_samples=3, seed=7
     )
     assert samples.trajectory.latents.shape == (3, 6, 1)
     assert samples.trajectory.observations.shape == (3, 6, 2)
@@ -62,7 +63,7 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
         observations,
         indicator_ids,
         times=tuple(float(t) for t in times),
-        time_origin=None,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         standardized=(False, False),
     )
 
@@ -70,10 +71,7 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
     assert result.n_subsample == 3
     assert [overlay.indicator_id for overlay in result.overlays] == indicator_ids
     assert len(result.test_stats) == 8
-    assert {
-        (warning.subject.target.id, warning.subject.check)
-        for warning in result.per_variable_warnings
-    } == {
+    assert {(warning.subject.target.id, warning.code) for warning in result.findings} == {
         (indicator_id, check)
         for indicator_id in indicator_ids
         for check in ("calibration", "autocorrelation", "variance")

@@ -13,8 +13,8 @@ import numpyro.distributions as dist
 from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
     from nof1_causal_lab.artifacts.identity import ParameterId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def prior_density(prior: dist.Distribution) -> DensityCurve:
@@ -45,7 +45,7 @@ def _density_curve(prior: dist.Distribution) -> DensityCurve:
 
 
 def quantity_prior_densities(
-    model: ModelSpec,
+    dynamical_model_spec: DynamicalModelSpec,
     parameters: frozenset[ParameterId],
 ) -> dict[ParameterId, DensityCurve]:
     """Resolve the fit's input quantity laws before retaining their density curves."""
@@ -53,9 +53,9 @@ def quantity_prior_densities(
     from nof1_causal_lab.numpyro_json import distribution_shape
 
     return {
-        parameter.id: prior_density(quantity_parameter_law(model, parameter)[0])
-        for parameter in model.parameters
+        parameter.id: prior_density(quantity_parameter_law(dynamical_model_spec, parameter)[0])
+        for parameter in dynamical_model_spec.parameters
         if parameter.id in parameters
         if parameter.distribution is not None
-        and not any(distribution_shape(model.distributions[parameter.distribution]))
+        and not any(distribution_shape(dynamical_model_spec.distributions[parameter.distribution]))
     }

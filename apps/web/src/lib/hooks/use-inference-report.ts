@@ -6,11 +6,11 @@ import type { ModelSnapshot } from "@nof1-causal-lab/api-types";
 import { useActionResult } from "./use-model-snapshot";
 
 /** The complete report is already part of the saved action result. */
-export function useInferenceReport(model: ModelSnapshot) {
+export function useInferenceReport(modelSnapshot: ModelSnapshot) {
   const query = useActionResult(
-    model.workspace_id,
-    model.state.current.model?.revision,
-    model.fit != null,
+    modelSnapshot.workspace_id,
+    modelSnapshot.state.current.model?.revision,
+    modelSnapshot.fit != null,
   );
   return { ...query, data: query.data?.action === "fit" ? inferenceView(query.data.body) : null };
 }

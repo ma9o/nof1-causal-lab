@@ -9,24 +9,42 @@ import {
   type SimulationPathsView,
 } from "@/lib/model-asset/result-values";
 import { presentEntries } from "@/lib/model-accessors";
-import { viewedSimulation } from "@/lib/simulation-report";
 import { useActionResult, useViewedSimulationResult } from "./use-model-snapshot";
 
-export function useObservationHistory(model: ModelSnapshot, id: IndicatorId) {
-  const query = useActionResult(model.workspace_id, model.state.data?.revision ?? model.commit_id);
+export function useObservationHistory(modelSnapshot: ModelSnapshot, id: IndicatorId) {
+  const query = useActionResult(
+    modelSnapshot.workspace_id,
+    modelSnapshot.state.data?.revision ?? modelSnapshot.commit_id,
+  );
   const result = query.data;
   const history =
     result?.action === "simulate"
-      ? model.state.data && result.body.data[model.state.data.replicate_index]
+      ? modelSnapshot.state.data && result.body.data[modelSnapshot.state.data.replicate_index]
       : result?.action === "prepare_data"
         ? result.body.data
         : null;
   const selected = history?.[id];
+  const owner =
+    result?.action === "prepare_data"
+      ? result.body.metadata
+      : result?.action === "simulate"
+        ? {
+            ...result.body.report.evidence.observation_layout,
+            time_origin: result.body.report.evidence.time_origin,
+          }
+        : null;
+  const variable = owner?.variables.find((variable) => variable.id === id);
   return {
     ...query,
-    data: selected
-      ? historyView(selected)
-      : null,
+    data:
+      selected && variable && owner
+        ? {
+            ...historyView(selected),
+            label: variable.name,
+            levels: variable.ordinal_levels ?? variable.categorical_levels,
+            time_origin: owner.time_origin,
+          }
+        : null,
   };
 }
 
@@ -42,12 +60,15 @@ export const ALL_DRAWS: DrawSelection = { start: 0, count: Number.POSITIVE_INFIN
  * The server returns every draw of the viewed model's simulation; a selection pages them.
  * Another model revision's simulation is never fetched.
  */
-export function useSimulationPaths(model: ModelSnapshot, selection: DrawSelection = ALL_DRAWS) {
-  const simulation = viewedSimulation(model);
-  const query = useViewedSimulationResult(model, simulation !== null);
+export function useSimulationPaths(
+  modelSnapshot: ModelSnapshot,
+  selection: DrawSelection = ALL_DRAWS,
+) {
+  const simulation = modelSnapshot.simulation;
+  const query = useViewedSimulationResult(modelSnapshot, simulation !== null);
   const paths =
-    query.data?.action === "simulate" && model.model
-      ? pathsView(query.data.body, model.model)
+    query.data?.action === "simulate" && modelSnapshot.dynamical_model_spec
+      ? pathsView(query.data.body, modelSnapshot.dynamical_model_spec)
       : null;
   const { start, count } = selection;
   const page = (series: PathSeriesView): PathSeriesView => ({
@@ -73,11 +94,11 @@ export function useSimulationPaths(model: ModelSnapshot, selection: DrawSelectio
   return { ...query, data };
 }
 
-export function useParameterDraws(model: ModelSnapshot) {
+export function useParameterDraws(modelSnapshot: ModelSnapshot) {
   const query = useActionResult(
-    model.workspace_id,
-    model.state.current.model?.revision,
-    model.fit != null,
+    modelSnapshot.workspace_id,
+    modelSnapshot.state.current.model?.revision,
+    modelSnapshot.fit != null,
   );
   return { ...query, data: query.data?.action === "fit" ? drawsView(query.data.body) : null };
 }

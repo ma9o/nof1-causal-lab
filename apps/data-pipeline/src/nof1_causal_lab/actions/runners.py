@@ -19,9 +19,6 @@ from nof1_causal_lab.actions.contracts import (
     SimulateRequest,
 )
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.data_ref import DataRef
-from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.study.artifact_files import json_filename
@@ -29,9 +26,10 @@ from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.store import ArtifactStore
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId
-    from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-    from nof1_causal_lab.artifacts.simulation import SimulationSpec
+    from nof1_causal_lab.actions.io import SimulateInput
+    from nof1_causal_lab.artifacts.data_ref import DataRef
+    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+    from nof1_causal_lab.artifacts.posterior import FitSettingsSpec, InferenceEvidence
     from nof1_causal_lab.study.state import StudyState
 
 
@@ -40,7 +38,7 @@ async def _run_fit(
     pins: dict[ArtifactId, GitOid],
     settings: FitSettingsSpec,
     source: DataRef[GitOid, int],
-) -> Applied[ModelFitResult]:
+) -> Applied[InferenceEvidence]:
     from nof1_causal_lab.actions.fit import fit, read_inference_report
     from nof1_causal_lab.actions.inference.fit import resolve_sampler_spec
     from nof1_causal_lab.study.data import read_data_history
@@ -51,8 +49,10 @@ async def _run_fit(
 
     from nof1_causal_lab.study.store import read_model, read_question
 
-    model_spec = read_model(store, pins["model"])
-    selection = StructuralSelection.for_question(model_spec, read_question(store, pins["question"]))
+    dynamical_model_spec = read_model(store, pins["model"])
+    selection = StructuralSelection.for_question(
+        dynamical_model_spec, read_question(store, pins["question"])
+    )
     sampler = resolve_sampler_spec(settings)
 
     config = get_config().inference
@@ -73,7 +73,7 @@ async def _run_fit(
         compute_loo_diagnostics=config.compute_loo_diagnostics,
     )
 
-    conditioned = result["_model"]
+    conditioned = result["_dynamical_model_spec"]
     evidence = result["evidence"]
     info = store.write_artifact(
         "model",
@@ -83,10 +83,9 @@ async def _run_fit(
             json_filename("model", "model"): conditioned.model_dump(mode="json", round_trip=True)
         },
     )
-    retained = ModelFitResult(model=store.model_ref(pins["model"]), data=source, evidence=evidence)
-    report = read_inference_report(store, info.revision, retained, result["metadata"])
+    report = read_inference_report(store, info.revision, evidence, result["metadata"])
     return Applied(
-        result=retained,
+        result=evidence,
         effects=ActionEffects(produced=(info,), reports={"inference": store.write_report(report)}),
     )
 
@@ -94,18 +93,20 @@ async def _run_fit(
 async def _run_simulate(
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
-    design: SimulationSpec,
+    request: SimulateInput[GitOid],
 ) -> Applied[ModelSimulationResult]:
     from nof1_causal_lab.actions.simulate import read_simulation_report, simulate
     from nof1_causal_lab.study.store import read_model, read_question
 
-    model = read_model(store, pins["model"])
-    selection = StructuralSelection.for_question(model, read_question(store, pins["question"]))
+    dynamical_model_spec = read_model(store, pins["model"])
+    selection = StructuralSelection.for_question(
+        dynamical_model_spec, read_question(store, pins["question"])
+    )
     report = await asyncio.to_thread(
         simulate,
         selection,
-        design,
-        revision=store.model_ref(pins["model"]),
+        request,
+        store=store,
     )
     from nof1_causal_lab.actions.errors import ActionExecutionError
     from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
@@ -113,7 +114,7 @@ async def _run_simulate(
     if isinstance(report, ObservationPreflightFailure):
         raise ActionExecutionError(report.message)
     retained = ModelSimulationResult(evidence=report)
-    findings = read_simulation_report(store, retained.evidence, pins["question"])
+    findings = read_simulation_report(store, retained.evidence, request, pins["question"])
     return Applied(
         result=retained,
         effects=ActionEffects(reports={"simulation": store.write_report(findings)}),
@@ -127,14 +128,14 @@ async def run_action_locally(
     | DataDiffRequest[GitOid]
     | ModelDiffRequest[GitOid],
     pins: dict[ArtifactId, GitOid],
-) -> Applied[ModelFitResult] | Applied[ModelSimulationResult] | Applied[None]:
+) -> Applied[InferenceEvidence] | Applied[ModelSimulationResult] | Applied[None]:
     """Run an action directly against its recorded inputs."""
     store = ArtifactStore(workspace_id)
     if isinstance(request, ModelDiffRequest):
-        from nof1_causal_lab.actions.revisions import read_model_diff
+        from nof1_causal_lab.actions.revisions import model_diff
 
         report = await asyncio.to_thread(
-            read_model_diff, workspace_id, request.input.before_ref, request.input.after_ref
+            model_diff, workspace_id, request.input.before_ref, request.input.after_ref
         )
         return Applied(
             result=None, effects=ActionEffects(reports={"model-diff": store.write_result(report)})
@@ -152,11 +153,9 @@ async def run_action_locally(
             store,
             pins,
             request.input.settings,
-            DataRef[GitOid, int](
-                revision=request.input.data_ref, replicate_index=request.input.replicate_index
-            ),
+            request.input.data_ref,
         )
-    return await _run_simulate(store, pins, request.input.simulation)
+    return await _run_simulate(store, pins, request.input)
 
 
 def _pinned(store: ArtifactStore, selected: dict[ArtifactId, GitOid]) -> dict[ArtifactId, GitOid]:
@@ -173,14 +172,14 @@ async def run_action(
     | DataDiffRequest[GitOid]
     | ModelDiffRequest[GitOid],
     state: StudyState,
-) -> Applied[ModelFitResult] | Applied[ModelSimulationResult] | Applied[None]:
+) -> Applied[InferenceEvidence] | Applied[ModelSimulationResult] | Applied[None]:
     """Pin a request's inputs and run it against the local study store."""
     store = ArtifactStore(workspace_id)
     if isinstance(request, FitRequest):
         pins = _pinned(
             store,
             {
-                "model": request.input.model_ref,
+                "model": request.input.dynamical_model_spec_ref,
                 "question": state.current["question"].revision,
             },
         )
@@ -195,7 +194,10 @@ async def run_action(
     elif isinstance(request, SimulateRequest):
         pins = _pinned(
             store,
-            {"model": request.input.model_ref, "question": state.current["question"].revision},
+            {
+                "model": request.input.dynamical_model_spec_ref,
+                "question": state.current["question"].revision,
+            },
         )
     else:
         pins = {}

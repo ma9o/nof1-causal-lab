@@ -25,16 +25,19 @@ from nof1_causal_lab.actions.contracts import (
 )
 from nof1_causal_lab.actions.io import (
     EditModelInput,
+    EditModelOutput,
     EditQuestionInput,
     FitInput,
     ModelDiffInput,
+    PrepareDataOutput,
     SimulateInput,
 )
 from nof1_causal_lab.actions.results import ActionPoll, RunningPoll
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 from nof1_causal_lab.artifacts.data_preparation import SourceFolder
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 from nof1_causal_lab.artifacts.identity import GitOid, RevisionSelector
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.study.history import StudyRepository
@@ -46,7 +49,7 @@ from tests.helpers import graph_constructs
 pytestmark = [pytest.mark.workflow, pytest.mark.timeout(60, method="thread")]
 _QUESTION = "does exercise improve sleep?"
 _PREPARATION: dict[str, Any] = {
-    "model_ref": "latest",
+    "dynamical_model_spec_ref": "latest",
     "source": "input",
     "extraction": {
         "indicator:sleep": {
@@ -176,8 +179,8 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     lifecycle = [
                         message for message in polled.messages if isinstance(message, ActionMessage)
                     ]
-                    assert lifecycle[0].label == f"{request.action.upper()}_STARTED"
-                    assert lifecycle[-1].level == (
+                    assert lifecycle[0].code == f"{request.action.upper()}_STARTED"
+                    assert lifecycle[-1].severity == (
                         "info" if polled.status == "success" else "error"
                     )
                     return record
@@ -190,11 +193,13 @@ def test_study_workflow_journey(machine_env, monkeypatch):
 
                 rejected = await execute(
                     EditModelRequest[GitOid](
-                        input=EditModelInput[GitOid](parent_ref=GitOid("0" * 40), model=ModelSpec())
+                        input=EditModelInput[GitOid](
+                            parent_ref=GitOid("0" * 40), dynamical_model_spec=DynamicalModelSpec()
+                        )
                     )
                 )
                 assert isinstance(rejected.record.attempt.outcome, Rejected)
-                assert rejected.record.attempt.outcome.reason == "input_unavailable"
+                assert rejected.record.attempt.outcome.code == "INPUT_UNAVAILABLE"
                 assert "0" * 40 in rejected.record.attempt.outcome.detail
 
                 question = QuestionSpec(text=_QUESTION, outcome="construct:unmeasured_outcome")
@@ -213,17 +218,19 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     EditModelRequest[GitOid](
                         input=EditModelInput[GitOid](
                             parent_ref=StudyRepository(workspace_id).question().revision,
-                            model=ModelSpec(),
+                            dynamical_model_spec=DynamicalModelSpec(),
                         )
                     )
                 )
                 assert invalid.record.attempt.outcome.status == "rejected"
-                assert invalid.record.attempt.outcome.reason == "scientific_inputs"
+                assert invalid.record.attempt.outcome.code == "MODEL_SPEC_INVALID"
                 edited = await execute(
                     EditModelRequest[GitOid](
                         input=EditModelInput[GitOid](
                             parent_ref=StudyRepository(workspace_id).question().revision,
-                            model=ModelSpec.model_validate(_measured_model()).materialized(),
+                            dynamical_model_spec=DynamicalModelSpec.model_validate(
+                                _measured_model()
+                            ).materialized(),
                         )
                     )
                 )
@@ -234,12 +241,17 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert prepared.record.attempt.outcome.status == "applied", prepared
                 assert state(prepared).has("panel")
                 assert set(state(prepared).current) == {"question", "model", "raw_data", "panel"}
-                from nof1_causal_lab.study.snapshots import ModelReader
-
-                assert ModelReader(workspace_id, at=prepared.commit_id).data_profile is not None
-                saved_model = ModelReader(workspace_id, at=edited.commit_id).model_output()
-                assert saved_model is not None
-                assert saved_model.checks is not None
+                store = ArtifactStore(workspace_id)
+                assert (
+                    store.read_result(
+                        prepared.record.attempt.outcome.result, PrepareDataOutput
+                    ).profile
+                    is not None
+                )
+                saved_model = store.read_result(
+                    edited.record.attempt.outcome.result, EditModelOutput
+                )
+                assert saved_model.checks.specification
                 model_revision = state(edited).current["model"].revision
                 before = state().current
 
@@ -247,21 +259,20 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 for request in (
                     FitRequest[GitOid](
                         input=FitInput[GitOid](
-                            replicate_index=0,
-                            model_ref=model_revision,
-                            data_ref=before["panel"].revision,
+                            dynamical_model_spec_ref=model_revision,
+                            data_ref=DataRef(revision=before["panel"].revision, replicate_index=0),
                         )
                     ),
                     SimulateRequest[GitOid](
                         input=SimulateInput[GitOid](
                             simulation=SimulationSpec(start="2026-01-01", horizon="1d"),
-                            model_ref=model_revision,
+                            dynamical_model_spec_ref=model_revision,
                         )
                     ),
                 ):
                     raised = await execute(request)
                     assert isinstance(raised.record.attempt.outcome, Rejected), raised
-                    assert raised.record.attempt.outcome.reason == "scientific_inputs"
+                    assert raised.record.attempt.outcome.code == "model_execution"
                     assert state().current == before
 
                 status = await study_api.get_timeline(workspace_id, clients)
@@ -283,7 +294,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     EditModelRequest[GitOid](
                         input=EditModelInput[GitOid](
                             parent_ref=model_revision,
-                            model=revised,
+                            dynamical_model_spec=revised,
                         )
                     )
                 )
@@ -315,23 +326,30 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert records[3].record.attempt.action == "edit_model"
                 assert records[3].record.attempt.request is not None
                 assert (
-                    records[3].record.attempt.request.input.model
-                    == ModelSpec.model_validate(_measured_model()).materialized()
+                    records[3].record.attempt.request.input.dynamical_model_spec
+                    == DynamicalModelSpec.model_validate(_measured_model()).materialized()
                 )
                 assert records[5].record.attempt.action == "fit"
                 assert records[5].record.attempt.request is not None
-                assert records[5].record.attempt.request.input.model_ref == model_revision
+                assert (
+                    records[5].record.attempt.request.input.dynamical_model_spec_ref
+                    == model_revision
+                )
                 assert all("move" not in record.model_dump() for record in records)
                 assert read_model(store, state(rewritten).current["model"].revision) == revised
                 assert state(rewritten).current["question"] == state(root).current["question"]
-                assert ModelReader(workspace_id, at=edited.commit_id).model_output() == saved_model
+                assert (
+                    store.read_result(edited.record.attempt.outcome.result, EditModelOutput)
+                    == saved_model
+                )
                 from nof1_causal_lab.actions.contracts import ModelDiffRequest
 
                 head = StudyRepository(workspace_id).head()
                 comparison_request = ModelDiffRequest[GitOid](
                     reasoning="Check the revised edge before deciding which model to fit.",
                     input=ModelDiffInput[GitOid](
-                        before_ref=edited.commit_id, after_ref=rewritten.commit_id
+                        before_ref=state(edited).current["model"].revision,
+                        after_ref=state(rewritten).current["model"].revision,
                     ),
                 )
                 compared = await execute(comparison_request)
@@ -359,7 +377,8 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 reverse = await execute(
                     ModelDiffRequest[GitOid](
                         input=ModelDiffInput[GitOid](
-                            before_ref=rewritten.commit_id, after_ref=edited.commit_id
+                            before_ref=state(rewritten).current["model"].revision,
+                            after_ref=state(edited).current["model"].revision,
                         )
                     )
                 )
@@ -462,7 +481,9 @@ def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, mo
                     EditModelRequest[RevisionSelector](
                         input=EditModelInput[RevisionSelector](
                             parent_ref=StudyRepository(workspace_id).question().revision,
-                            model=ModelSpec.model_validate(_measured_model()).materialized(),
+                            dynamical_model_spec=DynamicalModelSpec.model_validate(
+                                _measured_model()
+                            ).materialized(),
                         )
                     ),
                     clients,
@@ -486,7 +507,7 @@ def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, mo
                 assert running.call_id == preparing.call_id
                 assert running.action == "prepare_data"
                 assert [
-                    message.label
+                    message.code
                     for message in running.messages
                     if isinstance(message, ActionMessage)
                 ] == ["PREPARE_DATA_STARTED"]

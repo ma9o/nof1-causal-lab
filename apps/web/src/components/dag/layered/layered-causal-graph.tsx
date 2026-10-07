@@ -1,5 +1,7 @@
 "use client";
 
+import { causalEffect } from "@/lib/simulation-report";
+
 import type { SimulationPathsView } from "@/lib/model-asset/result-values";
 import type { DataComparisonView } from "@/lib/model-asset/data-comparison";
 
@@ -506,12 +508,7 @@ function EdgeSlot({
     const tone = DAG_COLORS.slate;
     return (
       <g opacity={dimmed ? 0.12 : 1}>
-        <title>
-          {[
-            `${timing}`,
-            ...laws.map(lawTitle),
-          ].join("\n")}
-        </title>
+        <title>{[`${timing}`, ...laws.map(lawTitle)].join("\n")}</title>
         <rect
           width={LAYERED_EDGE_SLOT_WIDTH}
           height={LAYERED_EDGE_SLOT_HEIGHT}
@@ -628,7 +625,7 @@ function LayerControls({
  * observations in comparison colours. Latent-only constructs and edges recede.
  */
 export function LayeredCausalGraph({
-  model,
+  modelSnapshot,
   entities,
   simulation = null,
   simulationPaths = null,
@@ -671,7 +668,7 @@ export function LayeredCausalGraph({
     graphBands,
     toggleLayer,
     edgeVisual,
-  } = useLayeredGraph({ model, entities, simulation, comparison, selection });
+  } = useLayeredGraph({ modelSnapshot, entities, simulation, comparison, selection });
   const selectedNode = selection?.kind === "construct" ? selection.id : null;
 
   const canvas = (
@@ -758,7 +755,7 @@ export function LayeredCausalGraph({
                   ? { kind: "construct", id: edge.cause.id }
                   : { kind: "edge", id: edge.id };
                 const select = () => onSelect(selection?.id === target.id ? null : target);
-                const failures = owner && !dataDiff ? entityFailures(model, owner) : [];
+                const failures = owner && !dataDiff ? entityFailures(modelSnapshot, owner) : [];
                 return (
                   <g
                     key={node.id}
@@ -851,7 +848,8 @@ export function LayeredCausalGraph({
               const prepared =
                 step === "prepare_data"
                   ? nodeIndicators.flatMap((indicator) => {
-                      const profile = model.profile?.indicators[indicator.observation.id]?.profile;
+                      const profile =
+                        modelSnapshot.profile?.indicators[indicator.observation.id]?.profile;
                       return profile ? [{ indicator, profile }] : [];
                     })
                   : [];
@@ -870,11 +868,9 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.causal.kind === "available"
-                        ? simulation.causal.value.outcome
-                        : model.question?.outcome)
+                      (causalEffect(simulation)?.outcome ?? modelSnapshot.question?.outcome)
                     }
-                    failures={dataDiff ? [] : entityFailures(model, construct)}
+                    failures={dataDiff ? [] : entityFailures(modelSnapshot, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}
                     assignments={assignments}
                     timeOrigin={simulationResult?.evidence.time_origin ?? null}
@@ -889,13 +885,11 @@ export function LayeredCausalGraph({
                             (item) => item.indicator_id === indicator.observation.id,
                           );
                           const evaluation =
-                            variable?.predictive.kind === "comparison"
+                            variable && "predictive" in variable
                               ? variable.predictive.evaluation
-                              : variable?.predictive;
+                              : null;
                           const failures = (
-                            evaluation?.kind === "available"
-                              ? evaluation.value.per_variable_warnings
-                              : []
+                            evaluation && !("kind" in evaluation) ? evaluation.findings : []
                           ).filter(
                             (finding) =>
                               finding.kind !== "evaluated" || finding.outcome !== "passed",

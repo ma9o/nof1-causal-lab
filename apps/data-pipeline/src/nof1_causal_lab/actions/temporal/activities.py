@@ -13,7 +13,14 @@ from nof1_causal_lab.actions.edit_model import edit_model
 from nof1_causal_lab.actions.edit_question import edit_question
 from nof1_causal_lab.actions.effects import ActionReportName
 from nof1_causal_lab.actions.errors import ActionExecutionError
-from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.actions.messages import (
+    comparison_messages,
+    edit_messages,
+    fit_check_messages,
+    inference_messages,
+    preparation_messages,
+    simulation_messages,
+)
 from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.actions.temporal.llm_subroutine_activities import LLM_SUBROUTINE_ACTIVITIES
 from nof1_causal_lab.actions.temporal.measurement_activities import MEASUREMENT_ACTIVITIES
@@ -28,8 +35,9 @@ from nof1_causal_lab.actions.temporal.messages import (
     ReadInputsInput,
 )
 from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
+from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+from nof1_causal_lab.artifacts.dynamical_model_spec import ModelEditResult
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_spec import ModelEditResult
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
@@ -37,7 +45,6 @@ from nof1_causal_lab.study.records import (
     ActionAttempt,
     ActionBase,
     Applied,
-    DataPreparationResult,
     Rejected,
     StagedActionAttempt,
     StagedEditAttempt,
@@ -71,11 +78,13 @@ async def run_action_activity(activity_input: ActionInput) -> StagedActionAttemp
         )
     except StudyLookupError as exc:
         return failed_staged_attempt(
-            activity_input.request, Rejected(reason="input_unavailable", detail=str(exc))
+            activity_input.request,
+            Rejected(code="INPUT_UNAVAILABLE", subject="inputs", detail=str(exc)),
         )
     except (IncompleteModelError, AggregatedCompileError) as exc:
         return failed_staged_attempt(
-            activity_input.request, Rejected(reason="scientific_inputs", detail=str(exc))
+            activity_input.request,
+            Rejected(code="model_execution", subject="model", detail=str(exc)),
         )
     except ActionExecutionError as exc:
         raise ApplicationError(
@@ -118,13 +127,14 @@ async def evaluate_model_checks_activity(
 
     Raises:
         TypeError: A preparation request is incorrectly routed to model checks.
+        AssertionError: An edit reached evaluation without its pruning result.
     """
     from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
     if isinstance(activity_input.request, PrepareDataRequest):
         raise TypeError("Model checks require an edit or fit request")
     action = activity_input.request.action
-    checks, identification, validation = await asyncio.to_thread(
+    evaluated = await asyncio.to_thread(
         lambda: evaluate_model_checks(
             activity_input.workspace_id,
             activity_input.state,
@@ -133,19 +143,23 @@ async def evaluate_model_checks_activity(
         )
     )
     store = ArtifactStore(activity_input.workspace_id)
+    from nof1_causal_lab.artifacts.posterior import FitCheckReport
+
+    if isinstance(evaluated, FitCheckReport):
+        return ChecksResult(
+            reports={"checks": store.write_report(evaluated)},
+            messages=fit_check_messages(evaluated, datetime.now(UTC)),
+        )
+    checks, identification = evaluated
+    assert isinstance(activity_input.applied.result, ModelEditResult)
     reports: dict[ActionReportName, GitOid] = {
         "checks": store.write_report(checks),
         "identification": store.write_report(identification),
     }
-    if validation is not None:
-        reports["validation"] = store.write_report(validation)
     return ChecksResult(
         reports=reports,
-        messages=completion_messages(
-            activity_input.applied.result,
-            datetime.now(UTC),
-            (identification, validation) if validation is not None else (identification,),
-            checks=checks,
+        messages=edit_messages(
+            checks, identification, activity_input.applied.result, datetime.now(UTC)
         ),
     )
 
@@ -165,7 +179,7 @@ async def evaluate_data_checks_activity(
     )
     return ChecksResult(
         reports={"data-profile": ArtifactStore(activity_input.workspace_id).write_report(profile)},
-        messages=completion_messages(activity_input.applied.result, datetime.now(UTC), (profile,)),
+        messages=preparation_messages(profile, activity_input.applied.result, datetime.now(UTC)),
     )
 
 
@@ -201,7 +215,7 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
     record = activity_input.record
     messages = record.messages
     if isinstance(record.attempt.outcome, Applied):
-        from nof1_causal_lab.actions.io import FitOutput, SimulateOutput
+        from nof1_causal_lab.actions.io import DataDiffOutput, FitOutput, SimulateOutput
         from nof1_causal_lab.study.results import read_result
 
         result = read_result(
@@ -209,16 +223,17 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
             record.attempt.action,
             record.attempt.outcome.result,
         )
-        inference = result.inference if isinstance(result, FitOutput) else None
-        simulation = result.report if isinstance(result, SimulateOutput) else None
-        if messages and (inference is not None or simulation is not None):
-            messages = (
-                messages[:-1]
-                + completion_messages(
-                    None, messages[-1].timestamp, inference=inference, simulation=simulation
-                )
-                + messages[-1:]
+        if messages:
+            announcements = (
+                inference_messages(result.inference, messages[-1].timestamp)
+                if isinstance(result, FitOutput)
+                else simulation_messages(result.report, messages[-1].timestamp)
+                if isinstance(result, SimulateOutput)
+                else comparison_messages(result.report, messages[-1].timestamp)
+                if isinstance(result, DataDiffOutput)
+                else ()
             )
+            messages = messages[:-1] + announcements + messages[-1:]
     logs = collect_run_traces(activity_input.workspace_id, record.seq)
     record = record.with_logs(
         messages=messages,

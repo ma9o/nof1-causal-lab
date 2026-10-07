@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
@@ -29,7 +30,7 @@ from tests.model_fixtures import load_model_fixture, x_y_model
 
 
 def _severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model() -> (
-    ModelSpec
+    DynamicalModelSpec
 ):
     return load_model_fixture(
         "structural_compiler/severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model.json"
@@ -37,16 +38,18 @@ def _severed_components_do_not_require_priors_or_bind_numerical_parameters_compl
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 @pytest.mark.contract
 def test_planner_rejects_retained_static_target_edge():
-    model = make_model(["X", "Baseline", "Y"], [("X", "Baseline"), ("Baseline", "Y")])
-    x, baseline, y = model.constructs
-    model = model.with_entities(
+    dynamical_model_spec = make_model(
+        ["X", "Baseline", "Y"], [("X", "Baseline"), ("Baseline", "Y")]
+    )
+    x, baseline, y = dynamical_model_spec.constructs
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 x.revised(role=Role.ENDOGENOUS, temporal_status=TemporalStatus.TIME_INVARIANT),
                 baseline.revised(temporal_status=TemporalStatus.TIME_INVARIANT),
@@ -55,15 +58,15 @@ def test_planner_rejects_retained_static_target_edge():
         )
     )
     with pytest.raises(StructuralCompilationError, match="static-target edge"):
-        validate_execution_structure(StructuralSelection(model, None))
+        validate_execution_structure(StructuralSelection(dynamical_model_spec, None))
 
 
 @pytest.mark.contract
 def test_model_rejects_duplicate_endpoint_pairs():
-    model = make_model(["X", "Y"], [("X", "Y")])
-    duplicate = model.edges[0].revised(id="edge:another")
+    dynamical_model_spec = make_model(["X", "Y"], [("X", "Y")])
+    duplicate = dynamical_model_spec.edges[0].revised(id="edge:another")
     with pytest.raises(ValueError, match="one causal edge per endpoint pair"):
-        model.with_entities(edges=(*model.edges, duplicate))
+        dynamical_model_spec.with_entities(edges=(*dynamical_model_spec.edges, duplicate))
 
 
 @pytest.mark.contract
@@ -73,15 +76,17 @@ def test_projected_coefficients_require_literals():
     from nof1_causal_lab.artifacts.identity import scientific_id
     from nof1_causal_lab.models.ssm.compile.mechanisms import iter_mechanism_components
 
-    model = make_model(["U", "X", "Y"], [("U", "Y"), ("X", "Y")])
-    root = next(item for item in model.constructs if item.name == "U")
+    dynamical_model_spec = make_model(["U", "X", "Y"], [("U", "Y"), ("X", "Y")])
+    root = next(item for item in dynamical_model_spec.constructs if item.name == "U")
     root = root.revised(
         role=Role.ENDOGENOUS,
         temporal_status=TemporalStatus.TIME_INVARIANT,
         indicators=(),
         coefficients=(coefficient(0.0, "initial_mean"), coefficient(1.0, "initial_scale")),
     )
-    model = model.with_entities(edges=replace_constructs(model.edges, (root,)))
+    dynamical_model_spec = dynamical_model_spec.with_entities(
+        edges=replace_constructs(dynamical_model_spec.edges, (root,))
+    )
     parameter = ParameterSpec(
         id=scientific_id("parameter", "fixed-loading"),
         name="loading",
@@ -100,9 +105,9 @@ def test_projected_coefficients_require_literals():
             )
             if edge.cause.id == root.id
             else edge
-            for edge in model.edges
+            for edge in dynamical_model_spec.edges
         )
-        return model.with_entities(edges=edges, parameters=parameters)
+        return dynamical_model_spec.with_entities(edges=edges, parameters=parameters)
 
     literal = StructuralSelection(_with_loading(0.5, ()), None)
     assert np.any(
@@ -110,43 +115,47 @@ def test_projected_coefficients_require_literals():
             _build_static_factor_structure(
                 literal,
                 tuple(
-                    literal.model.get_construct(identity).name
+                    literal.dynamical_model_spec.get_construct(identity).name
                     for identity in selected_state_ids(literal)
                 ),
             )[2]
         )
         == 0.5
     )
-    tuple(iter_mechanism_components(literal.model, selected_state_ids(literal)))
+    tuple(iter_mechanism_components(literal.dynamical_model_spec, selected_state_ids(literal)))
     unresolved = StructuralSelection(_with_loading(parameter.id, (parameter,)), None)
     with pytest.raises(ValueError, match="fixed linear"):
         _build_static_factor_structure(
             unresolved,
             tuple(
-                unresolved.model.get_construct(identity).name
+                unresolved.dynamical_model_spec.get_construct(identity).name
                 for identity in selected_state_ids(unresolved)
             ),
         )[2]
     with pytest.raises(ValueError, match="fixed linear"):
-        tuple(iter_mechanism_components(unresolved.model, selected_state_ids(unresolved)))
+        tuple(
+            iter_mechanism_components(
+                unresolved.dynamical_model_spec, selected_state_ids(unresolved)
+            )
+        )
 
 
 def _model_with_exact_measurement():
 
-    model = make_model(
+    dynamical_model_spec = make_model(
         ["X", "Y", "Driver", "History", "U"],
         [("X", "Y"), ("Driver", "Y"), ("History", "Y"), ("U", "X"), ("U", "Y")],
     )
-    x, y, driver, history, u = model.constructs
+    x, y, driver, history, u = dynamical_model_spec.constructs
     indicator = driver.indicators[0].revised(
         likelihood=LikelihoodSpec(
             law=DeltaLawSpec(v=state(driver.id)),
             reasoning="Direct exact driver observation",
         )
     )
-    return model.with_entities(
+    return dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 x,
                 y,
@@ -160,10 +169,12 @@ def _model_with_exact_measurement():
 
 @pytest.mark.contract
 def test_exact_measurements_retain_scientific_states_and_project_only_supported_roots():
-    model = _model_with_exact_measurement()
-    selection = StructuralSelection(model, None)
-    by_name = {c.name: c for c in model.constructs}
-    assert [model.get_construct(key).name for key in selected_state_ids(selection)] == [
+    dynamical_model_spec = _model_with_exact_measurement()
+    selection = StructuralSelection(dynamical_model_spec, None)
+    by_name = {c.name: c for c in dynamical_model_spec.constructs}
+    assert [
+        dynamical_model_spec.get_construct(key).name for key in selected_state_ids(selection)
+    ] == [
         "X",
         "Y",
         "Driver",
@@ -176,17 +187,18 @@ def test_exact_measurements_retain_scientific_states_and_project_only_supported_
         indicator.observation.id for indicator in selected_indicators(selection)
     )
     assert selection.induced_dependencies
-    assert selected_edges(selection)[0] is model.edges[0]
+    assert selected_edges(selection)[0] is dynamical_model_spec.edges[0]
 
 
 @pytest.mark.contract
 def test_source_ids_are_stable_across_authoring_reordering():
-    model = _model_with_exact_measurement()
-    original = StructuralSelection(model, None)
+    dynamical_model_spec = _model_with_exact_measurement()
+    original = StructuralSelection(dynamical_model_spec, None)
     reordered = StructuralSelection(
-        model.with_entities(
+        dynamical_model_spec.with_entities(
             edges=replace_constructs(
-                tuple(reversed(model.edges)), tuple(reversed(model.constructs))
+                tuple(reversed(dynamical_model_spec.edges)),
+                tuple(reversed(dynamical_model_spec.constructs)),
             )
         ),
         None,
@@ -199,25 +211,30 @@ def test_source_ids_are_stable_across_authoring_reordering():
 
 @pytest.mark.contract
 def test_execution_checks_preserve_the_scientific_model():
-    model = x_y_model()
-    before = model.model_dump(mode="json")
-    compile_model_fixture(model)
+    dynamical_model_spec = x_y_model()
+    before = dynamical_model_spec.model_dump(mode="json")
+    compile_model_fixture(dynamical_model_spec)
     from nof1_causal_lab.models.ssm import numerics as numeric
 
-    assert numeric.observation_names(compile_model_fixture(model)) == ("X_obs", "Y_obs")
-    assert {b.parameter_id for b in parameter_bindings(compile_model_fixture(model))[0]} == {
-        p.id for p in model.parameters
-    }
-    assert model.model_dump(mode="json") == before
+    assert numeric.observation_names(compile_model_fixture(dynamical_model_spec)) == (
+        "X_obs",
+        "Y_obs",
+    )
+    assert {
+        b.parameter_id for b in parameter_bindings(compile_model_fixture(dynamical_model_spec))[0]
+    } == {p.id for p in dynamical_model_spec.parameters}
+    assert dynamical_model_spec.model_dump(mode="json") == before
 
 
 @pytest.mark.contract
 def test_required_unmeasured_mediator_cannot_be_silently_excluded():
-    model = make_model(["X", "Mediator", "Y"], [("X", "Mediator"), ("Mediator", "Y")])
-    x, mediator, y = model.constructs
-    model = model.with_entities(
+    dynamical_model_spec = make_model(
+        ["X", "Mediator", "Y"], [("X", "Mediator"), ("Mediator", "Y")]
+    )
+    x, mediator, y = dynamical_model_spec.constructs
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             (
                 x,
                 mediator.revised(indicators=()),
@@ -225,7 +242,7 @@ def test_required_unmeasured_mediator_cannot_be_silently_excluded():
             ),
         ),
     )
-    selection = StructuralSelection(model, y.id)
+    selection = StructuralSelection(dynamical_model_spec, y.id)
     with pytest.raises(StructuralCompilationError, match="Required constructs"):
         validate_execution_structure(selection)
 
@@ -243,24 +260,24 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
     from tests.inference_fixtures import model_draws
 
-    model = make_model(
+    dynamical_model_spec = make_model(
         ["A", "B", "Sink", "X", "Y"],
         [("A", "B"), ("B", "Sink"), ("Y", "Sink"), ("X", "Y")],
     )
-    nodes = {item.name: item for item in model.constructs}
-    model = (
+    nodes = {item.name: item for item in dynamical_model_spec.constructs}
+    dynamical_model_spec = (
         _severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model()
     )
-    island_parameter = model.parameters_for(nodes["A"].id)[0]
+    island_parameter = dynamical_model_spec.parameters_for(nodes["A"].id)[0]
     outcome = nodes["Y"].id
-    unassigned = model.with_entities(
+    unassigned = dynamical_model_spec.with_entities(
         parameters=tuple(
             item.revised(distribution=None) if item.id == island_parameter.id else item
-            for item in model.parameters
+            for item in dynamical_model_spec.parameters
         ),
         distributions={
             key: value
-            for key, value in model.distributions.items()
+            for key, value in dynamical_model_spec.distributions.items()
             if key != island_parameter.distribution
         },
     )
@@ -269,7 +286,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     assert set(numeric.state_names(compile_model_fixture(unassigned, outcome))) == {"X", "Y"}
     assert len(tuple(indicator.observation.id for indicator in selected_indicators(selected))) == 2
     assert island_parameter.id not in {item.id for item in execution_parameters(selected)}
-    bindings = compile_fit_fixture(unassigned, outcome).compiled.bindings
+    bindings = compile_fit_fixture(unassigned, outcome).compiled_dynamical_model.bindings
     assert {item.parameter_id for item in bindings} == {
         item.id for item in execution_parameters(selected)
     }
@@ -287,7 +304,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
             JointPosteriorDraws(draws.parameters, jnp.zeros((2, 2, 2)), draws.state_ids)
         ),
         times=jnp.array([0.0, 1.0]),
-        time_origin=None,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
     )
     assert conditioned.parameter(island_parameter.id) == unassigned.parameter(island_parameter.id)
     assert set(conditioned.distributions) & set(unassigned.distributions)
@@ -300,17 +317,22 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     )
 
     # Without an outcome, the operation covers every measured component.
-    assert set(numeric.state_names(compile_model_fixture(model))) == {"A", "B", "X", "Y"}
+    assert set(numeric.state_names(compile_model_fixture(dynamical_model_spec))) == {
+        "A",
+        "B",
+        "X",
+        "Y",
+    }
 
 
 @pytest.mark.contract
 def test_projected_latent_dependencies_keep_their_connected_states():
-    model = make_model(["U", "X", "Y", "A"], [("U", "X"), ("U", "A"), ("X", "Y")])
-    nodes = {item.name: item for item in model.constructs}
+    dynamical_model_spec = make_model(["U", "X", "Y", "A"], [("U", "X"), ("U", "A"), ("X", "Y")])
+    nodes = {item.name: item for item in dynamical_model_spec.constructs}
     selected = StructuralSelection(
-        model.with_entities(
+        dynamical_model_spec.with_entities(
             edges=replace_constructs(
-                model.edges,
+                dynamical_model_spec.edges,
                 (nodes["U"].revised(role=Role.ENDOGENOUS, indicators=()),),
             ),
         ),

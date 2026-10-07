@@ -26,14 +26,14 @@ from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture
 from tests.model_fixtures import load_model_fixture
 
 
-def _nonlinear_dynamics_uses_vector_field_backend_method_model_fixture() -> ModelSpec:
+def _nonlinear_dynamics_uses_vector_field_backend_method_model_fixture() -> DynamicalModelSpec:
     return load_model_fixture(
         "runtime_ssm/testssmmodeldynamicsdispatch_test_nonlinear_dynamics_uses_vector_field_backend_method_model_fixture.json"
     )
 
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.dynamical_model_spec import DynamicalModelSpec
 
 
 @pytest.mark.contract
@@ -104,10 +104,12 @@ class TestCompiledModelDynamicsDispatch:
                 )
                 return jnp.zeros_like(time_intervals)
 
-        spec = _nonlinear_dynamics_uses_vector_field_backend_method_model_fixture()
-        model = compile_fit_fixture(spec)
+        dynamical_model_spec = _nonlinear_dynamics_uses_vector_field_backend_method_model_fixture()
+        model = compile_fit_fixture(dynamical_model_spec)
         tr = handlers.trace(handlers.seed(numpyro_model, rng_seed=0)).get_trace(
-            bind_panel_fixture(model.compiled, jnp.zeros((4, 2)), jnp.arange(4, dtype=jnp.float32)),
+            bind_panel_fixture(
+                model.compiled_dynamical_model, jnp.zeros((4, 2)), jnp.arange(4, dtype=jnp.float32)
+            ),
             priors=model.prior_runtime_bundle,
             likelihood_backend=DynamicsAwareBackend(),
         )

@@ -7,11 +7,6 @@ import numpy as np
 from nof1_causal_lab.artifacts.arrays import ArrayVector, NumericalArray, ScalarValues
 
 
-def decode_array(value: NumericalArray) -> np.ndarray:
-    """Decode one owned value for a scientific consumer."""
-    return value.values
-
-
 def resolve_vector(value: ScalarValues) -> tuple[float | None, ...]:
     """Select stored scalar values, applying the recorded observation mask."""
     if not isinstance(value, ArrayVector):
@@ -29,7 +24,9 @@ def owned_arrays(value: object) -> Mapping[str, NumericalArray]:
         if set(value) == {"npy"}:
             array = NumericalArray.model_validate(value)
             return {array.identity: array}
-        return {ref: array for child in value.values() for ref, array in owned_arrays(child).items()}
+        return {
+            ref: array for child in value.values() for ref, array in owned_arrays(child).items()
+        }
     if isinstance(value, (list, tuple)):
         return {ref: array for child in value for ref, array in owned_arrays(child).items()}
-    return {}
+    return dict[str, NumericalArray]()

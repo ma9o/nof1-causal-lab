@@ -8,7 +8,7 @@ import { PosteriorPairs } from "./law-sections";
 import { FitCalibration } from "./fit-calibration";
 
 export function FitOutcome({ context }: { context: ScopeContext }) {
-  const fit = context.model.fit;
+  const fit = context.modelSnapshot.fit;
   if (!fit) return <Hint>No inference report recorded.</Hint>;
   const report = fit;
   const { convergence } = report;
@@ -17,7 +17,7 @@ export function FitOutcome({ context }: { context: ScopeContext }) {
     <Section title="Parameter convergence">
       <Hint>
         Marginal particle Gibbs · {mcmc?.num_chains ?? "Unavailable"} chains ×{" "}
-        {mcmc?.num_samples ?? "Unavailable"} draws ·{" "}
+        {mcmc?.num_samples_per_chain ?? "Unavailable"} draws ·{" "}
         {report.inference_metadata.duration_seconds.toLocaleString()} s
       </Hint>
       <div className="flex items-center gap-2">
@@ -33,8 +33,8 @@ export function FitOutcome({ context }: { context: ScopeContext }) {
 
 /** Model-wide fitted evidence; individual laws own their chains. */
 export function FitDetails({ context }: { context: ScopeContext }) {
-  const fit = context.model.fit;
-  const detail = useInferenceReport(context.model);
+  const fit = context.modelSnapshot.fit;
+  const detail = useInferenceReport(context.modelSnapshot);
   if (!fit)
     return (
       <Section title="Fit">

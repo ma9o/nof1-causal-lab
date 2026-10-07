@@ -1,8 +1,4 @@
-import type {
-  DensityCurve,
-  NumPyroValue,
-  NumPyroDistribution,
-} from "@nof1-causal-lab/api-types";
+import type { DensityCurve, NumPyroValue, NumPyroDistribution } from "@nof1-causal-lab/api-types";
 import { readNumericalArray } from "@nof1-causal-lab/api-types";
 import { jStat } from "jstat";
 
@@ -14,7 +10,11 @@ interface ScalarDensity {
 const isArray: (value: NumPyroValue) => value is readonly NumPyroValue[] = Array.isArray;
 
 function object(value: NumPyroValue | undefined): NumPyroDistribution["params"] | null {
-  return value !== undefined && value !== null && typeof value === "object" && !isArray(value) && !("npy" in value)
+  return value !== undefined &&
+    value !== null &&
+    typeof value === "object" &&
+    !isArray(value) &&
+    !("npy" in value)
     ? value
     : null;
 }
@@ -22,9 +22,15 @@ function object(value: NumPyroValue | undefined): NumPyroDistribution["params"] 
 /** Native scalars may be JSON numbers or zero-dimensional array constructors. */
 function scalar(value: NumPyroValue | undefined): number {
   if (typeof value === "number") return value;
-  if (value !== null && typeof value === "object" && "npy" in value && value.npy instanceof Uint8Array) {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "npy" in value &&
+    value.npy instanceof Uint8Array
+  ) {
     const array = readNumericalArray({ npy: value.npy });
-    if (array.shape.length !== 0) throw new Error("An authored prior plot requires scalar constructor arguments.");
+    if (array.shape.length !== 0)
+      throw new Error("An authored prior plot requires scalar constructor arguments.");
     return Number(array.values[0]);
   }
   const encoded = object(value);

@@ -7,8 +7,8 @@ from pydantic import Field
 from nof1_causal_lab.artifacts.base import Value
 
 from .arrays import NumericalArray
-from .data_ref import DataRef
-from .identity import ConstructId, DistributionId, GitOid, GitRef, ParameterId
+from .checks import SpecificationAssessment
+from .identity import ConstructId, DistributionId, ParameterId
 from .model_checks import QuestionCheckReport
 from .posterior_diagnostics import (
     ChainDiagnostics,
@@ -23,16 +23,16 @@ from .posterior_diagnostics import (
     RankHistogram,
     TraceSeries,
 )
-from .validation_report import ValidationReportArtifact
+from .validation_report import DataProfileReport
 
 
 class FitSettingsSpec(Value):
     """Optional numerical controls applied to the configured particle sampler."""
 
-    num_samples: int | None = Field(default=None, ge=1)
+    num_samples_per_chain: int | None = Field(default=None, ge=1)
     num_warmup: int | None = Field(default=None, ge=0)
     num_chains: int | None = Field(default=None, ge=1)
-    n_particles: int | None = Field(default=None, ge=2)
+    num_particles: int | None = Field(default=None, ge=2)
     seed: int | None = Field(default=None, ge=0)
 
 
@@ -40,7 +40,7 @@ class InferenceMetadata(Value):
     """The production run's law, chain layout and sampler measurements."""
 
     distribution: DistributionId
-    n_samples: int = Field(ge=1)
+    num_samples_total: int = Field(ge=1)
     num_chains: int = Field(ge=1)
     duration_seconds: float = Field(ge=0)
     engine: ParticleMCMCEvidence
@@ -68,14 +68,6 @@ class InferenceEvidence(Value):
     final_latent_delta: NumericalArray | None = None
 
 
-class ModelFitResult(Value):
-    """Exact model and data references paired with the fit's retained numerical evidence."""
-
-    model: GitRef
-    data: DataRef[GitOid, int]
-    evidence: InferenceEvidence
-
-
 class InferenceReportCore(Value):
     """Compact scientific report shared by snapshots and the full report."""
 
@@ -101,7 +93,7 @@ class InferenceReportDetail(Value):
 class InferenceReport(Value):
     """One fit's provenance, run metadata, native evidence and computed findings."""
 
-    run: ModelFitResult
+    evidence: InferenceEvidence
     core: InferenceReportCore
     detail: InferenceReportDetail
 
@@ -109,5 +101,6 @@ class InferenceReport(Value):
 class FitCheckReport(Value):
     """Compatibility and question findings owned by one completed fit."""
 
-    validation: ValidationReportArtifact
+    data: DataProfileReport
+    preflight: tuple[SpecificationAssessment, ...]
     question: QuestionCheckReport

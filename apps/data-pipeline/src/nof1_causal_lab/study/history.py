@@ -5,11 +5,9 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
     from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.records import AttemptRecord
@@ -80,10 +78,7 @@ class StudyRepository:
                 continue
             if attempt.action == "fit":
                 assert isinstance(attempt.request, FitRequest)
-                data = DataRef[GitOid, int](
-                    revision=attempt.request.input.data_ref,
-                    replicate_index=attempt.request.input.replicate_index,
-                )
+                data = attempt.request.input.data_ref
                 break
             if attempt.action == "prepare_data" and any(
                 info.artifact_id == "panel" for info in attempt.outcome.effects.produced
@@ -207,8 +202,8 @@ class StudyRepository:
         current: dict[ArtifactId, ArtifactRecord] = (
             {"question": question} if question is not None else {}
         )
-        model = (
-            request.input.model_ref
+        dynamical_model_spec_revision = (
+            request.input.dynamical_model_spec_ref
             if isinstance(request, (FitRequest, SimulateRequest, PrepareDataRequest))
             else None
         )
@@ -217,10 +212,12 @@ class StudyRepository:
             from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
             from nof1_causal_lab.study.data import panel_revision, read_data_source
 
-            if isinstance(read_data_source(store, request.input.data_ref), PreparedDataMetadata):
-                panel = panel_revision(store, request.input.data_ref)
-        if model is not None:
-            current["model"] = store.read_meta("model", model)
+            if isinstance(
+                read_data_source(store, request.input.data_ref.revision), PreparedDataMetadata
+            ):
+                panel = panel_revision(store, request.input.data_ref.revision)
+        if dynamical_model_spec_revision is not None:
+            current["model"] = store.read_meta("model", dynamical_model_spec_revision)
         if panel is not None:
             current["panel"] = store.read_meta("panel", panel)
             effects = next(
@@ -244,9 +241,7 @@ class StudyRepository:
                     }
                 )
         data = (
-            DataRef[GitOid, int](
-                revision=request.input.data_ref, replicate_index=request.input.replicate_index
-            )
+            request.input.data_ref
             if isinstance(request, FitRequest)
             else DataRef[GitOid, int](revision=panel, replicate_index=0)
             if panel is not None

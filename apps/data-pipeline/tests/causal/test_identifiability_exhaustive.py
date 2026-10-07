@@ -1666,25 +1666,26 @@ MARGINALIZATION_CASES: list[dict[str, Any]] = [
 @pytest.mark.parametrize("case", MARGINALIZATION_CASES, ids=lambda c: c["id"])
 def test_marginalization(case):
     """Check projection and unsupported dependencies on the scientific model."""
-    model = make_model(
+    dynamical_model_spec = make_model(
         [construct["name"] for construct in case["constructs"]],
         [(edge["cause"], edge["effect"]) for edge in case["edges"]],
     )
-    model = model.with_entities(
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=replace_constructs(
-            model.edges,
+            dynamical_model_spec.edges,
             tuple(
                 construct.revised(
                     role="endogenous",
                     temporal_status="time_invariant",
                     indicators=construct.indicators if construct.name in case["observed"] else (),
                 )
-                for construct in model.constructs
+                for construct in dynamical_model_spec.constructs
             ),
         ),
     )
     selection = StructuralSelection(
-        model, fixture_entity_id("construct", case["outcome"].removeprefix("construct:"))
+        dynamical_model_spec,
+        fixture_entity_id("construct", case["outcome"].removeprefix("construct:")),
     )
     report = selection.identification
     marginalized = selection.marginalized_construct_ids
@@ -1701,10 +1702,10 @@ def test_marginalization(case):
             if expected_targets is not None:
                 assert (
                     sorted(
-                        model.get_construct(treatment).name
+                        dynamical_model_spec.get_construct(treatment).name
                         for treatment, finding in report.non_identifiable.items()
                         if identity in finding.confounders
-                        and model.get_construct(treatment).indicators
+                        and dynamical_model_spec.get_construct(treatment).indicators
                     )
                     == expected_targets
                 )

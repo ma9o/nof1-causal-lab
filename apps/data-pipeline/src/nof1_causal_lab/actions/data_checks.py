@@ -12,16 +12,17 @@ from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import ArtifactStore
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
-    from nof1_causal_lab.study.records import Applied, DataPreparationResult
+    from nof1_causal_lab.artifacts.data_preparation import DataPreparationResult
+    from nof1_causal_lab.artifacts.validation_report import DataProfileReport
+    from nof1_causal_lab.study.records import Applied
     from nof1_causal_lab.study.state import StudyState
 
 
-def read_data_profile(store: ArtifactStore, source: DataRef[GitOid, int]) -> DataProfileArtifact:
+def read_data_profile(store: ArtifactStore, source: DataRef[GitOid, int]) -> DataProfileReport:
     """Compute the empirical data profile for one exact replicate selection."""
     from nof1_causal_lab.actions.validation.flow import profile_data
 
-    def render() -> DataProfileArtifact:
+    def render() -> DataProfileReport:
         history = read_data_history(store, source)
         return profile_data(
             history.observations.recorded.frame,
@@ -36,7 +37,7 @@ def evaluate_data_checks(
     workspace_id: str,
     state: StudyState,
     applied: Applied[DataPreparationResult],
-) -> DataProfileArtifact:
+) -> DataProfileReport:
     """Return the prepared panel's report for publication with its action."""
     selected = apply_effects(state, applied.effects.produced, applied.effects.retracted)
     panel = selected.get("panel")

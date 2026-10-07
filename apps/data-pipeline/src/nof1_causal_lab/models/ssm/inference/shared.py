@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from numpyro.primitives import Message
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
 
 import logging
 from typing import TYPE_CHECKING
@@ -62,17 +62,17 @@ def _filter_public_samples(
 
 
 def assemble_parameter_draws(
-    model_spec: CompiledModel,
+    compiled_dynamical_model: CompiledDynamicalModel,
     parameters: Mapping[str, jnp.ndarray],
     *,
     count: int,
 ) -> dict[str, jnp.ndarray]:
     """Assemble native tensors from aligned scientific parameter coordinates."""
-    bindings, auxiliary = parameter_bindings(model_spec)
+    bindings, auxiliary = parameter_bindings(compiled_dynamical_model)
     expected = {identity for binding in bindings for identity in binding.coordinates}
     if set(parameters) != expected:
-        raise ValueError("Draws do not match the scientific parameters of this ModelSpec")
-    registry = build_site_registry(model_spec)
+        raise ValueError("Draws do not match the scientific parameters of this DynamicalModelSpec")
+    registry = build_site_registry(compiled_dynamical_model)
     # Padding has no scientific interpretation and is never read by an emission.
     # Its canonical completion is zero; every active coordinate is filled below.
     samples: dict[str, jnp.ndarray] = {}
@@ -105,5 +105,7 @@ def assemble_parameter_draws(
     }
     if covered != all_coordinates:
         raise ValueError("Scientific draws must cover every active native coordinate")
-    samples.update(assemble_deterministics_from_registry(samples, model_spec, n_draws=count))
+    samples.update(
+        assemble_deterministics_from_registry(samples, compiled_dynamical_model, n_draws=count)
+    )
     return samples

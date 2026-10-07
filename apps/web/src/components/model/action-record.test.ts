@@ -13,7 +13,7 @@ const intent = "Check <revised> assumptions.\nGoal: choose a model to fit.";
 const request: SimulateRequest<GitOid> = {
   action: "simulate",
   input: {
-    model_ref: "1".repeat(40),
+    dynamical_model_spec_ref: "1".repeat(40),
     simulation: { start: "2026-01-01", horizon: "1d", interventions: [] },
   },
   reasoning: intent,
@@ -52,7 +52,12 @@ const render = (selected: TimelineRevision | undefined, running: RunningAction |
 describe("action reasoning", () => {
   it.each([
     { status: "applied", result: null, effects: { produced: [], retracted: [], reports: {} } },
-    { status: "rejected", reason: "scientific_inputs", detail: "The model is incomplete" },
+    {
+      status: "rejected",
+      code: "INPUT_UNAVAILABLE",
+      subject: "inputs",
+      detail: "The model is incomplete",
+    },
     { status: "raised", error_type: "FitError", error_message: "Fit failed", details: [] },
   ] as const)("shows the caller's intent first for $status calls", (outcome) => {
     const selected: TimelineRevision = {
@@ -75,9 +80,10 @@ describe("action reasoning", () => {
         {
           kind: "log",
           timestamp: tick.record.ts,
-          level: "info",
-          label: "SIMULATE_STARTED",
-          details: {},
+          severity: "info",
+          code: "SIMULATE_STARTED",
+          subject: "action",
+          detail: "",
         },
       ],
     });

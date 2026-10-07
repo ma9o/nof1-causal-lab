@@ -1,5 +1,7 @@
 """Retained scientific identity and explicit execution requirements; no numerical runs."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
@@ -31,13 +33,17 @@ def test_static_target_is_retained_and_reported_as_unsupported():
     static_constructs = tuple(
         node.revised(temporal_status="time_invariant") for node in draft.constructs
     )
-    model = draft.with_entities(edges=replace_constructs(draft.edges, static_constructs))
-    before = model.model_dump(mode="json")
-    selection = StructuralSelection(model, None)
-    assert set(selected_state_ids(selection)) == {node.id for node in model.constructs}
+    dynamical_model_spec = draft.with_entities(
+        edges=replace_constructs(draft.edges, static_constructs)
+    )
+    before = dynamical_model_spec.model_dump(mode="json")
+    selection = StructuralSelection(dynamical_model_spec, None)
+    assert set(selected_state_ids(selection)) == {
+        node.id for node in dynamical_model_spec.constructs
+    }
     with pytest.raises(StructuralCompilationError, match="static-target edge"):
         validate_execution_structure(selection)
-    assert model.model_dump(mode="json") == before
+    assert dynamical_model_spec.model_dump(mode="json") == before
 
 
 def test_exact_observations_preserve_state_and_parameter_identity():
@@ -54,25 +60,28 @@ def test_exact_observations_preserve_state_and_parameter_identity():
             ),
         )
     )
-    model = draft.with_entities(edges=replace_constructs(draft.edges, (observed,)))
-    selection = StructuralSelection(model, None)
+    dynamical_model_spec = draft.with_entities(edges=replace_constructs(draft.edges, (observed,)))
+    selection = StructuralSelection(dynamical_model_spec, None)
     assert source.id in selected_state_ids(selection)
-    assert model.parameters == draft.parameters
-    edge_parameters = model.parameters_for(model.edges[0].id)
+    assert dynamical_model_spec.parameters == draft.parameters
+    edge_parameters = dynamical_model_spec.parameters_for(dynamical_model_spec.edges[0].id)
     assert edge_parameters
     for parameter in edge_parameters:
-        assert model.parameter(parameter.id) == draft.parameter(parameter.id)
-        assert model.parameter_context(parameter.id).quantity == SiteKind.DYNAMICS_WEIGHT
+        assert dynamical_model_spec.parameter(parameter.id) == draft.parameter(parameter.id)
+        assert (
+            dynamical_model_spec.parameter_context(parameter.id).quantity
+            == SiteKind.DYNAMICS_WEIGHT
+        )
 
 
 def test_edge_off_targets_every_additive_contribution_without_running_a_simulation():
-    model = additive_a_b_model()
-    edge = model.edges[0]
+    dynamical_model_spec = additive_a_b_model()
+    edge = dynamical_model_spec.edges[0]
     fixed_hill = DriftMechanismSpec(
         id="mechanism:fixed-hill-a",
         expression=expr_hill(expr_state(edge.cause.id), emax=0.4, ec50=1, n=2),
     )
-    model = model.with_entities(
+    dynamical_model_spec = dynamical_model_spec.with_entities(
         edges=(
             edge.revised(
                 mechanisms=(
@@ -83,12 +92,12 @@ def test_edge_off_targets_every_additive_contribution_without_running_a_simulati
             ),
         )
     )
-    native = model
-    target = model.get_construct(edge.effect.id)
-    source = model.get_construct(edge.cause.id)
+    native = dynamical_model_spec
+    target = dynamical_model_spec.get_construct(edge.effect.id)
+    source = dynamical_model_spec.get_construct(edge.cause.id)
     contribution = ConstructSimulationTarget(
-        construct=compile_model_fixture(model).states[
-            selected_state_ids(StructuralSelection(model, None)).index(target.id)
+        construct=compile_model_fixture(dynamical_model_spec).states[
+            selected_state_ids(StructuralSelection(dynamical_model_spec, None)).index(target.id)
         ],
         edge_parents=(source.name,),
     )
@@ -106,25 +115,27 @@ def test_predictive_edge_findings_exclude_the_response_state(monkeypatch):
     """State-dependent edge mechanisms do not invent a response-to-itself edge."""
     import jax.numpy as jnp
 
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledDynamicalModel
     from nof1_causal_lab.models.ssm.predictive import simulation
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
     from nof1_causal_lab.models.ssm.reachability import CheckResult
     from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
 
-    model = additive_a_b_model()
-    edge = model.edges[0]
+    dynamical_model_spec = additive_a_b_model()
+    edge = dynamical_model_spec.edges[0]
     mechanism = DriftMechanismSpec(
         id="mechanism:response-dependent-hill",
         expression=expr_hill(expr_state(edge.cause.id), emax=0.4, ec50=1, n=2)
         * expr_state(edge.effect.id),
     )
-    model = model.with_entities(edges=(edge.revised(mechanisms=(*edge.mechanisms, mechanism)),))
-    compiled = compile_model_fixture(model)
+    dynamical_model_spec = dynamical_model_spec.with_entities(
+        edges=(edge.revised(mechanisms=(*edge.mechanisms, mechanism)),)
+    )
+    compiled_dynamical_model = compile_model_fixture(dynamical_model_spec)
     received: list[ConstructSimulationTarget] = []
 
     def measured(
-        _model: CompiledModel,
+        _model: CompiledDynamicalModel,
         _prediction: PredictiveDraws,
         _design: DesignInfo,
         target: ConstructSimulationTarget,
@@ -145,8 +156,8 @@ def test_predictive_edge_findings_exclude_the_response_state(monkeypatch):
         ], []
 
     monkeypatch.setattr(simulation, "measure_construct_simulation", measured)
-    latent = jnp.zeros((1, 2, len(compiled.states)))
-    observed = jnp.zeros((1, 2, len(compiled.observations)))
+    latent = jnp.zeros((1, 2, len(compiled_dynamical_model.states)))
+    observed = jnp.zeros((1, 2, len(compiled_dynamical_model.observations)))
     prediction = PredictiveDraws(
         {},
         PredictiveTrajectory(
@@ -154,10 +165,12 @@ def test_predictive_edge_findings_exclude_the_response_state(monkeypatch):
         ),
     )
     batch = simulation.SimulationBatch.from_draws(
-        prediction, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
+        prediction,
+        DesignInfo(jnp.array([0.0, 1.0]), (), {}, {}),
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
     )
     findings, _ = simulation.measure_simulation_batch(
-        compiled, batch, groups=("dynamics",), clock=lambda: 0.0
+        compiled_dynamical_model, batch, groups=("dynamics",), clock=lambda: 0.0
     )
     response = next(target for target in received if target.construct.id == edge.effect.id)
     assert response.edge_parents == (edge.cause.name,)

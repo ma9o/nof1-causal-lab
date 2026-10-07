@@ -62,8 +62,8 @@ def test_prior_draws_keep_native_values_and_the_existing_random_streams():
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics():
-    spec = two_state_gaussian_model()
-    model = compile_fit_fixture(spec)
+    dynamical_model_spec = two_state_gaussian_model()
+    model = compile_fit_fixture(dynamical_model_spec)
     values = {
         "diffusion_diag_free": jnp.array([0.4, 0.6]),
         "diffusion_lower_free": jnp.array([0.25]),
@@ -74,7 +74,7 @@ def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics()
     }
     with handlers.substitute(data=values):
         trace = handlers.trace(sample_parameters).get_trace(
-            model.compiled, model.prior_runtime_bundle
+            model.compiled_dynamical_model, model.prior_runtime_bundle
         )
     sampled_names = [name for name in trace if name in values]
     assert sampled_names == list(values)

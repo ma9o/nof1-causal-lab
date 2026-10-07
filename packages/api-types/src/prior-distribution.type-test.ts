@@ -1,6 +1,6 @@
 import type {
   DistributionId,
-  ModelSpec,
+  DynamicalModelSpec,
   NumPyroDistribution,
   ParameterId,
   ParameterSpec,
@@ -16,5 +16,5 @@ export type ParameterCarriesNativeLaw = Expect<
   Extends<NonNullable<ParameterSpec["distribution"]>, NumPyroDistribution | DistributionId>
 >;
 export type ModelOwnsParameters = Expect<
-  Extends<NonNullable<ModelSpec["parameters"][ParameterId]>, Omit<ParameterSpec, "id">>
+  Extends<NonNullable<DynamicalModelSpec["parameters"][ParameterId]>, Omit<ParameterSpec, "id">>
 >;

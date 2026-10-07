@@ -4,9 +4,9 @@ import type { RecordDependency, TimelineRevision } from "@nof1-causal-lab/api-ty
 const viewArguments = {
   edit_question: [],
   edit_model: ["parent"],
-  prepare_data: ["model"],
-  fit: ["model", "data"],
-  simulate: ["model", "panel"],
+  prepare_data: ["dynamical_model_spec"],
+  fit: ["dynamical_model_spec", "data"],
+  simulate: ["dynamical_model_spec"],
   model_diff: ["after"],
   data_diff: ["right"],
 } satisfies Record<TimelineRevision["record"]["attempt"]["action"], string[]>;
@@ -44,7 +44,7 @@ export function questionCall(
   dependencies: readonly RecordDependency[],
 ): TimelineRevision {
   if (entry.record.attempt.action === "edit_question") return entry;
-  const argument = entry.record.attempt.action === "edit_model" ? "parent" : "model";
+  const argument = entry.record.attempt.action === "edit_model" ? "parent" : "dynamical_model_spec";
   const dependency = dependencies.find(
     (item) => item.seq === entry.record.seq && item.argument === argument,
   );
@@ -80,4 +80,37 @@ export function callDependencies(
   }
   visit(selected);
   return calls;
+}
+
+/** A node addresses its produced model, or the model selected by its recorded inputs. */
+export function modelReference(
+  entry: TimelineRevision | undefined,
+  attempts: readonly TimelineRevision[],
+): string | undefined {
+  if (!entry) return undefined;
+  const { outcome, request } = entry.record.attempt;
+  if (outcome.status === "applied") {
+    const own = outcome.effects.produced.find(
+      (artifact) => artifact.artifact_id === "model" || artifact.artifact_id === "question",
+    );
+    if (own) return own.revision;
+  }
+  if (!request) return undefined;
+  switch (request.action) {
+    case "edit_question":
+      return undefined;
+    case "edit_model":
+      return request.input.parent_ref;
+    case "prepare_data":
+    case "fit":
+    case "simulate":
+      return request.input.dynamical_model_spec_ref;
+    case "model_diff":
+      return request.input.after_ref;
+    case "data_diff":
+      return modelReference(
+        producingCall(attempts, request.input.right_ref[0]?.revision),
+        attempts,
+      );
+  }
 }

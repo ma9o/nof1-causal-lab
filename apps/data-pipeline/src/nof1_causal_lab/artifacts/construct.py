@@ -71,7 +71,7 @@ class ConstructSpec(Value):
     )
     distribution: DistributionId | None = Field(
         default=None,
-        description="Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.",
+        description="Trajectory law in DynamicalModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.",
     )
     role: Role = Field(
         description="'endogenous' means modeled, with or without parents; 'exogenous' means supplied by a deterministic trajectory law, without endogenous dynamics or noise."

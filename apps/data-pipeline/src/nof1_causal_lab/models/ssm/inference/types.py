@@ -292,7 +292,7 @@ class ParticleMCMCPosterior:
 
         return ChainDiagnostics(
             num_chains=int(mcmc.num_chains),
-            num_samples=int(mcmc.num_samples),
+            num_samples_per_chain=int(mcmc.num_samples),
             per_parameter=tuple(parameters),
             num_divergences=int(jnp.sum(extra["diverging"])) if "diverging" in extra else None,
             divergence_rate=average("diverging"),
@@ -358,6 +358,6 @@ class ParticleMCMCPosterior:
             p_loo=float(estimate.p),
             se=float(estimate.se),
             n_data_points=int(estimate.n_data_points),
-            n_bad_k=sum(point.status == "failed" for point in points) if values else None,
-            n_warn_k=sum(point.status == "warning" for point in points) if values else None,
+            n_bad_k=sum(value > 0.7 for value in values) if values else None,
+            n_warn_k=sum(0.5 < value <= 0.7 for value in values) if values else None,
         ), points

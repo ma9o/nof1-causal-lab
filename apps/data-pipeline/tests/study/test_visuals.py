@@ -9,7 +9,8 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.arrays import NumericalArray
-from nof1_causal_lab.artifacts.identity import ConstructId, GitRef, IndicatorId
+from nof1_causal_lab.artifacts.checks import NotEvaluated
+from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
 from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.study.visuals import observation_history
 from tests.helpers import fixture_entity_id
@@ -28,14 +29,7 @@ def test_observations_keep_irregular_anchors_support_missingness_and_empirical_m
             "value": [-4.0, -4.0, None, 5.0, 5.0],
         }
     )
-    variable = ResolvedObservationSpec(
-        id=identity,
-        name="Observed",
-        measurement_dtype="continuous",
-        aggregation="mean",
-        observation_window="1d",
-    )
-    view = observation_history(origin.replace(tzinfo=UTC), variable, table)
+    view = observation_history(origin.replace(tzinfo=UTC), table)
     assert view.times == (0, 0.25, 8, 10, 11)
     assert view.values == (-4, -4, None, 5, 5)
     assert view.support_start == (-1, 0, 7, 9, 10)
@@ -62,10 +56,6 @@ def test_full_draw_summaries_preserve_modes_and_masked_category_counts():
     )
 
     evidence = SimulationEvidence(
-        model=GitRef(workspace_id="SUMMARY", revision="a" * 40, path="model.json"),
-        design=SimulationSpec(
-            start="2026-01-01", horizon="9d", interventions=({"target": state_id, "value": 1},)
-        ),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
         times=(0, 0.25, 9),
         draws=3,
@@ -73,8 +63,20 @@ def test_full_draw_summaries_preserve_modes_and_masked_category_counts():
         state_ids=(state_id,),
         parameter_draws={},
         arms=PairedArmSimulation(
-            action=SimulationArm(latent_paths=NumericalArray.from_numpy(action), observations=NumericalArray.from_numpy(observed)),
-            reference=SimulationArm(latent_paths=NumericalArray.from_numpy(reference), observations=NumericalArray.from_numpy(observed)),
+            action=SimulationArm(
+                latent_paths=NumericalArray.from_numpy(action),
+                observations=NumericalArray.from_numpy(observed),
+            ),
+            reference=SimulationArm(
+                latent_paths=NumericalArray.from_numpy(reference),
+                observations=NumericalArray.from_numpy(observed),
+            ),
+            causal=NotEvaluated(
+                code="causal_effect",
+                subject="causal_effect",
+                reason="CAUSAL_EVALUATION_FAILED",
+                detail="No certified effect in this fixture.",
+            ),
         ),
         observation_layout=SimulationObservationLayout(
             variables=(
@@ -90,6 +92,9 @@ def test_full_draw_summaries_preserve_modes_and_masked_category_counts():
             support_start_times=NumericalArray.from_numpy(np.asarray([[0], [0.25], [9]])),
             support_end_times=NumericalArray.from_numpy(np.asarray([[0], [0.25], [9]])),
         ),
+        assignments=SimulationSpec(
+            start="2026-01-01", horizon="9d", interventions=({"target": state_id, "value": 1},)
+        ).assignments(datetime(2026, 1, 1, tzinfo=UTC)),
     )
     summary = simulation_summary(evidence, action, observed, mask, reference, observed)
     assert summary.state_frames[state_id] == pytest.approx((-5.875, 8.375))

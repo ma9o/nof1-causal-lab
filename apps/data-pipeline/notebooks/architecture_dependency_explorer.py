@@ -946,7 +946,7 @@ def boundary_policy_md(mo):
 
     - `domain` imports only itself.
     - `identification` imports `domain`.
-    - `structural-front` imports `identification` and `domain`, then emits `ModelSpec`.
+    - `structural-front` imports `identification` and `domain`, then emits `DynamicalModelSpec`.
     - `ssm-model` imports `domain`, but not identification or inference implementations.
     - `ssm-inference` imports `ssm-model` and `domain`.
     - `analysis` may join identification, model, inference, and domain evidence.
