@@ -21,7 +21,7 @@ const observation = {
 const panel = "a".repeat(40);
 const simulation = "b".repeat(40);
 const emissions = { npy: new Uint8Array(dump([0, 1, 2, 2, 3, 4], [2, 3, 1], { dtype: "f8" })) };
-const mask = { npy: new Uint8Array(dump([1, 1, 1, 1, 0, 1], [2, 3, 1], { dtype: "b1" })) };
+const mask = { npy: new Uint8Array(dump([1, 1, 1, 1, 0, 0], [2, 3, 1], { dtype: "b1" })) };
 const origin = "2026-01-01T00:00:00Z";
 const metadata: PreparedDataMetadata = {
   preparation: {
@@ -52,6 +52,9 @@ const envelope = {
 const replicate = (index: number): ObservationData => ({
   [observation.id]: {
     ...history,
+    times: [3, 4, 5],
+    support_start: [2, 3, 4],
+    support_end: [3, 4, 5],
     values: {
       array: emissions,
       indices: [index, null, 0],
@@ -93,7 +96,7 @@ const sources = new Map<string, DataSourceResult>([
           ...fixtureValue(reports[0]),
           evidence: {
             ...fixtureValue(reports[0]).evidence,
-            time_origin: origin,
+            time_origin: "2026-01-03T00:00:00Z",
             observation_layout: {
               ...fixtureValue(reports[0]).evidence.observation_layout,
               variables: [observation],
@@ -138,17 +141,22 @@ it("joins selected source histories in report order and retains computed evidenc
   if (!("predictive" in variable) || !("predictive" in retained))
     throw new Error("Expected the recorded predictive alternative");
   expect(variable.predictive).toBe(retained.predictive);
-  expect(variable.left[0]?.points.map((point) => point.value)).toEqual([1, 4, null]);
-  expect(variable.right.map((series) => series?.points.map((point) => point.value))).toEqual([
-    [2, null, 4],
+  expect(variable.left[0]?.history.values).toEqual([1, 4, null]);
+  expect(variable.right.map((series) => series?.history.values)).toEqual([
+    [2, null, null],
     [0, 1, 2],
   ]);
-  expect(variable.right[0]?.points[0]).toEqual({
-    anchor_time: "2026-01-06T00:00:00.000Z",
-    support_start: "2026-01-05T00:00:00.000Z",
-    support_end: "2026-01-06T00:00:00.000Z",
-    value: 2,
+  expect(variable.right[0]?.time_origin).toBe("2026-01-03T00:00:00Z");
+  expect(variable.right[0]?.history).toEqual({
+    times: [3, 4, 5],
+    support_start: [2, 3, 4],
+    support_end: [3, 4, 5],
+    values: [2, null, null],
+    empirical: [],
   });
+  const chart = dataComparisonChart(variable);
+  expect(chart.layers.find((layer) => layer.key === "right")?.points).toBe(true);
+  expect(chart.observed?.values).toEqual([1, 4, null]);
   const missing = dataComparisonView(
     {
       ...report,
@@ -178,6 +186,8 @@ it("plots exact point changes against canonical history coordinates without chan
   const view = dataComparisonView(selected, sources);
   const chart = dataComparisonChart(fixtureValue(view.variables[0]));
   expect(chart.times).toEqual([0, 1, 2]);
+  expect(chart.timeOrigin).toBe("2026-01-06T00:00:00.000Z");
+  expect(chart.layers.find((layer) => layer.key === "right")?.rows[0]?.values).toEqual([0, 1, 2]);
   expect(chart.layers.find((layer) => layer.key === "revised-left")?.rows[0]?.values).toEqual([
     null,
     4,

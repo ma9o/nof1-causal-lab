@@ -321,12 +321,14 @@ def bind_panel_fixture(
     from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
 
     observations, times = jnp.asarray(observations), jnp.asarray(times)
+    origin = datetime(1970, 1, 1, tzinfo=UTC)
     support = (
-        simulation_observation_support(compiled_dynamical_model, np.asarray(times))
+        simulation_observation_support(
+            compiled_dynamical_model, np.asarray(times), time_origin=origin
+        )
         if support is None
         else support
     )
-    origin = datetime(1970, 1, 1, tzinfo=UTC)
     rows = []
     for i, observation in enumerate(compiled_dynamical_model.observations):
         for t, at in enumerate(np.asarray(times)):

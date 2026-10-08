@@ -111,10 +111,14 @@ export const Complete: Story = {
     await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(
       workbenchDependencies.length,
     );
+    // This proposal failed before retaining a request, so only its action record exists.
+    await userEvent.click(canvas.getByRole("button", { name: "edit_model · c000006 · failed" }));
+    await expect(await canvas.findByRole("region", { name: "Edit model failed" })).toBeVisible();
+    await expect(canvas.queryByRole("region", { name: "Model details" })).not.toBeInTheDocument();
     for (const [label, section, state] of [
       ["edit_model · c000002", "Model changes", null],
       ["prepare_data · c000005", "Prepared data", "gad7 screening score"],
-      ["edit_model · c000006 · failed", "Edit model failed", null],
+      ["edit_model · c000007", "Model changes", "Authored equations"],
       ["fit · c000008 · failed", "Fit failed", null],
       ["simulate · c000009", null, "Simulation design"],
     ] as const) {
@@ -133,12 +137,41 @@ export const Complete: Story = {
         await expect(record.queryByRole("region", { name: state })).not.toBeInTheDocument();
       }
       if (section === "Prepared data") {
-        await expect(record.getByText(/Extraction incomplete/)).toBeVisible();
+        await expect(record.getByText("input/observations.csv")).toBeVisible();
         await expect(canvas.queryByText("EXTRACTION_PARTIAL")).not.toBeInTheDocument();
         await expect(
           await details.findByRole("img", { name: /gad7_screening_score: prepared observations/ }),
         ).toBeInTheDocument();
         await expect(details.queryByText("Time coverage")).not.toBeInTheDocument();
+      }
+      if (state === "Authored equations") {
+        const graph = within(canvas.getByRole("region", { name: "Causal graph" }));
+        await userEvent.click(
+          await graph.findByRole("button", { name: "internalizing symptom burden" }),
+        );
+        await expect(
+          await details.findByRole("img", {
+            name: "internalizing symptom burden: initial state law",
+          }),
+        ).toBeInTheDocument();
+        await expect(details.getByRole("region", { name: "Intrinsic drift" })).toBeInTheDocument();
+        await userEvent.click(
+          graph.getByRole("button", { name: "phq9 screening score reading law" }),
+        );
+        await expect(
+          await details.findByRole("img", { name: "phq9 screening score: local reading law" }),
+        ).toBeInTheDocument();
+        await userEvent.click(
+          graph.getByRole("button", {
+            name: "escitalopram dose taken → internalizing symptom burden",
+          }),
+        );
+        await expect(details.getByRole("region", { name: "State inputs" })).toBeInTheDocument();
+        await expect(
+          details.getByRole("region", { name: "Mechanism equation" }),
+        ).toBeInTheDocument();
+        await expect(details.getByRole("region", { name: "Mechanism output" })).toBeInTheDocument();
+        await userEvent.click(canvas.getByRole("button", { name: "Show model state" }));
       }
       if (state === "Simulation design") {
         await expect(record.getByRole("log", { name: "Simulator log" })).toBeVisible();

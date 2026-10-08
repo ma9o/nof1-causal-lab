@@ -6,6 +6,8 @@ import { humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { Callout, KeyValue, OwnerLink, Prose, Section, StatusIcon } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
+import { FlowSection } from "./flow-sections";
+import { modelFlowPlots } from "@/lib/model-asset/flow-plots";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
@@ -13,6 +15,9 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   if (!scope) return null;
   const { modelSnapshot, construct, indicators } = scope;
   const equation = constructEquation(construct, context.entities);
+  const flows = modelSnapshot.dynamical_model_spec
+    ? modelFlowPlots(modelSnapshot.dynamical_model_spec)
+    : null;
   return (
     <>
       <Section title="Structure">
@@ -50,6 +55,10 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
         <Section title={equation.title} wide>
           <Katex latex={equation.latex} />
         </Section>
+      )}
+      <FlowSection title="State distribution" plot={flows?.constructs.get(id)} />
+      {construct.dynamics.length > 0 && (
+        <FlowSection title="Intrinsic drift" plot={flows?.intrinsic.get(id)} />
       )}
       <LawSections context={context} uses={ownLawUses(construct)} />
       <SimulatedHistory context={context} id={id} kind="states" />

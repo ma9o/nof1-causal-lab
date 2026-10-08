@@ -70,6 +70,13 @@ export function lawCurves(
     const law = parameter.distribution
       ? modelSnapshot.dynamical_model_spec?.distributions[parameter.distribution]
       : null;
+    // A point mass or a member of a joint law has no standalone authored scalar PDF.
+    if (
+      law?.distribution === "Delta" ||
+      (parameter.distribution &&
+        modelSnapshot.dynamical_model_spec?.law_layouts[parameter.distribution])
+    )
+      return [];
     return law
       ? [
           {

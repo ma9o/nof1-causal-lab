@@ -38,7 +38,9 @@ def simulation_layout(model, times, mask, write_array):
     from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
 
     compiled_dynamical_model = compile_model_fixture(model)
-    support = simulation_observation_support(compiled_dynamical_model, np.asarray(times))
+    support = simulation_observation_support(
+        compiled_dynamical_model, np.asarray(times), time_origin=datetime(2024, 1, 1, tzinfo=UTC)
+    )
     return SimulationObservationLayout(
         variables=tuple(
             model.indicator(observation.id).observation.resolved(observation.observation_window)

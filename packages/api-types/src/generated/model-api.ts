@@ -608,6 +608,12 @@ export interface components {
             readonly workspaceId: string;
         };
         /**
+         * CalendarWindow
+         * @description A complete UTC calendar month or year, whose length is resolved at its boundary.
+         * @enum {string}
+         */
+        readonly CalendarWindow: "1mo" | "1y";
+        /**
          * CallExpression
          * @description A supported mathematical function, including explicit discrete contrasts.
          */
@@ -952,6 +958,10 @@ export interface components {
          * DataComparisonReport
          * @description Statistical comparison of two nonempty selections of immutable saved histories.
          *
+         *     Compare data preparation revisions, observations with prior or posterior
+         *     simulations, or simulations across model specifications, priors, fits and
+         *     intervention scenarios.
+         *
          *     Left/right name comparison sides, not temporal revisions or an editing language.
          *     Resolved references retain every selected replicate in request order; a history
          *     cannot occur twice within one side. Variables are ordered by indicator identity.
@@ -1133,7 +1143,7 @@ export interface components {
          * @description Compose an observed variable with its data-owned extraction instructions.
          */
         readonly DataVariableSpec: {
-            readonly observation: Domain.ObservationSpec<string | null>;
+            readonly observation: Domain.ObservationSpec<Domain.ObservationWindow | null>;
             readonly extraction: components["schemas"]["ExtractionSpec-Output"];
         };
         /** DeltaLawSpec[Expression] */
@@ -1228,8 +1238,8 @@ export interface components {
                          * @enum {string}
                          */
                         readonly aggregation?: "first" | "last" | "sum" | "count" | "mean" | "std";
-                        /** @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock. */
-                        readonly observation_window?: string | null;
+                        /** @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock. */
+                        readonly observation_window?: (string | ("1mo" | "1y")) | null;
                         /** @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding. */
                         readonly ordinal_levels?: readonly string[] | null;
                         /** @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding. */
@@ -2074,10 +2084,10 @@ export interface components {
                          */
                         readonly aggregation: "first" | "last" | "sum" | "count" | "mean" | "std";
                         /**
-                         * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
+                         * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
                          * @default null
                          */
-                        readonly observation_window: string | null;
+                        readonly observation_window: (string | ("1mo" | "1y")) | null;
                         /**
                          * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
                          * @default null
@@ -3475,14 +3485,14 @@ export interface components {
         };
         /** EditModelInput[GitOid] */
         readonly EditModelInput_GitOid_: {
-            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
+            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. An exact Git hash can select either parent without being the current head. */
             readonly parent_ref: components["schemas"]["GitOid-Input"];
             /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. The action retains the merged spec and its findings. */
             readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Input"];
         };
         /** EditModelInput[RevisionSelector] */
         readonly EditModelInput_RevisionSelector_: {
-            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
+            /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. An exact Git hash can select either parent without being the current head. */
             readonly parent_ref: components["schemas"]["RevisionSelector"];
             /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. The action retains the merged spec and its findings. */
             readonly dynamical_model_spec: components["schemas"]["DynamicalModelSpec-Input"];
@@ -3976,7 +3986,7 @@ export interface components {
         readonly FitInput_GitOid_: {
             /** @description Model revision whose parameter law will be conditioned. */
             readonly dynamical_model_spec_ref: components["schemas"]["GitOid-Output"];
-            /** @description One saved observation history selected by revision and replicate index. */
+            /** @description One saved observation history selected by revision and a required replicate index. */
             readonly data_ref: Domain.DataRef<Domain.GitOid, number>;
             /** @description Optional particle-sampler counts and random seed for the run. */
             readonly settings: components["schemas"]["FitSettingsSpec-Output"];
@@ -3985,7 +3995,7 @@ export interface components {
         readonly FitInput_RevisionSelector_: {
             /** @description Model revision whose parameter law will be conditioned. */
             readonly dynamical_model_spec_ref: components["schemas"]["RevisionSelector"];
-            /** @description One saved observation history selected by revision and replicate index. */
+            /** @description One saved observation history selected by revision and a required replicate index. */
             readonly data_ref: components["schemas"]["DataRef_RevisionSelector_int_"];
             /** @description Optional particle-sampler counts and random seed for the run. */
             readonly settings?: components["schemas"]["FitSettingsSpec-Input"];
@@ -4266,7 +4276,7 @@ export interface components {
          *     schema also permits generative models before any observations have been collected.
          */
         readonly "IndicatorSpec-Output": {
-            readonly observation: Domain.ObservationSpec<string | null>;
+            readonly observation: Domain.ObservationSpec<Domain.ObservationWindow | null>;
             /** @default null */
             readonly likelihood: components["schemas"]["LikelihoodSpec-Output"] | null;
             /** @description Whether higher values move with (positive) or against (negative) the construct. */
@@ -5202,8 +5212,8 @@ export interface components {
             readonly empirical: readonly components["schemas"]["EmpiricalPoint"][];
         };
         readonly "ObservationLawSpec-Output": Domain.DeltaLawSpec<Domain.Expression> | Domain.NormalLawSpec<Domain.Expression> | Domain.StudentTLawSpec<Domain.Expression> | Domain.PoissonLawSpec<Domain.Expression> | Domain.GammaLawSpec<Domain.Expression> | Domain.BernoulliLogitsLawSpec<Domain.Expression> | Domain.BernoulliProbsLawSpec<Domain.Expression> | Domain.NegativeBinomial2LawSpec<Domain.Expression> | Domain.BetaLawSpec<Domain.Expression> | Domain.OrderedLogisticLawSpec<Domain.Expression> | Domain.CategoricalLawSpec<Domain.Expression>;
-        /** ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
-        readonly "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": {
+        /** ObservationSpec[Annotated[Union[ObservationWindow, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
+        readonly "ObservationSpec_Annotated_Union_ObservationWindow__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": {
             /** @description Persistent identity. Preserve when revising or renaming. */
             readonly id: components["schemas"]["IndicatorId-Output"];
             /**
@@ -5216,11 +5226,10 @@ export interface components {
             /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
             readonly aggregation: components["schemas"]["SummaryOperator"];
             /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
+             * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
              * @default null
              */
-            readonly observation_window: string | null;
+            readonly observation_window: components["schemas"]["ObservationWindow"] | null;
             /**
              * Ordinal Levels
              * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
@@ -5234,8 +5243,8 @@ export interface components {
              */
             readonly categorical_levels: readonly string[] | null;
         };
-        /** ObservationSpec[Duration] */
-        readonly ObservationSpec_Duration_: {
+        /** ObservationSpec[ObservationWindow] */
+        readonly ObservationSpec_ObservationWindow_: {
             /** @description Persistent identity. Preserve when revising or renaming. */
             readonly id: components["schemas"]["IndicatorId-Output"];
             /**
@@ -5247,11 +5256,8 @@ export interface components {
             readonly measurement_dtype: components["schemas"]["MeasurementDtype"];
             /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
             readonly aggregation: components["schemas"]["SummaryOperator"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
-             */
-            readonly observation_window: string;
+            /** @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock. */
+            readonly observation_window: components["schemas"]["ObservationWindow"];
             /**
              * Ordinal Levels
              * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
@@ -5265,6 +5271,7 @@ export interface components {
              */
             readonly categorical_levels: readonly string[] | null;
         };
+        readonly ObservationWindow: string | components["schemas"]["CalendarWindow"];
         /** OrderedLogisticLawSpec[Expression] */
         readonly "OrderedLogisticLawSpec_Expression_-Output": {
             /**
@@ -5902,7 +5909,7 @@ export interface components {
              * Variables
              * @description Observation definitions resolved against the clock retained in the preparation recipe.
              */
-            readonly variables: readonly Domain.ObservationSpec<string>[];
+            readonly variables: readonly Domain.ObservationSpec<Domain.ObservationWindow>[];
         };
         /** @description A progress event records one running attempt's step status or extraction telemetry. */
         readonly ProgressEvent: components["schemas"]["StepEvent"] | components["schemas"]["ExtractionPlanEvent"] | components["schemas"]["ExtractionWorkerEvent"] | components["schemas"]["ExtractionSnapshotEvent"];
@@ -6385,7 +6392,7 @@ export interface components {
          */
         readonly SimulationObservationLayout: {
             /** Variables */
-            readonly variables: readonly Domain.ObservationSpec<string>[];
+            readonly variables: readonly Domain.ObservationSpec<Domain.ObservationWindow>[];
             readonly support_start_times: components["schemas"]["NumericalArray"];
             readonly support_end_times: components["schemas"]["NumericalArray"];
             readonly mask: components["schemas"]["NumericalArray"];

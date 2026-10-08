@@ -266,6 +266,8 @@ def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNon
 
     from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
+    from nof1_causal_lab.utils.observation_rows import observation_window_bounds
+    from nof1_causal_lab.utils.observation_semantics import AnchorPolicy
 
     time_origin = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -278,16 +280,17 @@ def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNon
                     "indicator_id": str(observation.id),
                     "value": float(data.observations[j, i]),
                     "anchor_time": anchor,
-                    "support_start": anchor - timedelta(days=observation.window_days),
-                    "support_end": anchor,
                     "support_kind": observation.support.support_kind.value,
                     "summary_operator": observation.support.summary_operator.value,
                     "anchor_policy": observation.support.anchor_policy.value,
                     "observation_window": observation.observation_window.source,
                 }
             )
+    start, end = observation_window_bounds(
+        pl.col("anchor_time"), pl.col("observation_window"), anchor_policy=AnchorPolicy.SUPPORT_END
+    )
     observations = ObservationDataset.from_frame(
-        pl.DataFrame(rows),
+        pl.DataFrame(rows).with_columns(start.alias("support_start"), end.alias("support_end")),
         tuple(item.observation for item in inputs.compiled_dynamical_model.observations),
         time_origin=time_origin,
     )

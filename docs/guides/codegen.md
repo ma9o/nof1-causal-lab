@@ -129,7 +129,7 @@ Follow the [type naming conventions](#type-naming-conventions). `DynamicalModelS
 scientific definition retained inside the owning [action result](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py); `ConstructSpec`, `IndicatorSpec`, and
 `ParameterSpec` retain their canonical ownership inside it, while [`Value`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/base.py) supplies the shared immutable
 base. Server-composed views and study records share this export. Frontend code
-owns presentation state only.
+owns presentation and [display-only law composition](../../AGENTS.md#web-app).
 
 Owned values expose tuples and read-only mappings. Generated outputs have
 readonly properties, arrays and tuples; an ID-keyed map preserves its named key
@@ -146,7 +146,7 @@ uses shared payload variants for simulation effects and predictive comparisons;
 consumers narrow their discriminator before reading
 the payload or its absence reason.
 
-[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and inference plot series come from the backend. The [authored-law renderer](../../apps/web/src/lib/model-asset/authored-prior-plot.ts) evaluates supported scalar laws from `DynamicalModelSpec` solely for display; those plot points are not saved action results. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
+[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and inference plot series come from the backend. The [law composition renderer](../../apps/web/src/lib/model-asset/flow-plots.ts) evaluates saved laws and expressions from `DynamicalModelSpec` solely for display; those plot points are not saved action results. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.

@@ -8,7 +8,7 @@ import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import { ghostId, isGhost } from "@/lib/dag/unroll";
 
 export const LAYERED_NODE_WIDTH = 250;
-export const LAYERED_NODE_HEIGHT = 112;
+export const LAYERED_NODE_HEIGHT = 158;
 export const LAYERED_HISTORY_WIDTH = 156;
 export const LAYERED_HISTORY_HEIGHT = 54;
 export const LAYERED_EDGE_SLOT_WIDTH = 96;

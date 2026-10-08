@@ -70,7 +70,8 @@ class EditModelInput[RevisionT](Value):
     parent_ref: RevisionT = Field(
         description=(
             "Question or model revision to start from. A model parent supplies its pinned "
-            "question. 'latest' selects the current model, otherwise the current question."
+            "question. 'latest' selects the current model, otherwise the current question. "
+            "An exact Git hash can select either parent without being the current head."
         )
     )
     dynamical_model_spec: DynamicalModelSpec = Field(
@@ -149,13 +150,17 @@ class PrepareDataOutput(Value):
 
 
 class FitInput[RevisionT](Value):
-    """Condition one model on one selected observation history."""
+    """Condition one model on one selected observation history.
+
+    The data revision and replicate index both enter call identity and retained
+    provenance, so fitting another history is a distinct scientific call.
+    """
 
     dynamical_model_spec_ref: RevisionT = Field(
         description="Model revision whose parameter law will be conditioned."
     )
     data_ref: DataRef[RevisionT, int] = Field(
-        description="One saved observation history selected by revision and replicate index."
+        description="One saved observation history selected by revision and a required replicate index."
     )
     settings: FitSettingsSpec = Field(
         default_factory=FitSettingsSpec,

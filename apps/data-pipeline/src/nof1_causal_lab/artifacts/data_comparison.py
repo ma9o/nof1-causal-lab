@@ -142,6 +142,10 @@ type IndicatorComparison = DescriptiveIndicatorComparison | PredictiveIndicatorC
 class DataComparisonReport(Value):
     """Statistical comparison of two nonempty selections of immutable saved histories.
 
+    Compare data preparation revisions, observations with prior or posterior
+    simulations, or simulations across model specifications, priors, fits and
+    intervention scenarios.
+
     Left/right name comparison sides, not temporal revisions or an editing language.
     Resolved references retain every selected replicate in request order; a history
     cannot occur twice within one side. Variables are ordered by indicator identity.

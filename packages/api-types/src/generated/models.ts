@@ -17,6 +17,7 @@ export type AttemptRecord = components["schemas"]["AttemptRecord"];
 export type AuthoredLawProvenance = components["schemas"]["AuthoredLawProvenance"];
 export type BinaryExpression = components["schemas"]["BinaryExpression-Output"];
 export type BinaryOperator = components["schemas"]["BinaryOperator"];
+export type CalendarWindow = components["schemas"]["CalendarWindow"];
 export type CallExpression = components["schemas"]["CallExpression-Output"];
 export type CallId = components["schemas"]["CallId-Output"];
 export type CategoryProbabilitySummary = components["schemas"]["CategoryProbabilitySummary"];
@@ -134,6 +135,7 @@ export type NumericalArray = components["schemas"]["NumericalArray"];
 export type ObservationData = components["schemas"]["ObservationData"];
 export type ObservationHistory = components["schemas"]["ObservationHistory"];
 export type ObservationLawSpec = components["schemas"]["ObservationLawSpec-Output"];
+export type ObservationWindow = components["schemas"]["ObservationWindow"];
 export type OutcomeSubject = components["schemas"]["OutcomeSubject"];
 export type PPCOverlay = components["schemas"]["PPCOverlay"];
 export type PPCTestStat = components["schemas"]["PPCTestStat"];
@@ -339,7 +341,7 @@ export type DeltaLawSpec<A> = {
 export type EditModelInput<RevisionT> = {
     /**
      * Parent Ref
-     * @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question.
+     * @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. An exact Git hash can select either parent without being the current head.
      */
     readonly parent_ref: RevisionT;
     /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. The action retains the merged spec and its findings. */
@@ -386,7 +388,7 @@ export type FitInput<RevisionT> = {
      * @description Model revision whose parameter law will be conditioned.
      */
     readonly dynamical_model_spec_ref: RevisionT;
-    /** @description One saved observation history selected by revision and replicate index. */
+    /** @description One saved observation history selected by revision and a required replicate index. */
     readonly data_ref: DataRef<RevisionT, number>;
     /** @description Optional particle-sampler counts and random seed for the run. */
     readonly settings: FitSettingsSpec;
@@ -501,7 +503,7 @@ export type ObservationSpec<WindowT> = {
     readonly aggregation: SummaryOperator;
     /**
      * Observation Window
-     * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
+     * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
      */
     readonly observation_window: WindowT;
     /**

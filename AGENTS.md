@@ -19,7 +19,7 @@
 - Run lint for static feedback and before committing: `bun run --cwd apps/<app> lint` when a change touches only one app, otherwise `bun run lint` at the repo root, which adds the cross-package checks (knip, API types, and docs drift).
   Fix findings at the owner named by the checker; rule details live in the checker docstrings.
 
-- Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions).
+- Keep dependencies explicit and preserve strong typing end to end. Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions).
 
 # Notebooks
 
@@ -39,7 +39,7 @@
 
 # Web app
 
-- Keep domain logic and statistical computations in the backend, except for evaluating saved scalar authored probability laws solely to draw frontend plots. These display evaluations never feed inference, diagnostics, or scientific decisions.
+- Keep domain logic and statistical computations in the backend, except for frontend visualization: evaluate or sample saved probability laws, evaluate saved model expressions, and transform aligned draws. Preserve joint dependence and declared parameter transforms. These display evaluations never feed inference, trajectory generation, diagnostics, predictive checks, or scientific decisions, which remain backend-owned.
 
 - v2 (`/v2/{workspaceId}`) is the only interface. v1 lives at the annotated `v1-reference` tag as a reference for things v2 might surface; run it from a separate checkout of that tag with its own fixtures.
 

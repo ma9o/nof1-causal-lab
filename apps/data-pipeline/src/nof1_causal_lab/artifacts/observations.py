@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import ConfigDict, Field, model_validator
@@ -21,16 +22,39 @@ from .duration import Duration
 from .identity import IndicatorId
 
 
+class CalendarWindow(StrEnum):
+    """A complete UTC calendar month or year, whose length is resolved at its boundary."""
+
+    MONTH = "1mo"
+    YEAR = "1y"
+
+    @property
+    def source(self) -> str:
+        """Calendar spelling used by extraction and saved observation metadata."""
+        return self.value
+
+
+type ObservationWindow = Duration | CalendarWindow
+
+
+def canonical_observation_window(window: ObservationWindow | str) -> ObservationWindow:
+    """Parse and compare fixed windows by elapsed time while retaining calendar meaning."""
+    if window in (CalendarWindow.MONTH, CalendarWindow.YEAR):
+        return CalendarWindow(window)
+    duration = window if isinstance(window, Duration) else Duration(window)
+    return Duration(f"{duration.seconds}s")
+
+
 class ObservationDefinitionSpec(Value):
     """Measurement meaning, independent of variable identity and display spelling."""
 
     measurement_dtype: MeasurementDtype
     aggregation: SummaryOperator
     levels: tuple[str, ...]
-    window_seconds: int
+    window: ObservationWindow
 
 
-class ObservationSpec[WindowT: Duration | None](Value):
+class ObservationSpec[WindowT: ObservationWindow | None](Value):
     """A stable observed variable, reusable across scientific model definitions."""
 
     model_config = ConfigDict(revalidate_instances="always")
@@ -49,8 +73,9 @@ class ObservationSpec[WindowT: Duration | None](Value):
     )
     observation_window: WindowT = Field(
         description=(
-            "Optional duration string describing the support window summarized by this "
-            "indicator, in positive fixed units s, m, h, d or w (for example '2w'). "
+            "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), "
+            "or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to "
+            "calendar boundaries and retain their actual lengths, including leap days. "
             "Resolved by the preparation window or the generative model clock."
         ),
     )
@@ -71,7 +96,7 @@ class ObservationSpec[WindowT: Duration | None](Value):
         ),
     )
 
-    def resolved(self, window: Duration) -> ResolvedObservationSpec:
+    def resolved(self, window: ObservationWindow) -> ResolvedObservationSpec:
         """Retain the observation definition with its owned, resolved window."""
         return ResolvedObservationSpec(
             id=self.id,
@@ -84,7 +109,7 @@ class ObservationSpec[WindowT: Duration | None](Value):
         )
 
     @property
-    def definition(self: ObservationSpec[Duration]) -> ObservationDefinitionSpec:
+    def definition(self: ObservationSpec[ObservationWindow]) -> ObservationDefinitionSpec:
         """Resolved measurement equality; codebook order remains scientifically meaningful."""
         codebooks = (
             ("ordinal", self.ordinal_levels),
@@ -99,7 +124,7 @@ class ObservationSpec[WindowT: Duration | None](Value):
                 if dtype == self.measurement_dtype and levels is not None
                 for level in levels
             ),
-            window_seconds=self.observation_window.seconds,
+            window=canonical_observation_window(self.observation_window),
         )
 
     @model_validator(mode="after")
@@ -135,7 +160,14 @@ class ObservationSpec[WindowT: Duration | None](Value):
     @model_validator(mode="after")
     def validate_observation_semantics(self) -> Self:
         """Reject aggregation/dtype combinations the measurement stack cannot model."""
-        derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
+        semantics = derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
+        if (
+            isinstance(self.observation_window, CalendarWindow)
+            and semantics.support_kind != SupportKind.INTERVAL
+        ):
+            raise ValueError(
+                "Calendar windows require an interval summary: sum, count, mean or std"
+            )
         return self
 
     def _observation_semantics(self) -> IndicatorObservationSemantics:
@@ -162,5 +194,5 @@ class ObservationSpec[WindowT: Duration | None](Value):
         return self.support_kind == SupportKind.INTERVAL
 
 
-AuthoredObservationSpec = ObservationSpec[Annotated[Duration | None, Field(default=None)]]
-ResolvedObservationSpec = ObservationSpec[Duration]
+AuthoredObservationSpec = ObservationSpec[Annotated[ObservationWindow | None, Field(default=None)]]
+ResolvedObservationSpec = ObservationSpec[ObservationWindow]

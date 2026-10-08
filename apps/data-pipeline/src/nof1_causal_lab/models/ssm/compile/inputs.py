@@ -31,13 +31,12 @@ if TYPE_CHECKING:
     import jax
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.artifacts.duration import Duration
     from nof1_causal_lab.artifacts.identity import (
         EdgeId,
         IndicatorId,
     )
     from nof1_causal_lab.artifacts.likelihood import Law
-    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
+    from nof1_causal_lab.artifacts.observations import ObservationWindow, ResolvedObservationSpec
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
     from nof1_causal_lab.models.model_structure import StructuralSelection
@@ -102,14 +101,9 @@ class CompiledObservation:
         return self.observation._observation_semantics()
 
     @property
-    def observation_window(self) -> Duration:
-        """Resolved duration over which this indicator's observation is defined."""
+    def observation_window(self) -> ObservationWindow:
+        """Resolved fixed or calendar window summarized by this indicator."""
         return self.observation.observation_window
-
-    @property
-    def window_days(self) -> float:
-        """Observation window duration expressed in model days."""
-        return self.observation_window.days
 
 
 @dataclass(frozen=True)

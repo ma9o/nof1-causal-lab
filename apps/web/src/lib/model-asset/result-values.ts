@@ -86,11 +86,18 @@ export function historyView(history: ObservationHistory): HistoryView {
   };
 }
 
-/** Project the canonical evidence buffers; every reduction is already in the report. */
+const simulationPaths = new WeakMap<
+  SimulateOutput,
+  { readonly model: DynamicalModelSpec; readonly paths: SimulationPathsView }
+>();
+
+/** Share one projection of immutable evidence across charts; reductions stay in the report. */
 export function pathsView(
   result: SimulateOutput,
   dynamicalModelSpec: DynamicalModelSpec,
 ): SimulationPathsView {
+  const cached = simulationPaths.get(result);
+  if (cached?.model === dynamicalModelSpec) return cached.paths;
   const { evidence, summary } = result.report;
   const causal = causalEffect(result.report);
   const reference = evidence.arms.kind === "paired" ? evidence.arms.reference : null;
@@ -114,7 +121,7 @@ export function pathsView(
             : null,
       }),
     }));
-  return {
+  const view: SimulationPathsView = {
     times: evidence.times,
     time_origin: evidence.time_origin,
     total_draws: evidence.draws,
@@ -157,6 +164,8 @@ export function pathsView(
     action_category_probabilities: summary.action_category_probabilities,
     reference_category_probabilities: summary.reference_category_probabilities,
   };
+  simulationPaths.set(result, { model: dynamicalModelSpec, paths: view });
+  return view;
 }
 
 const isArray: (value: NumPyroValue) => value is readonly NumPyroValue[] = Array.isArray;

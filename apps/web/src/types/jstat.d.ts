@@ -12,6 +12,11 @@ declare module "jstat" {
     gamma: DistributionFunctions;
     lognormal: DistributionFunctions;
     uniform: DistributionFunctions;
+    studentt: {
+      inv(probability: number, degreesOfFreedom: number): number;
+    };
+    lowRegGamma(shape: number, value: number): number;
+    ibeta(value: number, first: number, second: number): number;
     exponential: {
       pdf(value: number, rate: number): number;
       inv(probability: number, rate: number): number;

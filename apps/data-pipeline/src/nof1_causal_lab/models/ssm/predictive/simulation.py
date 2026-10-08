@@ -33,6 +33,8 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
     DesignInfo,
     measure_construct_simulation,
 )
+from nof1_causal_lab.utils.observation_rows import observation_window_boundaries
+from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -81,6 +83,7 @@ def _time_grid(
     start: float,
     end: float,
     assignments: tuple[StateAssignment, ...],
+    time_origin: datetime,
 ) -> np.ndarray:
     times = {
         float(value)
@@ -89,6 +92,14 @@ def _time_grid(
         )
     }
     times.update(event.time for event in assignments)
+    origin = ObservationInstant(time_origin)
+    times.update(
+        ObservationInstant(instant).relative_to(origin).days
+        for window in {item.observation_window for item in compiled_dynamical_model.observations}
+        for instant in observation_window_boundaries(
+            window, ModelTime(start).at(origin).value, ModelTime(end).at(origin).value
+        )
+    )
     return np.asarray(sorted(times))
 
 
@@ -157,7 +168,7 @@ def generate_simulation_batch(
         compiled_dynamical_model, draws=draws, key=predictive_keys(seed).parameters
     )
     grid = (
-        _time_grid(compiled_dynamical_model, start, end, assignments)
+        _time_grid(compiled_dynamical_model, start, end, assignments, time_origin)
         if times is None
         else np.asarray(times)
     )
@@ -231,7 +242,9 @@ def generate_simulation_batch(
     from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
 
     if support is None:
-        support = simulation_observation_support(compiled_dynamical_model, grid)
+        support = simulation_observation_support(
+            compiled_dynamical_model, grid, time_origin=time_origin
+        )
     interventions = []
     for event in assignments:
         if event.target not in state_ids:

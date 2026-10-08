@@ -1,4 +1,4 @@
-"""The user's question in model terms, set once before any model exists."""
+"""The user's question in model terms, established before model authoring."""
 
 from __future__ import annotations
 

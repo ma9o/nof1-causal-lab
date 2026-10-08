@@ -1,7 +1,9 @@
 import type {
   CallExpression,
+  CausalEdgeSpec,
   ConstructId,
   ConstructSpec,
+  DynamicsMechanismSpec,
   Expression,
   IndicatorSpec,
 } from "@nof1-causal-lab/api-types";
@@ -108,6 +110,28 @@ export function observationEquation(
   return `y_{${text(indicator.observation.name)}}(t) \\sim \\operatorname{${law.distribution}}\\left(${argumentsLatex}\\right)`;
 }
 
+function driftTerms(
+  mechanisms: readonly DynamicsMechanismSpec[],
+  target: ConstructId,
+  entities: ModelEntities,
+): string {
+  return mechanisms
+    .map((mechanism) => {
+      const expression = expressionLatex(entities, mechanism.expression);
+      return mechanism.kind === "potential"
+        ? `-\\frac{\\partial}{\\partial ${state(entities, target)}}\\left[${expression}\\right]`
+        : expression;
+    })
+    .join(" + ");
+}
+
+/** The local contribution that this edge adds to the target construct's drift. */
+export function edgeEquation(edge: CausalEdgeSpec, entities: ModelEntities): string | null {
+  return edge.mechanisms.length === 0
+    ? null
+    : `g(\\eta,t) = ${driftTerms(edge.mechanisms, edge.effect.id, entities)}`;
+}
+
 /** Display authored mechanisms or direct DAG links, never a newly inferred noise projection. */
 export function constructEquation(construct: ConstructSpec, entities: ModelEntities) {
   if (construct.temporal_status === "time_invariant")
@@ -130,14 +154,8 @@ export function constructEquation(construct: ConstructSpec, entities: ModelEntit
           latex: `${state(entities, construct.id)} \\to \\left\\{${children.map((edge) => state(entities, edge.effect.id)).join(",\\;")}\\right\\}`,
         };
   }
-  const terms = mechanisms.map((mechanism) => {
-    const expression = expressionLatex(entities, mechanism.expression);
-    return mechanism.kind === "potential"
-      ? `-\\frac{\\partial}{\\partial ${state(entities, construct.id)}}\\left[${expression}\\right]`
-      : expression;
-  });
   return {
     title: "Authored drift",
-    latex: `f_{${text(construct.name)}}(\\eta,t) = ${terms.join(" + ")}`,
+    latex: `f_{${text(construct.name)}}(\\eta,t) = ${driftTerms(mechanisms, construct.id, entities)}`,
   };
 }

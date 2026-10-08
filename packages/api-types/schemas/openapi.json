@@ -2211,6 +2211,18 @@
         "title": "Body_upload_file_api_upload_post",
         "type": "object"
       },
+      "CalendarWindow": {
+        "description": "A complete UTC calendar month or year, whose length is resolved at its boundary.",
+        "enum": [
+          "1mo",
+          "1y"
+        ],
+        "title": "CalendarWindow",
+        "type": "string",
+        "x-python-module": "nof1_causal_lab.artifacts.observations",
+        "x-layer": "authored",
+        "x-concern": "scientific_model"
+      },
       "CallExpression-Input": {
         "additionalProperties": false,
         "description": "A supported mathematical function, including explicit discrete contrasts.",
@@ -3433,7 +3445,7 @@
       },
       "DataComparisonReport": {
         "additionalProperties": false,
-        "description": "Statistical comparison of two nonempty selections of immutable saved histories.\n\nLeft/right name comparison sides, not temporal revisions or an editing language.\nResolved references retain every selected replicate in request order; a history\ncannot occur twice within one side. Variables are ordered by indicator identity.\nExogenous indicators supplied by a simulation's model are excluded.\n\nOne-versus-one comparisons expose point changes. One-versus-many comparisons\nevaluate predictive checks against the singleton reference. Many-versus-many\ncomparisons retain per-history statistics without pairing draws or evaluating\nreference-based checks. IndicatorComparison owns the exact change semantics.\nSource definitions and complete observations belong to prepare_data/simulate\nresults; this report owns only selection identity and newly computed evidence.",
+        "description": "Statistical comparison of two nonempty selections of immutable saved histories.\n\nCompare data preparation revisions, observations with prior or posterior\nsimulations, or simulations across model specifications, priors, fits and\nintervention scenarios.\n\nLeft/right name comparison sides, not temporal revisions or an editing language.\nResolved references retain every selected replicate in request order; a history\ncannot occur twice within one side. Variables are ordered by indicator identity.\nExogenous indicators supplied by a simulation's model are excluded.\n\nOne-versus-one comparisons expose point changes. One-versus-many comparisons\nevaluate predictive checks against the singleton reference. Many-versus-many\ncomparisons retain per-history statistics without pairing draws or evaluating\nreference-based checks. IndicatorComparison owns the exact change semantics.\nSource definitions and complete observations belong to prepare_data/simulate\nresults; this report owns only selection identity and newly computed evidence.",
         "properties": {
           "left": {
             "items": {
@@ -4132,7 +4144,7 @@
         "description": "Compose an observed variable with its data-owned extraction instructions.",
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_ObservationWindow__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output"
           },
           "extraction": {
             "$ref": "#/components/schemas/ExtractionSpec-Output"
@@ -4427,13 +4439,25 @@
                                   "observation_window": {
                                     "anyOf": [
                                       {
-                                        "type": "string"
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "description": "A complete UTC calendar month or year, whose length is resolved at its boundary.",
+                                            "enum": [
+                                              "1mo",
+                                              "1y"
+                                            ],
+                                            "type": "string"
+                                          }
+                                        ]
                                       },
                                       {
                                         "type": "null"
                                       }
                                     ],
-                                    "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
+                                    "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
                                   },
                                   "ordinal_levels": {
                                     "anyOf": [
@@ -4466,7 +4490,7 @@
                                 },
                                 "type": "object",
                                 "x-typescript-mode": "validation",
-                                "x-typescript-type": "ObservationSpec<string | null>"
+                                "x-typescript-type": "ObservationSpec<ObservationWindow | null>"
                               },
                               "likelihood": {
                                 "anyOf": [
@@ -8514,14 +8538,26 @@
                           "observation_window": {
                             "anyOf": [
                               {
-                                "type": "string"
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "description": "A complete UTC calendar month or year, whose length is resolved at its boundary.",
+                                    "enum": [
+                                      "1mo",
+                                      "1y"
+                                    ],
+                                    "type": "string"
+                                  }
+                                ]
                               },
                               {
                                 "type": "null"
                               }
                             ],
                             "default": null,
-                            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
+                            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
                           },
                           "ordinal_levels": {
                             "anyOf": [
@@ -8564,7 +8600,7 @@
                         ],
                         "type": "object",
                         "x-typescript-mode": "serialization",
-                        "x-typescript-type": "ObservationSpec<string | null>"
+                        "x-typescript-type": "ObservationSpec<ObservationWindow | null>"
                       },
                       "likelihood": {
                         "anyOf": [
@@ -13705,7 +13741,7 @@
         "additionalProperties": false,
         "properties": {
           "parent_ref": {
-            "description": "Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question.",
+            "description": "Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. An exact Git hash can select either parent without being the current head.",
             "title": "Parent Ref",
             "tsType": "RevisionT",
             "type": "string"
@@ -13734,7 +13770,7 @@
         "properties": {
           "parent_ref": {
             "$ref": "#/components/schemas/GitOid-Input",
-            "description": "Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question."
+            "description": "Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. An exact Git hash can select either parent without being the current head."
           },
           "dynamical_model_spec": {
             "$ref": "#/components/schemas/DynamicalModelSpec-Input",
@@ -13758,7 +13794,7 @@
         "properties": {
           "parent_ref": {
             "$ref": "#/components/schemas/RevisionSelector",
-            "description": "Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question."
+            "description": "Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. An exact Git hash can select either parent without being the current head."
           },
           "dynamical_model_spec": {
             "$ref": "#/components/schemas/DynamicalModelSpec-Input",
@@ -15184,7 +15220,7 @@
           },
           "data_ref": {
             "$ref": "#/components/schemas/DataRef_Annotated_Any__WithJsonSchema__int_",
-            "description": "One saved observation history selected by revision and replicate index."
+            "description": "One saved observation history selected by revision and a required replicate index."
           },
           "settings": {
             "$ref": "#/components/schemas/FitSettingsSpec-Output",
@@ -15215,7 +15251,7 @@
           },
           "data_ref": {
             "$ref": "#/components/schemas/DataRef_GitOid_int_",
-            "description": "One saved observation history selected by revision and replicate index."
+            "description": "One saved observation history selected by revision and a required replicate index."
           },
           "settings": {
             "$ref": "#/components/schemas/FitSettingsSpec-Output",
@@ -15244,7 +15280,7 @@
           },
           "data_ref": {
             "$ref": "#/components/schemas/DataRef_RevisionSelector_int_",
-            "description": "One saved observation history selected by revision and replicate index."
+            "description": "One saved observation history selected by revision and a required replicate index."
           },
           "settings": {
             "$ref": "#/components/schemas/FitSettingsSpec-Input",
@@ -16118,7 +16154,7 @@
         "description": "Bind an observed-variable ID to a construct and an emission likelihood.\n\nExtraction instructions belong to DataPreparationSpec. The shared observation\nschema also permits generative models before any observations have been collected.",
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_ObservationWindow__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"
           },
           "likelihood": {
             "anyOf": [
@@ -16151,7 +16187,7 @@
         "description": "Bind an observed-variable ID to a construct and an emission likelihood.\n\nExtraction instructions belong to DataPreparationSpec. The shared observation\nschema also permits generative models before any observations have been collected.",
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_ObservationWindow__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output"
           },
           "likelihood": {
             "anyOf": [
@@ -19117,7 +19153,7 @@
             "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
           },
           "observation_window": {
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.",
             "title": "Observation Window",
             "tsType": "WindowT",
             "type": "string"
@@ -19174,7 +19210,7 @@
         "x-layer": "authored",
         "x-concern": "scientific_model"
       },
-      "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input": {
+      "ObservationSpec_Annotated_Union_ObservationWindow__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input": {
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -19197,15 +19233,14 @@
           "observation_window": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/ObservationWindow"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
-            "title": "Observation Window"
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -19246,15 +19281,15 @@
           "measurement_dtype",
           "aggregation"
         ],
-        "title": "ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
+        "title": "ObservationSpec[Annotated[Union[ObservationWindow, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
         "type": "object",
         "x-typescript-mode": "validation",
-        "x-typescript-type": "ObservationSpec<string | null>",
+        "x-typescript-type": "ObservationSpec<ObservationWindow | null>",
         "x-python-module": "nof1_causal_lab.artifacts.observations",
         "x-layer": "authored",
         "x-concern": "scientific_model"
       },
-      "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": {
+      "ObservationSpec_Annotated_Union_ObservationWindow__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": {
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -19277,15 +19312,14 @@
           "observation_window": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/ObservationWindow"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
-            "title": "Observation Window"
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -19329,15 +19363,15 @@
           "ordinal_levels",
           "categorical_levels"
         ],
-        "title": "ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
+        "title": "ObservationSpec[Annotated[Union[ObservationWindow, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "ObservationSpec<string | null>",
+        "x-typescript-type": "ObservationSpec<ObservationWindow | null>",
         "x-python-module": "nof1_causal_lab.artifacts.observations",
         "x-layer": "authored",
         "x-concern": "scientific_model"
       },
-      "ObservationSpec_Duration_": {
+      "ObservationSpec_ObservationWindow_": {
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -19358,9 +19392,8 @@
             "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
           },
           "observation_window": {
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
-            "title": "Observation Window",
-            "type": "string"
+            "$ref": "#/components/schemas/ObservationWindow",
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -19404,10 +19437,23 @@
           "ordinal_levels",
           "categorical_levels"
         ],
-        "title": "ObservationSpec[Duration]",
+        "title": "ObservationSpec[ObservationWindow]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "ObservationSpec<string>",
+        "x-typescript-type": "ObservationSpec<ObservationWindow>",
+        "x-python-module": "nof1_causal_lab.artifacts.observations",
+        "x-layer": "authored",
+        "x-concern": "scientific_model"
+      },
+      "ObservationWindow": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#/components/schemas/CalendarWindow"
+          }
+        ],
         "x-python-module": "nof1_causal_lab.artifacts.observations",
         "x-layer": "authored",
         "x-concern": "scientific_model"
@@ -21513,7 +21559,7 @@
           "variables": {
             "description": "Observation definitions resolved against the clock retained in the preparation recipe.",
             "items": {
-              "$ref": "#/components/schemas/ObservationSpec_Duration_"
+              "$ref": "#/components/schemas/ObservationSpec_ObservationWindow_"
             },
             "readOnly": true,
             "title": "Variables",
@@ -22833,7 +22879,7 @@
         "properties": {
           "variables": {
             "items": {
-              "$ref": "#/components/schemas/ObservationSpec_Duration_"
+              "$ref": "#/components/schemas/ObservationSpec_ObservationWindow_"
             },
             "title": "Variables",
             "type": "array"

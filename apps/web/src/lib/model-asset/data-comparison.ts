@@ -1,18 +1,17 @@
 import type {
   ActionSuccess,
   DataComparisonReport,
-  DataPoint,
   GitOid,
   PrepareDataOutput,
 } from "@nof1-causal-lab/api-types";
-import { historyView } from "./result-values";
+import { historyView, type HistoryView } from "./result-values";
 
 export type DataSourceResult = Extract<ActionSuccess, { action: "prepare_data" | "simulate" }>;
 
 interface DataSeriesView {
   readonly variable: PrepareDataOutput["metadata"]["variables"][number];
   readonly time_origin: string;
-  readonly points: readonly DataPoint[];
+  readonly history: HistoryView;
 }
 
 export type DataVariableView = DataComparisonReport["variables"][number] & {
@@ -47,18 +46,10 @@ export function dataComparisonView(
         result.action === "prepare_data"
           ? result.body.metadata.time_origin
           : result.body.report.evidence.time_origin;
-      const origin = Date.parse(timeOrigin);
-      const instant = (day: number) => new Date(origin + day * 86_400_000).toISOString();
-      const support = (day: number | null) => (day === null ? null : instant(day));
       return {
         variable: coordinate(variables.find((variable) => variable.id === id)),
         time_origin: timeOrigin,
-        points: history.times.map((time, index) => ({
-          anchor_time: instant(time),
-          support_start: support(coordinate(history.support_start[index])),
-          support_end: support(coordinate(history.support_end[index])),
-          value: coordinate(history.values[index]),
-        })),
+        history,
       };
     });
   return {

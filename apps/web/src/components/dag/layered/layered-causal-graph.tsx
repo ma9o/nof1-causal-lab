@@ -10,16 +10,13 @@ import type {
   IndicatorEmpiricalProfile,
   IndicatorSpec,
   StateAssignment,
-  PosteriorMarginal,
   ActionId,
 } from "@nof1-causal-lab/api-types";
 import { Pause, Play } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { DensityMarks, densityPeak } from "@/components/charts/distribution-chart";
 import { DrawsChart } from "@/components/charts/draws-chart";
-import { lawDomain, lawLayers } from "@/components/charts/law-layers";
 import { CHART_COLORS, cssColor } from "@/components/charts/chart-tokens";
-import { type PlotBox, extentOf, linearScale, padDomain } from "@/components/charts/plot-geometry";
+import { extentOf, linearScale, padDomain } from "@/components/charts/plot-geometry";
 import { ProfileMarks, profileDomain, profileSummary } from "@/components/charts/profile-strip";
 import { dataComparisonChart, pathLayers } from "@/components/charts/series-adapters";
 import { Button } from "@/components/ui/button";
@@ -38,12 +35,9 @@ import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, LATENT } from "@/lib/dag/palet
 import { type LayeredGraphOptions, useLayeredGraph } from "@/lib/dag/use-layered-graph";
 import { entityFailures } from "@/lib/model-asset/inspector";
 import type { EntitySelection } from "@/lib/model-asset/selection";
-import { type LawCurve, lawLabel } from "@/lib/model-asset/laws";
-import {
-  formatModelDate,
-  formatPosteriorIntervalLabel,
-  formatSignificant,
-} from "@/lib/utils/format";
+import { FlowChart } from "@/components/charts/flow-chart";
+import { modelFlowPlots, type FlowPlot } from "@/lib/model-asset/flow-plots";
+import { formatModelDate, formatSignificant } from "@/lib/utils/format";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagEdge } from "../core/dag-edge";
 import { DagNodeShell } from "../core/dag-node";
@@ -136,16 +130,6 @@ const STRIP = { x: 14, top: 36, width: LAYERED_NODE_WIDTH - 28, height: 64 } as 
 const STRIP_ROW = { height: 21, value: 108, plot: 114 } as const;
 const STRIP_ROWS = 3;
 const rowTop = (index: number) => STRIP.top + index * STRIP_ROW.height;
-
-function lawTitle(curve: LawCurve): string {
-  const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : null;
-  const summary = posterior
-    ? `posterior ${formatSignificant(posterior.mean)} [${formatSignificant(posterior.lower)}, ${formatSignificant(posterior.upper)}] ${formatPosteriorIntervalLabel(posterior)}`
-    : curve.posteriors.length > 1
-      ? `${curve.posteriors.length} posterior elements`
-      : `authored ${curve.family ? `${curve.family} ` : ""}prior`;
-  return [lawLabel(curve), humanize(curve.parameter.name), summary].join(" · ");
-}
 
 /** One labelled row of a card's chart strip; its chart sits right of the value. */
 function StripRow({
@@ -251,65 +235,6 @@ function CardMarkers({
           />
         </g>
       ))}
-    </g>
-  );
-}
-
-/** A law's curves inside a card or slot, on the law's own value range. */
-function LawMarks({ curve, box }: { curve: LawCurve; box: PlotBox }) {
-  const domain = lawDomain(curve);
-  if (!domain) return null;
-  const layers = lawLayers(curve);
-  return (
-    <DensityMarks
-      layers={layers}
-      x={linearScale(domain[0] === domain[1] ? padDomain(domain) : domain, [
-        box.left,
-        box.left + box.width,
-      ])}
-      box={box}
-      peak={densityPeak(layers)}
-    />
-  );
-}
-
-/** Each own law's curves: the prior outlined, posteriors filled after a fit. */
-function LawStrip({ laws }: { laws: LawCurve[] }) {
-  const shown = laws.slice(0, STRIP_ROWS);
-  return (
-    <g>
-      {shown.map((curve, index) => {
-        const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : null;
-        const domain = lawDomain(curve);
-        return (
-          <StripRow
-            key={curve.parameter.id}
-            index={index}
-            title={lawTitle(curve)}
-            label={lawLabel(curve)}
-            value={
-              posterior
-                ? formatSignificant(posterior.mean)
-                : curve.posteriors.length > 1
-                  ? `×${curve.posteriors.length}`
-                  : truncate(curve.family ?? "prior", 9)
-            }
-            valueTone={posterior ? DAG_COLORS.ink : DAG_COLORS.muted}
-            {...(domain ? { range: domain } : {})}
-          >
-            <LawMarks
-              curve={curve}
-              box={{
-                left: STRIP.x + STRIP_ROW.plot,
-                top: rowTop(index) + 2,
-                width: STRIP.width - STRIP_ROW.plot,
-                height: STRIP_ROW.height - 8,
-              }}
-            />
-          </StripRow>
-        );
-      })}
-      <StripOverflow hidden={laws.length - shown.length} />
     </g>
   );
 }
@@ -485,82 +410,32 @@ function HistoryCard({
 
 function EdgeSlot({
   meta,
-  posterior,
-  laws,
+  plot,
   color,
   dimmed,
+  simulation,
 }: {
   meta: LayeredGraphEdgeMeta;
-  posterior: PosteriorMarginal | undefined;
-  /** The edge mechanism's own laws; the first is drawn in the slot. */
-  laws: LawCurve[];
+  plot: FlowPlot | undefined;
   color: string;
   dimmed: boolean;
+  simulation: boolean;
 }) {
-  const timing = meta.isSelf
-    ? "Intrinsic dynamics"
-    : meta.crossSlice
-      ? "State evolution"
-      : "Contemporaneous effect";
-  const law = laws.at(0);
-  if (law) {
-    const effect = law.posteriors.length === 1 ? law.posteriors[0] : null;
-    const tone = DAG_COLORS.slate;
+  if (!plot)
     return (
-      <g opacity={dimmed ? 0.12 : 1}>
-        <title>{[`${timing}`, ...laws.map(lawTitle)].join("\n")}</title>
-        <rect
-          width={LAYERED_EDGE_SLOT_WIDTH}
-          height={LAYERED_EDGE_SLOT_HEIGHT}
-          rx={8}
-          fill="var(--card)"
-          stroke={color}
-          strokeOpacity={0.55}
-        />
-        <LawMarks
-          curve={law}
-          box={{
-            left: 7,
-            top: 5,
-            width: LAYERED_EDGE_SLOT_WIDTH - 14,
-            height: LAYERED_EDGE_SLOT_HEIGHT - 19,
-          }}
-        />
-        <text
-          x={LAYERED_EDGE_SLOT_WIDTH / 2}
-          y={LAYERED_EDGE_SLOT_HEIGHT - 5}
-          textAnchor="middle"
-          fontSize={7.2}
-          fontWeight={650}
-          fill={tone}
-        >
-          {`${lawLabel(law)} · ${effect ? `μ ${formatSignificant(effect.mean)}` : (law.family ?? "prior")}${laws.length > 1 ? ` +${laws.length - 1}` : ""}`}
-        </text>
-      </g>
+      <line
+        x1={0}
+        x2={LAYERED_EDGE_SLOT_WIDTH}
+        y1={LAYERED_EDGE_SLOT_HEIGHT / 2}
+        y2={LAYERED_EDGE_SLOT_HEIGHT / 2}
+        stroke={color}
+        strokeWidth={1.2}
+        opacity={dimmed ? 0.12 : 1}
+      />
     );
-  }
-  const bottom = posterior
-    ? `${posterior.mean >= 0 ? "+" : ""}${formatSignificant(posterior.mean)}`
-    : null;
-
-  if (bottom === null)
-    return (
-      <g opacity={dimmed ? 0.12 : 1}>
-        <title>{`${timing}`}</title>
-        <line
-          x1={0}
-          x2={LAYERED_EDGE_SLOT_WIDTH}
-          y1={LAYERED_EDGE_SLOT_HEIGHT / 2}
-          y2={LAYERED_EDGE_SLOT_HEIGHT / 2}
-          stroke={color}
-          strokeWidth={1.2}
-        />
-      </g>
-    );
-
   return (
     <g opacity={dimmed ? 0.12 : 1}>
-      <title>{timing}</title>
+      <title>{`${plot.label}: ${plot.kind === "draws" ? plot.note : plot.reason}`}</title>
       <rect
         width={LAYERED_EDGE_SLOT_WIDTH}
         height={LAYERED_EDGE_SLOT_HEIGHT}
@@ -569,15 +444,23 @@ function EdgeSlot({
         stroke={color}
         strokeOpacity={0.55}
       />
+      <foreignObject
+        x={6}
+        y={4}
+        width={LAYERED_EDGE_SLOT_WIDTH - 12}
+        height={LAYERED_EDGE_SLOT_HEIGHT - 18}
+        pointerEvents="none"
+      >
+        <FlowChart plot={plot} height={LAYERED_EDGE_SLOT_HEIGHT - 18} compact />
+      </foreignObject>
       <text
         x={LAYERED_EDGE_SLOT_WIDTH / 2}
-        y={LAYERED_EDGE_SLOT_HEIGHT / 2 + 2.5}
+        y={LAYERED_EDGE_SLOT_HEIGHT - 5}
         textAnchor="middle"
-        fontSize={7.2}
-        fontWeight={650}
-        fill={color}
+        fontSize={7}
+        fill={DAG_COLORS.slate}
       >
-        {bottom}
+        {simulation ? "Model drift" : meta.isSelf ? "Intrinsic drift" : "Drift contribution"}
       </text>
     </g>
   );
@@ -656,7 +539,6 @@ export function LayeredCausalGraph({
     simulationVisible,
     nodeStatuses,
     indicatorsByConstruct,
-    constructLaws,
     simulationResult,
     days,
     clampedDayIndex,
@@ -670,6 +552,10 @@ export function LayeredCausalGraph({
     edgeVisual,
   } = useLayeredGraph({ modelSnapshot, entities, simulation, comparison, selection });
   const selectedNode = selection?.kind === "construct" ? selection.id : null;
+  const flows =
+    modelSnapshot.dynamical_model_spec && (visible.has("specification") || visible.has("fit"))
+      ? modelFlowPlots(modelSnapshot.dynamical_model_spec)
+      : null;
 
   const canvas = (
     <DagCanvasFrame fill={variant === "asset"}>
@@ -781,10 +667,14 @@ export function LayeredCausalGraph({
                     />
                     <EdgeSlot
                       meta={edge}
-                      posterior={visual.posterior}
-                      laws={visual.laws}
+                      plot={
+                        edge.isSelf
+                          ? flows?.intrinsic.get(edge.cause.id)
+                          : flows?.edges.get(edge.id)
+                      }
                       color={visual.color}
                       dimmed={dataDiff !== null || visual.dimmed}
+                      simulation={step === "simulate"}
                     />
                     {failures.length > 0 && (
                       <g role="img" aria-label={failures.join("; ")}>
@@ -845,6 +735,7 @@ export function LayeredCausalGraph({
 
               const nodeIndicators = indicatorsByConstruct.get(construct.id) ?? [];
               const series = simulationPaths?.states[construct.id];
+              const statePlot = flows?.constructs.get(construct.id);
               const prepared =
                 step === "prepare_data"
                   ? nodeIndicators.flatMap((indicator) => {
@@ -990,7 +881,87 @@ export function LayeredCausalGraph({
                     ) : prepared.length > 0 ? (
                       <DataStrip rows={prepared} />
                     ) : (
-                      <LawStrip laws={constructLaws.get(construct.id) ?? []} />
+                      <foreignObject
+                        x={STRIP.x}
+                        y={STRIP.top}
+                        width={STRIP.width}
+                        height={STRIP.height}
+                        pointerEvents="none"
+                      >
+                        {statePlot && (
+                          <FlowChart
+                            plot={statePlot}
+                            height={STRIP.height}
+                            compact
+                            resolution={zoom}
+                          />
+                        )}
+                      </foreignObject>
+                    )}
+                    {!dataDiff &&
+                      prepared.length === 0 &&
+                      nodeIndicators.slice(0, 2).map((indicator, index) => {
+                        const id = indicator.observation.id;
+                        const readings = simulationPaths?.indicators[id];
+                        const plot = flows?.indicators.get(id);
+                        const selectIndicator = () => onSelect({ kind: "indicator", id });
+                        return (
+                          <g
+                            key={id}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${humanize(indicator.observation.name)} reading law`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectIndicator();
+                            }}
+                            onKeyDown={(event) => {
+                              event.stopPropagation();
+                              activateOnKeyboard(event, selectIndicator);
+                            }}
+                          >
+                            <title>
+                              {readings
+                                ? `${humanize(readings.label)}: saved simulation readings`
+                                : plot
+                                  ? `${plot.label}: ${plot.kind === "draws" ? plot.note : plot.reason}`
+                                  : indicator.observation.name}
+                            </title>
+                            <text
+                              x={STRIP.x}
+                              y={115 + index * 21}
+                              fontSize={7}
+                              fill={DAG_COLORS.slate}
+                            >
+                              {truncate(humanize(indicator.observation.name), 21)}
+                            </text>
+                            <foreignObject
+                              x={130}
+                              y={104 + index * 21}
+                              width={106}
+                              height={18}
+                              pointerEvents="none"
+                            >
+                              {readings ? (
+                                <DrawsChart
+                                  compact
+                                  height={18}
+                                  resolution={zoom}
+                                  times={simulationPaths.times}
+                                  timeOrigin={simulationPaths.time_origin}
+                                  layers={pathLayers(readings, "both", true)}
+                                  levels={readings.levels}
+                                  label={`${humanize(readings.label)}: saved readings`}
+                                />
+                              ) : plot ? (
+                                <FlowChart plot={plot} height={18} compact resolution={zoom} />
+                              ) : null}
+                            </foreignObject>
+                          </g>
+                        );
+                      })}
+                    {!dataDiff && prepared.length === 0 && (
+                      <StripOverflow hidden={nodeIndicators.length - 2} />
                     )}
                   </ConstructCard>
                   {constructChange !== undefined && (
@@ -1077,7 +1048,7 @@ export function LayeredCausalGraph({
         <span>Dynamic causes connect successive state slices.</span>
         {simulationVisible ? <span>Dashed blue markers show dated assignments.</span> : null}
         {designVisible ? <span>Dashed edge slots are projected by design.</span> : null}
-        {fitVisible ? <span>Edge color and weight show fitted sign and magnitude.</span> : null}
+        {fitVisible ? <span>State and mechanism plots preserve joint draws.</span> : null}
       </div>
     </div>
   );

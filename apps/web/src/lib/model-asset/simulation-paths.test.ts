@@ -71,7 +71,9 @@ it.each([
       },
     },
   };
-  const displayed = pathsView(saved, fixtureValue(fittedSnapshot.dynamical_model_spec));
+  const model = fixtureValue(fittedSnapshot.dynamical_model_spec);
+  const displayed = pathsView(saved, model);
+  expect(pathsView(saved, model)).toBe(displayed);
   expect(displayed.times).toBe(saved.report.evidence.times);
   const series = fixtureValue(displayed.indicators[identity]);
   expect(series.action[1]).toEqual({ draw: 1, values: [1, 5, null, null] });
@@ -86,4 +88,13 @@ it.each([
   expect(displayed.action_category_probabilities).toBe(
     saved.report.summary.action_category_probabilities,
   );
+  const renamed = pathsView(saved, {
+    ...model,
+    constructs: {
+      ...model.constructs,
+      [outcome.id]: { ...fixtureValue(model.constructs[outcome.id]), name: "Renamed outcome" },
+    },
+  });
+  expect(renamed.states[outcome.id]?.label).toBe("Renamed outcome");
+  expect(displayed.states[outcome.id]?.label).toBe(outcome.name);
 });

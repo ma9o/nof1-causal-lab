@@ -94,14 +94,16 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
   const referenceSide = "predictive" in variable ? variable.predictive.reference_side : null;
   const histories = [...variable.left, ...variable.right].filter((history) => history !== null);
   const definition = histories.at(0)?.variable;
-  const anchors = [
-    ...new Set(
-      histories.flatMap((history) => history.points.map((point) => Date.parse(point.anchor_time))),
-    ),
-  ].sort((a, b) => a - b);
+  const timestamps = (series: NonNullable<DataVariableView["left"][number]>) => {
+    const start = Date.parse(series.time_origin);
+    return series.history.times.map((day) => Math.trunc(start + day * DAY_MS));
+  };
+  const anchors = [...new Set(histories.flatMap(timestamps))].sort((a, b) => a - b);
   const origin = anchors.at(0) ?? null;
-  const align = (points: readonly { anchor_time: string; value: number | null }[]) => {
-    const byAnchor = new Map(points.map((point) => [Date.parse(point.anchor_time), point.value]));
+  const align = (series: NonNullable<DataVariableView["left"][number]>) => {
+    const byAnchor = new Map(
+      timestamps(series).map((anchor, index) => [anchor, series.history.values[index]]),
+    );
     return anchors.map((anchor) => byAnchor.get(anchor) ?? null);
   };
   const sides: DrawLayer[] = (["left", "right"] as const).flatMap((side): DrawLayer[] =>
@@ -118,12 +120,19 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
                     {
                       key: `${side}-${index}`,
                       label: `history ${index + 1}`,
-                      values: align(history.points),
+                      values: align(history),
                     },
                   ]
                 : [],
             ),
-            points: referenceSide === null,
+            points:
+              referenceSide === null ||
+              variable[side].some(
+                (series) =>
+                  series !== null &&
+                  series.history.values.filter((value) => value !== null).length * 2 <
+                    series.history.times.length,
+              ),
           },
         ],
   );
@@ -142,7 +151,7 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
                     {
                       key: `observed-${index}`,
                       label: `history ${index + 1}`,
-                      values: align(history.points),
+                      values: align(history),
                     },
                   ]
                 : [],
@@ -192,7 +201,7 @@ export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChart
     times: origin === null ? [] : anchors.map((anchor) => (anchor - origin) / DAY_MS),
     timeOrigin: origin === null ? null : new Date(origin).toISOString(),
     layers: [...sides, ...references, ...changes],
-    ...(single ? { observed: { label: "Observed", values: align(single.points) } } : {}),
+    ...(single ? { observed: { label: "Observed", values: align(single) } } : {}),
     levels: definition?.ordinal_levels ?? definition?.categorical_levels ?? null,
     xLabel: "Days from first anchor",
   };

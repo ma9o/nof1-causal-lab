@@ -71,7 +71,7 @@ def indicator_findings(
     definitions: Mapping[IndicatorId, ResolvedObservationSpec],
 ) -> tuple[DataFinding, ...]:
     """Evaluate data quality once, with codes and evidence independent of action severity."""
-    ctx = _build_indicator_context(indicator_id, data, definitions, {}, None)
+    ctx = _build_indicator_context(indicator_id, data, definitions, {})
     subject = IndicatorRef(id=indicator_id)
     if ctx is None:
         return (
@@ -164,7 +164,6 @@ def _build_indicator_context(
     ind_data: pl.DataFrame,
     indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec],
     construct_lookup: Mapping[str, ConstructSpec],
-    model_clock_hours: float | None,
 ) -> IndicatorContext | None:
     values_df = ind_data.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
     n_obs = len(values_df)
@@ -176,8 +175,13 @@ def _build_indicator_context(
 
     indicator_meta = indicator_lookup.get(indicator_id)
     dtype = indicator_meta.measurement_dtype if indicator_meta is not None else None
-    if indicator_meta is not None and (window := indicator_meta.observation_window) is not None:
-        model_clock_hours = window.seconds / 3600
+    model_clock_hours = (
+        ind_data.filter(pl.col("value").is_not_null())
+        .select(
+            ((pl.col("support_end") - pl.col("support_start")).dt.total_seconds() / 3600).median()
+        )
+        .item()
+    )
     construct_meta = construct_lookup.get(indicator_id)
     is_time_invariant = (
         construct_meta is not None and construct_meta.temporal_status == "time_invariant"

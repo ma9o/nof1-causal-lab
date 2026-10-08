@@ -1,12 +1,17 @@
-"""Extraction context composes owned definitions, fixed windows and source references."""
+"""Extraction context composes owned definitions, observation windows and source references."""
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import DataVariableSpec, FileSourceRef
 from nof1_causal_lab.artifacts.duration import Duration
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.observations import ObservationWindow
 
 
 class MeasurementContext(Value):
@@ -16,7 +21,7 @@ class MeasurementContext(Value):
     model_clock: Duration
     indicators: tuple[DataVariableSpec, ...] = Field(min_length=1)
 
-    def window(self, indicator: DataVariableSpec) -> Duration:
+    def window(self, indicator: DataVariableSpec) -> ObservationWindow:
         """Resolve an indicator's authored observation window, using the model clock when omitted."""
         return indicator.observation.observation_window or self.model_clock
 

@@ -8,6 +8,8 @@ import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { ObservationPlots, ObservedProfile } from "./recorded-history";
+import { FlowSection } from "./flow-sections";
+import { modelFlowPlots } from "@/lib/model-asset/flow-plots";
 
 export function IndicatorScope({ context, id }: { context: ScopeContext; id: IndicatorId }) {
   const scope = indicatorPresentation(context, id);
@@ -19,6 +21,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   );
   const equation = observationEquation(indicator, context.entities);
   const empirical = context.modelSnapshot.profile?.indicators[id]?.profile;
+  const model = context.modelSnapshot.dynamical_model_spec;
   return (
     <>
       <Section title="Measurement">
@@ -51,6 +54,10 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <Katex latex={equation} />
         </Section>
       )}
+      <FlowSection
+        title="Reading distribution"
+        plot={model ? modelFlowPlots(model).indicators.get(id) : undefined}
+      />
       <LawSections context={context} uses={ownLawUses(indicator)} />
       {preparation && (
         <Section title="Data preparation">

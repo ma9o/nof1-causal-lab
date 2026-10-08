@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.duration import Duration
+from nof1_causal_lab.artifacts.observations import (
+    CalendarWindow,
+    ObservationWindow,
+    canonical_observation_window,
+)
 from nof1_causal_lab.utils.observation_semantics import AnchorPolicy
 
 if TYPE_CHECKING:
@@ -62,7 +66,7 @@ def validate_observation_rows(
             if rows[field].null_count() or not (rows[field] == expected).all():
                 raise ValueError(f"Observation {variable.id} has inconsistent {field}")
         if any(
-            window is None or Duration(window).seconds != variable.observation_window.seconds
+            window is None or canonical_observation_window(window) != variable.definition.window
             for window in rows["observation_window"].unique()
         ):
             raise ValueError(f"Observation {variable.id} has an incompatible observation window")
@@ -227,6 +231,30 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
     return dict(OBSERVATION_ROW_SCHEMA)
 
 
+def observation_window_bounds(
+    anchor: pl.Expr, window: pl.Expr, *, anchor_policy: AnchorPolicy
+) -> tuple[pl.Expr, pl.Expr]:
+    """Resolve UTC support bounds; calendar windows exist only at calendar boundaries."""
+    aligned = ~window.is_in(tuple(item.value for item in CalendarWindow)) | (
+        anchor == anchor.dt.truncate(window)
+    )
+    anchor = pl.when(aligned).then(anchor)
+    if anchor_policy == AnchorPolicy.SUPPORT_END:
+        return anchor.dt.offset_by(pl.lit("-") + window), anchor
+    return anchor, anchor.dt.offset_by(window)
+
+
+def observation_window_boundaries(
+    window: ObservationWindow, start: datetime, end: datetime
+) -> tuple[datetime, ...]:
+    """Calendar boundaries that a simulation grid must retain inside its requested span."""
+    if not isinstance(window, CalendarWindow):
+        return ()
+    first = pl.Series([start]).dt.truncate(window)[0]
+    instants: list[datetime] = pl.datetime_range(first, end, interval=window, eager=True).to_list()
+    return tuple(instant for instant in instants if instant >= start)
+
+
 def annotate_observation_rows(
     df: pl.DataFrame,
     variables: Sequence[ResolvedObservationSpec],
@@ -311,15 +339,15 @@ def annotate_observation_rows(
         if df.schema.get(time_col) == pl.Utf8
         else pl.col(time_col)
     )
-    support_start_expr = ts_expr.dt.to_string("%Y-%m-%dT%H:%M:%S")
     observation_window_expr = pl.col("observation_window_meta")
     support_kind_expr = pl.col("support_kind_meta")
     summary_operator_expr = pl.col("summary_operator_meta")
     anchor_policy_expr = pl.col("anchor_policy_meta")
-    support_end_expr = (
-        pl.when(observation_window_expr.is_not_null())
-        .then(ts_expr.dt.offset_by(observation_window_expr).dt.to_string("%Y-%m-%dT%H:%M:%S"))
-        .otherwise(support_start_expr)
+    support_start, support_end = observation_window_bounds(
+        ts_expr, observation_window_expr, anchor_policy=AnchorPolicy.SUPPORT_START
+    )
+    support_start_expr, support_end_expr = (
+        bound.dt.to_string("%Y-%m-%dT%H:%M:%S") for bound in (support_start, support_end)
     )
     anchor_time_expr = (
         pl.when(anchor_policy_expr == AnchorPolicy.SUPPORT_START.value)

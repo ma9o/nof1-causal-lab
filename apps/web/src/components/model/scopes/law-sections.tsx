@@ -31,7 +31,7 @@ function lawHint(curve: LawCurve): string | null {
 }
 
 /** One section per law an entity's own terms name, with its prior and any posterior. */
-export function LawSections({
+function ParameterLawSections({
   context,
   uses,
 }: {
@@ -67,7 +67,12 @@ export function LawSections({
             <p>{humanize(parameter.name)}</p>
           )}
           {(!curve || law?.distribution === "Delta") &&
-            (law ? (
+            (parameter.distribution &&
+            context.modelSnapshot.dynamical_model_spec?.law_layouts[parameter.distribution] ? (
+              <Hint>
+                This parameter belongs to the joint law used in the composed output plots.
+              </Hint>
+            ) : law ? (
               <p className="break-words font-mono">{distributionText(law)}</p>
             ) : (
               <Hint>No law assigned.</Hint>
@@ -131,6 +136,32 @@ export function LawSections({
         </Section>
       );
     });
+}
+
+/** Parameter-level detail sits behind the composed quantity passed to the next node. */
+export function LawSections({
+  context,
+  uses,
+}: {
+  context: ScopeContext;
+  uses: readonly CoefficientUse[];
+}) {
+  const [open, setOpen] = useState(false);
+  if (uses.length === 0) return null;
+  return (
+    <Section title="Parameter laws">
+      <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-muted-foreground">
+          Input laws and diagnostics
+        </summary>
+        {open && (
+          <div className="mt-3 space-y-3">
+            <ParameterLawSections context={context} uses={uses} />
+          </div>
+        )}
+      </details>
+    </Section>
+  );
 }
 
 /** The saved simulation's history of one state or indicator, when it was simulated. */

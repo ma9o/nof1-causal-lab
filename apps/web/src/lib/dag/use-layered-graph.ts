@@ -12,7 +12,7 @@ import type {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelEntities } from "@/lib/model-asset/entities";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
-import { type LawCurve, lawCurves, ownLawUses } from "@/lib/model-asset/laws";
+import { ownLawUses } from "@/lib/model-asset/laws";
 import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
 import { buildLayeredCausalGraph, type LayeredGraphEdgeMeta } from "./build-layered-causal-graph";
 import { placeComparisonOverlay, type ModelComparison } from "./comparison-overlay";
@@ -100,24 +100,6 @@ export function useLayeredGraph({
           indicator.likelihood ? [[indicator.observation.id, indicator.likelihood] as const] : [],
         )
       : [],
-  );
-  const lawsVisible = specificationVisible || fitVisible;
-  const constructLaws = useMemo(
-    () =>
-      new Map<ConstructId, LawCurve[]>(
-        entities.constructs.map((construct) => [
-          construct.id,
-          lawCurves(modelSnapshot, ownLawUses(construct)),
-        ]),
-      ),
-    [modelSnapshot, entities.constructs],
-  );
-  const edgeLaws = useMemo(
-    () =>
-      new Map<EdgeId, LawCurve[]>(
-        entities.edges.map((edge) => [edge.id, lawCurves(modelSnapshot, ownLawUses(edge))]),
-      ),
-    [modelSnapshot, entities.edges],
   );
   const marginal = (uses: ReturnType<typeof ownLawUses>, role: "weight" | "decay") => {
     const parameters = new Set(
@@ -217,7 +199,6 @@ export function useLayeredGraph({
     const change = difference.edgeChanges.get(meta.id);
     return {
       posterior,
-      laws: meta.isSelf || !lawsVisible ? [] : (edgeLaws.get(meta.id) ?? []),
       color:
         selection?.kind === "edge" && selection.id === meta.id
           ? "var(--primary)"
@@ -253,7 +234,6 @@ export function useLayeredGraph({
     nodeStatuses,
     indicatorsByConstruct,
     likelihoodByVariable,
-    constructLaws: lawsVisible ? constructLaws : new Map<ConstructId, LawCurve[]>(),
     simulationResult,
     days,
     clampedDayIndex,

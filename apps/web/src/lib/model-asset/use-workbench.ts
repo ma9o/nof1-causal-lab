@@ -1,6 +1,6 @@
 "use client";
 
-import { modelReference } from "./call-dependencies";
+import { modelReference, producingCall } from "./call-dependencies";
 
 import type { ActionSuccess, ModelSnapshot, TimelineRevision } from "@nof1-causal-lab/api-types";
 
@@ -34,12 +34,7 @@ export function useWorkbenchSnapshots(
       : modelReference(record, attempts)
     : attempts.find((entry) => entry.record.seq === latest)?.commit_id;
   const selected = useSnapshot(commitId);
-  const hasSelectedState = attempts.some(
-    (entry) =>
-      entry.commit_id === commitId &&
-      entry.record.attempt.outcome.status === "applied" &&
-      entry.record.attempt.request !== null,
-  );
+  const hasSelectedState = producingCall(attempts, commitId) !== undefined;
   const hasCurrentState = attempts.some(
     (entry) =>
       entry.record.seq === latest &&

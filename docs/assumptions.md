@@ -73,7 +73,7 @@ A simulation replicate keeps its calendar timestamps and starts a new history: i
 | Concept | Meaning |
 | --- | --- |
 | `measurement_clock` | The shared measurement interval and default authoring interval for persistence and effect priors. |
-| `observation_window` | The support interval that one indicator value summarizes. It defaults to the clock and may differ per indicator. |
+| `observation_window` | The [indicator-owned support interval](../apps/data-pipeline/src/nof1_causal_lab/artifacts/observations.py), resolved to exact UTC boundaries. Calendar months and years retain their actual lengths. |
 | `aggregation` | How a window is summarized, which fixes the value's support and anchor (next table). |
 | `anchor_time` | Where the value attaches to the latent path. |
 | `dt` | The time between consecutive prepared time points, including window boundaries. It scales each Euler–Maruyama step in `fit`. |

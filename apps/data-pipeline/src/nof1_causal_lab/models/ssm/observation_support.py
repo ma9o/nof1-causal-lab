@@ -11,6 +11,8 @@ import polars as pl
 
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.utils.immutability import freeze_fields
+from nof1_causal_lab.utils.observation_rows import observation_window_bounds
+from nof1_causal_lab.utils.observation_semantics import AnchorPolicy
 from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
 if TYPE_CHECKING:
@@ -508,7 +510,10 @@ def recorded_observation_support(
 
 
 def simulation_observation_support(
-    compiled_dynamical_model: CompiledDynamicalModel, times: np.ndarray
+    compiled_dynamical_model: CompiledDynamicalModel,
+    times: np.ndarray,
+    *,
+    time_origin: datetime,
 ) -> ObservationSupportRuntime:
     """Schedule declared indicators on a simulation grid, omitting unavailable prehistory."""
     ordered = compiled_dynamical_model.observations
@@ -517,10 +522,26 @@ def simulation_observation_support(
     windows: list[str | None] = [indicator.observation_window.source for indicator in ordered]
     starts = np.broadcast_to(times[:, None], (len(times), len(ordered))).copy()
     ends = starts.copy()
+    origin = ObservationInstant(time_origin)
+    instants = pl.DataFrame(
+        {"time": [ModelTime(float(time)).at(origin).value.replace(tzinfo=None) for time in times]}
+    )
     for i, observation in enumerate(ordered):
         kind = observation.support.support_kind.value
         if kind == "interval":
-            starts[:, i] -= observation.window_days
+            start, end = observation_window_bounds(
+                pl.col("time"),
+                pl.lit(observation.observation_window.source),
+                anchor_policy=AnchorPolicy.SUPPORT_END,
+            )
+            starts[:, i], ends[:, i] = (
+                instants.select(
+                    ModelTime.bind_column(start, origin).alias("start"),
+                    ModelTime.bind_column(end, origin).alias("end"),
+                )
+                .to_numpy()
+                .T
+            )
             absent = starts[:, i] < times[0] - 1e-8
             starts[absent, i] = np.nan
             ends[absent, i] = np.nan
