@@ -608,12 +608,6 @@ export interface components {
             readonly workspaceId: string;
         };
         /**
-         * CalendarWindow
-         * @description A complete UTC calendar month or year, whose length is resolved at its boundary.
-         * @enum {string}
-         */
-        readonly CalendarWindow: "1mo" | "1y";
-        /**
          * CallExpression
          * @description A supported mathematical function, including explicit discrete contrasts.
          */
@@ -1238,8 +1232,8 @@ export interface components {
                          * @enum {string}
                          */
                         readonly aggregation?: "first" | "last" | "sum" | "count" | "mean" | "std";
-                        /** @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock. */
-                        readonly observation_window?: (string | ("1mo" | "1y")) | null;
+                        /** @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock. */
+                        readonly observation_window?: string | null;
                         /** @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding. */
                         readonly ordinal_levels?: readonly string[] | null;
                         /** @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding. */
@@ -2084,10 +2078,10 @@ export interface components {
                          */
                         readonly aggregation: "first" | "last" | "sum" | "count" | "mean" | "std";
                         /**
-                         * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
+                         * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
                          * @default null
                          */
-                        readonly observation_window: (string | ("1mo" | "1y")) | null;
+                        readonly observation_window: string | null;
                         /**
                          * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
                          * @default null
@@ -5226,7 +5220,7 @@ export interface components {
             /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
             readonly aggregation: components["schemas"]["SummaryOperator"];
             /**
-             * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
+             * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
              * @default null
              */
             readonly observation_window: components["schemas"]["ObservationWindow"] | null;
@@ -5256,7 +5250,7 @@ export interface components {
             readonly measurement_dtype: components["schemas"]["MeasurementDtype"];
             /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
             readonly aggregation: components["schemas"]["SummaryOperator"];
-            /** @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock. */
+            /** @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock. */
             readonly observation_window: components["schemas"]["ObservationWindow"];
             /**
              * Ordinal Levels
@@ -5271,7 +5265,7 @@ export interface components {
              */
             readonly categorical_levels: readonly string[] | null;
         };
-        readonly ObservationWindow: string | components["schemas"]["CalendarWindow"];
+        readonly ObservationWindow: string;
         /** OrderedLogisticLawSpec[Expression] */
         readonly "OrderedLogisticLawSpec_Expression_-Output": {
             /**

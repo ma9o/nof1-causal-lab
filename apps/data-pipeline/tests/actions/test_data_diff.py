@@ -38,6 +38,7 @@ from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.store import ArtifactStore, read_dataset
+from nof1_causal_lab.utils.observation_semantics import AnchorPolicy
 from tests.action_fixtures import applied_record, empty_simulation_summary
 from tests.git_fixtures import artifact_revisions, git_oid
 
@@ -141,6 +142,50 @@ def test_replica_checks_are_symmetric_and_preserve_whole_history_statistics():
     means = next(item for item in many.statistics if item.statistic == "mean")
     assert len(means.left) == 3
     assert len(means.right) == 2
+
+
+@pytest.mark.inference(concern="predictive")
+@pytest.mark.parametrize("aggregation", ["first", "last", "mean", "sum", "count", "std"])
+def test_predictive_support_follows_the_model_observation_semantics(aggregation):
+    variable = ResolvedObservationSpec(
+        id="indicator:y",
+        name="Y",
+        measurement_dtype="count" if aggregation == "count" else "continuous",
+        aggregation=aggregation,
+        observation_window="1d",
+    )
+    observed = _dataset([1, 2, 3], variable=variable, times=[1, 2, 3])
+    series = observed.series[variable.id]
+    width = timedelta(days=1)
+    points = tuple(
+        point.revised(support_end=point.anchor_time + width)
+        if variable.anchor_policy == AnchorPolicy.SUPPORT_START
+        else point.revised(
+            support_start=point.anchor_time
+            - width * (2 if variable.requires_interval_summary_measurement else 1)
+        )
+        for point in series.points
+    )
+    observed = observed.revised(series={variable.id: series.revised(points=points)})
+    replicas = tuple(
+        _dataset([1, 2, 3], number=n, variable=variable, times=[1, 2, 3]) for n in (2, 3)
+    )
+    forward = compare_data_variables((observed,), replicas)[0]
+    reverse = compare_data_variables(replicas, (observed,))[0]
+    if variable.requires_interval_summary_measurement:
+        assert isinstance(forward, DescriptiveIndicatorComparison)
+        assert isinstance(reverse, DescriptiveIndicatorComparison)
+        assert {finding.code for finding in forward.findings} == {
+            "observation_schedule",
+            "observation_support",
+        }
+        assert forward.findings == reverse.findings
+    else:
+        assert isinstance(forward, PredictiveIndicatorComparison)
+        assert isinstance(reverse, PredictiveIndicatorComparison)
+        assert isinstance(forward.predictive.evaluation, PosteriorPredictiveChecks)
+        assert forward.predictive.evaluation == reverse.predictive.evaluation
+        assert forward.findings == reverse.findings == ()
 
 
 @pytest.mark.inference(concern="predictive")

@@ -41,6 +41,8 @@ dependencies = [
     "sympy>=1.14.0",
     "lineax>=0.1.1",
     "msgpack>=1.2.3",
+    "pytimeparse2>=1.7.1",
+    "python-dateutil>=2.9.0.post0",
 ]
 
 [project.scripts]

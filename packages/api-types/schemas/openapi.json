@@ -2211,18 +2211,6 @@
         "title": "Body_upload_file_api_upload_post",
         "type": "object"
       },
-      "CalendarWindow": {
-        "description": "A complete UTC calendar month or year, whose length is resolved at its boundary.",
-        "enum": [
-          "1mo",
-          "1y"
-        ],
-        "title": "CalendarWindow",
-        "type": "string",
-        "x-python-module": "nof1_causal_lab.artifacts.observations",
-        "x-layer": "authored",
-        "x-concern": "scientific_model"
-      },
       "CallExpression-Input": {
         "additionalProperties": false,
         "description": "A supported mathematical function, including explicit discrete contrasts.",
@@ -4439,25 +4427,13 @@
                                   "observation_window": {
                                     "anyOf": [
                                       {
-                                        "anyOf": [
-                                          {
-                                            "type": "string"
-                                          },
-                                          {
-                                            "description": "A complete UTC calendar month or year, whose length is resolved at its boundary.",
-                                            "enum": [
-                                              "1mo",
-                                              "1y"
-                                            ],
-                                            "type": "string"
-                                          }
-                                        ]
+                                        "type": "string"
                                       },
                                       {
                                         "type": "null"
                                       }
                                     ],
-                                    "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
+                                    "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
                                   },
                                   "ordinal_levels": {
                                     "anyOf": [
@@ -8538,26 +8514,14 @@
                           "observation_window": {
                             "anyOf": [
                               {
-                                "anyOf": [
-                                  {
-                                    "type": "string"
-                                  },
-                                  {
-                                    "description": "A complete UTC calendar month or year, whose length is resolved at its boundary.",
-                                    "enum": [
-                                      "1mo",
-                                      "1y"
-                                    ],
-                                    "type": "string"
-                                  }
-                                ]
+                                "type": "string"
                               },
                               {
                                 "type": "null"
                               }
                             ],
                             "default": null,
-                            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
+                            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
                           },
                           "ordinal_levels": {
                             "anyOf": [
@@ -19153,7 +19117,7 @@
             "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
           },
           "observation_window": {
-            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.",
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.",
             "title": "Observation Window",
             "tsType": "WindowT",
             "type": "string"
@@ -19240,7 +19204,7 @@
               }
             ],
             "default": null,
-            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -19319,7 +19283,7 @@
               }
             ],
             "default": null,
-            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -19393,7 +19357,7 @@
           },
           "observation_window": {
             "$ref": "#/components/schemas/ObservationWindow",
-            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
+            "description": "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -19446,14 +19410,7 @@
         "x-concern": "scientific_model"
       },
       "ObservationWindow": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "$ref": "#/components/schemas/CalendarWindow"
-          }
-        ],
+        "type": "string",
         "x-python-module": "nof1_causal_lab.artifacts.observations",
         "x-layer": "authored",
         "x-concern": "scientific_model"

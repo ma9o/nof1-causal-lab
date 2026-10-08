@@ -81,7 +81,7 @@ def prepare_semantic_chunks(
 
         windows = bucket_by_clock(
             projected,
-            observation_window.source,
+            observation_window.polars_interval,
             time_col,
             start=measurement_structure.source.start,
             end=measurement_structure.source.end,

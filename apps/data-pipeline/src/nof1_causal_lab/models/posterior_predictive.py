@@ -577,10 +577,9 @@ def _predictive_comparison(
         for point in reference.points:
             candidate = lookup.get(point.anchor_time)
             if point.value is not None:
-                if candidate is None or (candidate.support_start, candidate.support_end) != (
-                    point.support_start,
-                    point.support_end,
-                ):
+                if candidate is None or series.measurement_support(
+                    candidate
+                ) != reference.measurement_support(point):
                     return Evaluated(
                         code="observation_support",
                         subject=subject,
@@ -663,8 +662,7 @@ def compare_data_variables(
             )
         schedules = {
             tuple(
-                (point.anchor_time, point.support_start, point.support_end)
-                for point in series.points
+                (point.anchor_time, *series.measurement_support(point)) for point in series.points
             )
             for series in present
         }

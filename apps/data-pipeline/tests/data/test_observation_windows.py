@@ -4,8 +4,15 @@ from datetime import datetime
 
 import polars as pl
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
+from nof1_causal_lab.artifacts.duration import CalendarDuration
+from nof1_causal_lab.artifacts.observations import (
+    ObservationWindow,
+    ResolvedObservationSpec,
+    canonical_observation_window,
+)
 from nof1_causal_lab.utils.aggregations import compute_indicators
 from nof1_causal_lab.utils.observation_rows import (
     annotate_observation_rows,
@@ -24,6 +31,13 @@ pytestmark = pytest.mark.contract
         ("1mo", "2023-02-01", "2023-03-01", "2023-04-01", 28),
         ("1mo", "2024-02-01", "2024-03-01", "2024-04-01", 29),
         ("1y", "2024-01-01", "2025-01-01", "2026-01-01", 366),
+        ("2y", "1936-01-01", "1938-01-01", "1940-01-01", 731),
+        ("2y", "1938-01-01", "1940-01-01", "1942-01-01", 730),
+        ("3mo", "2024-01-01", "2024-04-01", "2024-07-01", 91),
+        ("18mo", "2024-01-01", "2025-07-01", "2027-01-01", 547),
+        ("1 year 6 months", "2024-01-01", "2025-07-01", "2027-01-01", 547),
+        ("3y", "2024-01-01", "2027-01-01", "2030-01-01", 1096),
+        ("7y", "2019-01-01", "2026-01-01", "2033-01-01", 2557),
         ("7d", "2024-02-29", "2024-03-07", "2024-03-14", 7),
     ],
 )
@@ -65,11 +79,11 @@ def test_period_counts_keep_exact_bounds_and_missing_windows(window, start, miss
 
     # Simulation resolves these same windows from their end anchors.
     lower, upper = observation_window_bounds(
-        pl.col("anchor_time"), pl.lit(window), anchor_policy=AnchorPolicy.SUPPORT_END
+        pl.col("anchor_time"), variable.observation_window, anchor_policy=AnchorPolicy.SUPPORT_END
     )
     simulated = rows.select(lower.alias("support_start"), upper.alias("support_end"))
     assert simulated.equals(rows.select("support_start", "support_end"))
-    if window in {"1mo", "1y"}:
+    if isinstance(variable.observation_window, CalendarDuration):
         boundaries = observation_window_boundaries(
             variable.observation_window, datetime.fromisoformat(start), datetime.fromisoformat(end)
         )
@@ -77,3 +91,65 @@ def test_period_counts_keep_exact_bounds_and_missing_windows(window, start, miss
         # A calendar count cannot be attached to a partial reporting period.
         unaligned = pl.DataFrame({"anchor_time": [datetime.fromisoformat(start).replace(day=2)]})
         assert unaligned.select(lower, upper.alias("end")).row(0) == (None, None)
+        if variable.observation_window.months > 12:
+            interior_year = datetime.fromisoformat(start).replace(year=int(start[:4]) + 1)
+            unaligned_year = pl.DataFrame({"anchor_time": [interior_year]})
+            assert unaligned_year.select(lower, upper.alias("end")).row(0) == (None, None)
+
+
+@pytest.mark.parametrize("source", ["0mo", "0y", "-2y", "1.5mo", "2y1d", "mo", ""])
+def test_calendar_window_parser_rejects_invalid_periods(source):
+    with pytest.raises(ValidationError):
+        TypeAdapter(ObservationWindow).validate_python(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "canonical"),
+    [
+        ("1y", "12mo"),
+        ("7y", "84mo"),
+        ("003mo", "3mo"),
+        ("2Y", "24mo"),
+        ("2 years", "24mo"),
+        ("1y6mo", "18mo"),
+    ],
+)
+def test_calendar_window_wire_spelling_and_measurement_equivalence(source, canonical):
+    adapter = TypeAdapter(ObservationWindow)
+    parsed = adapter.validate_python(source)
+    assert isinstance(parsed, CalendarDuration)
+    assert adapter.validate_python(parsed) is parsed
+    assert adapter.dump_json(parsed) == f'"{source}"'.encode()
+    assert adapter.validate_json(adapter.dump_json(parsed)) == parsed
+    assert canonical_observation_window(parsed) == canonical_observation_window(canonical)
+    assert canonical_observation_window("1y") != canonical_observation_window("365d")
+
+
+def test_mixed_indicator_windows_keep_their_own_calendar_bounds():
+    windows = ("1mo", "3mo", "2y", "7d")
+    variables = tuple(
+        ResolvedObservationSpec.model_validate(
+            {
+                "id": "indicator:" + window,
+                "name": window,
+                "measurement_dtype": "count",
+                "aggregation": "sum",
+                "observation_window": window,
+            }
+        )
+        for window in windows
+    )
+    raw = pl.DataFrame(
+        {
+            "indicator_id": [variable.id for variable in variables],
+            "value": [10, 20, 30, 40],
+            "timestamp": ["1938-01-01"] * len(variables),
+        }
+    )
+    rows = validate_observation_rows(annotate_observation_rows(raw, variables), variables)
+    by_indicator = {row["indicator_id"]: row for row in rows.to_dicts()}
+    for window, end in zip(
+        windows, ("1938-02-01", "1938-04-01", "1940-01-01", "1938-01-08"), strict=True
+    ):
+        assert by_indicator["indicator:" + window]["support_start"] == datetime(1938, 1, 1)
+        assert by_indicator["indicator:" + window]["support_end"] == datetime.fromisoformat(end)

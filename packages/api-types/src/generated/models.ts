@@ -17,7 +17,6 @@ export type AttemptRecord = components["schemas"]["AttemptRecord"];
 export type AuthoredLawProvenance = components["schemas"]["AuthoredLawProvenance"];
 export type BinaryExpression = components["schemas"]["BinaryExpression-Output"];
 export type BinaryOperator = components["schemas"]["BinaryOperator"];
-export type CalendarWindow = components["schemas"]["CalendarWindow"];
 export type CallExpression = components["schemas"]["CallExpression-Output"];
 export type CallId = components["schemas"]["CallId-Output"];
 export type CategoryProbabilitySummary = components["schemas"]["CategoryProbabilitySummary"];
@@ -503,7 +502,7 @@ export type ObservationSpec<WindowT> = {
     readonly aggregation: SummaryOperator;
     /**
      * Observation Window
-     * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to calendar boundaries and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
+     * @description Optional support window: positive fixed units s, m, h, d or w (for example '2w'), or whole calendar months/years parsed by pytimeparse2 (for example '3mo', '2 years', '1y6mo'). Calendar windows align to whole-month boundaries anchored to January 1970 and retain their actual lengths, including leap days. Resolved by the preparation window or the generative model clock.
      */
     readonly observation_window: WindowT;
     /**

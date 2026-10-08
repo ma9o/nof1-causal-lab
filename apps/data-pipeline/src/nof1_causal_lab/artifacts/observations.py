@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import ConfigDict, Field, model_validator
@@ -18,31 +17,18 @@ from nof1_causal_lab.utils.observation_semantics import (
     supported_summary_operators_text,
 )
 
-from .duration import Duration
+from .duration import CalendarDuration, Duration, parse_observation_window
 from .identity import IndicatorId
 
-
-class CalendarWindow(StrEnum):
-    """A complete UTC calendar month or year, whose length is resolved at its boundary."""
-
-    MONTH = "1mo"
-    YEAR = "1y"
-
-    @property
-    def source(self) -> str:
-        """Calendar spelling used by extraction and saved observation metadata."""
-        return self.value
-
-
-type ObservationWindow = Duration | CalendarWindow
+type ObservationWindow = Duration | CalendarDuration
 
 
 def canonical_observation_window(window: ObservationWindow | str) -> ObservationWindow:
     """Parse and compare fixed windows by elapsed time while retaining calendar meaning."""
-    if window in (CalendarWindow.MONTH, CalendarWindow.YEAR):
-        return CalendarWindow(window)
-    duration = window if isinstance(window, Duration) else Duration(window)
-    return Duration(f"{duration.seconds}s")
+    parsed = parse_observation_window(window) if isinstance(window, str) else window
+    if isinstance(parsed, CalendarDuration):
+        return CalendarDuration(f"{parsed.months}mo")
+    return Duration(f"{parsed.seconds}s")
 
 
 class ObservationDefinitionSpec(Value):
@@ -74,8 +60,10 @@ class ObservationSpec[WindowT: ObservationWindow | None](Value):
     observation_window: WindowT = Field(
         description=(
             "Optional support window: positive fixed units s, m, h, d or w (for example '2w'), "
-            "or whole UTC calendar months/years ('1mo', '1y'). Calendar windows align to "
-            "calendar boundaries and retain their actual lengths, including leap days. "
+            "or whole calendar months/years parsed by pytimeparse2 "
+            "(for example '3mo', '2 years', '1y6mo'). "
+            "Calendar windows align to whole-month boundaries anchored to January 1970 "
+            "and retain their actual lengths, including leap days. "
             "Resolved by the preparation window or the generative model clock."
         ),
     )
@@ -162,7 +150,7 @@ class ObservationSpec[WindowT: ObservationWindow | None](Value):
         """Reject aggregation/dtype combinations the measurement stack cannot model."""
         semantics = derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
         if (
-            isinstance(self.observation_window, CalendarWindow)
+            isinstance(self.observation_window, CalendarDuration)
             and semantics.support_kind != SupportKind.INTERVAL
         ):
             raise ValueError(

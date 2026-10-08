@@ -200,7 +200,7 @@ def compute_indicators(
         name = ind.observation.id
         agg_name = ind.observation.aggregation
         measurement_dtype = ind.observation.measurement_dtype
-        observation_window = measurement_structure.window(ind).source
+        observation_window = measurement_structure.window(ind).polars_interval
         tick_frame = support_window_tick_frame(
             df, observation_window, time_col, start=start, end=end
         )

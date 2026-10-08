@@ -531,7 +531,7 @@ def simulation_observation_support(
         if kind == "interval":
             start, end = observation_window_bounds(
                 pl.col("time"),
-                pl.lit(observation.observation_window.source),
+                observation.observation_window,
                 anchor_policy=AnchorPolicy.SUPPORT_END,
             )
             starts[:, i], ends[:, i] = (

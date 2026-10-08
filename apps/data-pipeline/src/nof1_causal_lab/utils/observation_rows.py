@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.duration import CalendarDuration
 from nof1_causal_lab.artifacts.observations import (
-    CalendarWindow,
     ObservationWindow,
     canonical_observation_window,
 )
@@ -232,27 +232,53 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
 
 
 def observation_window_bounds(
-    anchor: pl.Expr, window: pl.Expr, *, anchor_policy: AnchorPolicy
+    anchor: pl.Expr, window: ObservationWindow, *, anchor_policy: AnchorPolicy
 ) -> tuple[pl.Expr, pl.Expr]:
     """Resolve UTC support bounds; calendar windows exist only at calendar boundaries."""
-    aligned = ~window.is_in(tuple(item.value for item in CalendarWindow)) | (
-        anchor == anchor.dt.truncate(window)
-    )
-    anchor = pl.when(aligned).then(anchor)
+    if isinstance(window, CalendarDuration):
+        anchor = pl.when(anchor == anchor.dt.truncate(window.polars_interval)).then(anchor)
     if anchor_policy == AnchorPolicy.SUPPORT_END:
-        return anchor.dt.offset_by(pl.lit("-") + window), anchor
-    return anchor, anchor.dt.offset_by(window)
+        return anchor.dt.offset_by("-" + window.polars_interval), anchor
+    return anchor, anchor.dt.offset_by(window.polars_interval)
 
 
 def observation_window_boundaries(
     window: ObservationWindow, start: datetime, end: datetime
 ) -> tuple[datetime, ...]:
     """Calendar boundaries that a simulation grid must retain inside its requested span."""
-    if not isinstance(window, CalendarWindow):
+    if not isinstance(window, CalendarDuration):
         return ()
-    first = pl.Series([start]).dt.truncate(window)[0]
-    instants: list[datetime] = pl.datetime_range(first, end, interval=window, eager=True).to_list()
+    first = pl.Series([start]).dt.truncate(window.polars_interval)[0]
+    instants: list[datetime] = pl.datetime_range(
+        first, end, interval=window.polars_interval, eager=True
+    ).to_list()
     return tuple(instant for instant in instants if instant >= start)
+
+
+def indicator_window_bounds(
+    anchor: pl.Expr,
+    variables: Sequence[ResolvedObservationSpec],
+    *,
+    anchor_policy: AnchorPolicy,
+) -> tuple[pl.Expr, pl.Expr]:
+    """Resolve each long-format row with its indicator's already parsed window."""
+    bounds_by_indicator = tuple(
+        (
+            variable.id,
+            observation_window_bounds(
+                anchor, variable.observation_window, anchor_policy=anchor_policy
+            ),
+        )
+        for variable in variables
+    )
+    starts, ends = (
+        pl.coalesce(
+            pl.when(pl.col("indicator_id") == identity).then(bounds[index])
+            for identity, bounds in bounds_by_indicator
+        )
+        for index in (0, 1)
+    )
+    return starts, ends
 
 
 def annotate_observation_rows(
@@ -343,8 +369,8 @@ def annotate_observation_rows(
     support_kind_expr = pl.col("support_kind_meta")
     summary_operator_expr = pl.col("summary_operator_meta")
     anchor_policy_expr = pl.col("anchor_policy_meta")
-    support_start, support_end = observation_window_bounds(
-        ts_expr, observation_window_expr, anchor_policy=AnchorPolicy.SUPPORT_START
+    support_start, support_end = indicator_window_bounds(
+        ts_expr, variables, anchor_policy=AnchorPolicy.SUPPORT_START
     )
     support_start_expr, support_end_expr = (
         bound.dt.to_string("%Y-%m-%dT%H:%M:%S") for bound in (support_start, support_end)
